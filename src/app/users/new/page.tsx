@@ -27,6 +27,7 @@ function NewUserContent() {
   const [title, setTitle] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [sendInvite, setSendInvite] = useState(true);
   const [role, setRole] = useState('client');
   const [accountKeys, setAccountKeys] = useState<string[]>([]);
 
@@ -37,23 +38,41 @@ function NewUserContent() {
   };
 
   const handleCreate = async () => {
-    if (!password) {
+    if (!sendInvite && !password) {
       toast.error('Password is required');
       return;
     }
     setSaving(true);
     try {
+      const body: Record<string, unknown> = {
+        name,
+        title,
+        email,
+        role,
+        accountKeys,
+        sendInvite,
+      };
+      if (!sendInvite) body.password = password;
+
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, title, email, password, role, accountKeys }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || 'Failed to create user');
       }
       const user = await res.json();
-      toast.success('User created');
+      if (sendInvite) {
+        if (user?.invite?.sent) {
+          toast.success('User created and invite email sent');
+        } else {
+          toast.error(user?.invite?.error || 'User created, but invite email could not be sent');
+        }
+      } else {
+        toast.success('User created');
+      }
       router.push(`${usersBasePath}/${user.id}`);
     } catch (err) {
       toast.error(String(err instanceof Error ? err.message : err));
@@ -82,10 +101,10 @@ function NewUserContent() {
         </div>
         <button
           onClick={handleCreate}
-          disabled={saving || !name || !email || !password}
+          disabled={saving || !name || !email || (!sendInvite && !password)}
           className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
-          {saving ? 'Creating...' : 'Create User'}
+          {saving ? 'Creating...' : sendInvite ? 'Create & Send Invite' : 'Create User'}
         </button>
       </div>
 
@@ -113,16 +132,35 @@ function NewUserContent() {
               <label className={labelClass}>Email</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} className={inputClass} />
             </div>
-            <div>
-              <label className={labelClass}>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Enter password"
-                className={inputClass}
-              />
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--muted)] p-3.5">
+              <label className={`${labelClass} mb-2`}>Onboarding</label>
+              <label className="flex items-start gap-2.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={sendInvite}
+                  onChange={(e) => setSendInvite(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-[var(--border)] bg-[var(--input)]"
+                />
+                <span className="text-[var(--foreground)]">
+                  Send invite email so the user creates their own password
+                  <span className="block text-xs text-[var(--muted-foreground)] mt-0.5">
+                    Recommended for team onboarding.
+                  </span>
+                </span>
+              </label>
             </div>
+            {!sendInvite && (
+              <div>
+                <label className={labelClass}>Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Enter password"
+                  className={inputClass}
+                />
+              </div>
+            )}
           </div>
         </section>
 

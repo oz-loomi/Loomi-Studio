@@ -8,8 +8,10 @@ export async function middleware(request: NextRequest) {
   // Allow auth routes and login page through
   if (
     pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api/onboarding/') ||
     pathname.startsWith('/api/webhooks/') ||
     pathname.startsWith('/login') ||
+    pathname.startsWith('/onboarding') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon')
   ) {

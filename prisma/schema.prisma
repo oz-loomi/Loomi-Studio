@@ -24,6 +24,22 @@ model User {
   accountKeys String  @default("[]") // JSON array of assigned account keys
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  invites UserInvite[]
+}
+
+model UserInvite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  sentAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }
 
 // ─────────────────────────────────────────────────────

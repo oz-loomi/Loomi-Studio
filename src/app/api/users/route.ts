@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import bcryptjs from 'bcryptjs';
+import crypto from 'crypto';
+import { issueAndSendUserInvite } from '@/lib/users/invitations';
 
 function parseAccountKeys(raw: string): string[] {
   try {
@@ -52,32 +54,41 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error, session } = await requireRole('developer', 'admin');
   if (error) return error;
 
-  const { name, title, email, password, role, accountKeys } = await req.json();
+  const { name, title, email, password, role, accountKeys, sendInvite } = await req.json();
+  const normalizedName = typeof name === 'string' ? name.trim() : '';
+  const normalizedEmail = typeof email === 'string' ? email.trim() : '';
+  const shouldSendInvite = sendInvite !== false;
   const normalizedAccountKeys = normalizeAccountKeys(accountKeys);
 
-  if (!name || !email || !password || !role) {
+  if (!normalizedName || !normalizedEmail || !role) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  }
+  if (!shouldSendInvite && (!password || !String(password).trim())) {
+    return NextResponse.json({ error: 'Password is required when invite is disabled' }, { status: 400 });
   }
 
   if (!['developer', 'admin', 'client'].includes(role)) {
     return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existing) {
     return NextResponse.json({ error: 'Email already in use' }, { status: 409 });
   }
 
-  const hashedPassword = await bcryptjs.hash(password, 12);
+  const passwordSeed = shouldSendInvite
+    ? crypto.randomBytes(32).toString('hex')
+    : String(password).trim();
+  const hashedPassword = await bcryptjs.hash(passwordSeed, 12);
 
   const user = await prisma.user.create({
     data: {
-      name,
+      name: normalizedName,
       title: typeof title === 'string' && title.trim() ? title.trim() : null,
-      email,
+      email: normalizedEmail,
       password: hashedPassword,
       role,
       accountKeys: JSON.stringify(normalizedAccountKeys),
@@ -94,7 +105,37 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return NextResponse.json(withAccountKeys(user), { status: 201 });
+  let invite: {
+    sent: boolean;
+    expiresAt?: string;
+    error?: string;
+  } | null = null;
+
+  if (shouldSendInvite) {
+    try {
+      const issuedInvite = await issueAndSendUserInvite({
+        userId: user.id,
+        invitedByName: session?.user?.name || 'Loomi Studio',
+      });
+      invite = {
+        sent: true,
+        expiresAt: issuedInvite.expiresAt.toISOString(),
+      };
+    } catch (err) {
+      invite = {
+        sent: false,
+        error: err instanceof Error ? err.message : 'Failed to send invite email',
+      };
+    }
+  }
+
+  return NextResponse.json(
+    {
+      ...withAccountKeys(user),
+      invite,
+    },
+    { status: 201 },
+  );
 }
 
 export async function PUT(req: NextRequest) {

@@ -49,6 +49,7 @@ function UserDetailContent() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sendingInvite, setSendingInvite] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
 
@@ -143,6 +144,26 @@ function UserDetailContent() {
       router.push(usersBasePath);
     } catch (err) {
       toast.error(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const handleSendInvite = async () => {
+    setSendingInvite(true);
+    try {
+      const res = await fetch('/api/users/invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to send invite');
+      }
+      toast.success('Invite email sent');
+    } catch (err) {
+      toast.error(String(err instanceof Error ? err.message : err));
+    } finally {
+      setSendingInvite(false);
     }
   };
 
@@ -269,13 +290,22 @@ function UserDetailContent() {
             </span>
           </div>
         </div>
-        <button
-          onClick={handleSave}
-          disabled={saving || !name || !email}
-          className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-        >
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSendInvite}
+            disabled={sendingInvite}
+            className="px-3.5 py-2 border border-[var(--border)] rounded-lg text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-50 transition-colors"
+          >
+            {sendingInvite ? 'Sending...' : 'Send Invite'}
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !name || !email}
+            className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
       </div>
 
       <div className="max-w-2xl space-y-10">

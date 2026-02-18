@@ -9,7 +9,10 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const mainRef = useRef<HTMLElement>(null);
   const [isMainScrolled, setIsMainScrolled] = useState(false);
-  const isFullScreen = pathname.startsWith('/preview') || pathname.startsWith('/login');
+  const isFullScreen =
+    pathname.startsWith('/preview')
+    || pathname.startsWith('/login')
+    || pathname.startsWith('/onboarding');
 
   // Template editor gets full-width layout (no sidebar)
   const isTemplateEditor = /^\/templates\/[^/]+\/[^/]+$/.test(pathname)
