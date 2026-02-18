@@ -1,0 +1,1380 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useAccount } from '@/contexts/account-context';
+import { useTheme } from '@/contexts/theme-context';
+import {
+  PlusIcon, SunIcon, MoonIcon, BuildingStorefrontIcon,
+  UsersIcon, SwatchIcon, BookOpenIcon, SparklesIcon,
+  XMarkIcon, ArrowPathIcon,
+  CheckCircleIcon, AdjustmentsHorizontalIcon,
+  TrashIcon, ExclamationTriangleIcon,
+} from '@heroicons/react/24/outline';
+import { toast } from 'sonner';
+import { CodeEditor } from '@/components/code-editor';
+import { AccountsList } from '@/components/accounts-list';
+import { OemMultiSelect } from '@/components/oem-multi-select';
+import { UserAvatar } from '@/components/user-avatar';
+import { getAccountOems } from '@/lib/oems';
+import { resolveAccountLocationId } from '@/lib/account-resolvers';
+import { providerDisplayName, providerUnsupportedMessage } from '@/lib/esp/provider-display';
+import {
+  extractProviderCatalog,
+  fetchProviderCatalogPayload,
+  normalizeProviderId,
+  type ProviderCatalogPayload,
+} from '@/lib/esp/provider-catalog';
+import {
+  createProviderStatusResolver,
+  resolveCustomValuesSyncReadiness,
+} from '@/lib/esp/provider-status';
+import { fetchRequiredScopesByCatalogUrl } from '@/lib/esp/provider-scopes';
+
+const CATEGORY_SUGGESTIONS = ['Automotive', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
+
+type Tab = 'accounts' | 'account' | 'users' | 'custom-values' | 'knowledge' | 'appearance';
+
+// ─── User list types ───
+interface User {
+  id: string;
+  name: string;
+  title: string | null;
+  email: string;
+  avatarUrl: string | null;
+  role: string;
+  accountKeys: string[];
+  createdAt: string;
+}
+
+const roleColors: Record<string, string> = {
+  developer: 'text-purple-400 bg-purple-500/10',
+  admin: 'text-blue-400 bg-blue-500/10',
+  client: 'text-green-400 bg-green-500/10',
+};
+
+export default function SettingsPage() {
+  const { isAdmin, isAccount, userRole } = useAccount();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Determine available tabs based on role/mode
+  const tabs: { key: Tab; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }[] = [];
+  if (userRole === 'developer' || userRole === 'admin') tabs.push({ key: 'accounts', label: 'Accounts', icon: BuildingStorefrontIcon });
+  if (isAccount) tabs.push({ key: 'account', label: 'Account', icon: BuildingStorefrontIcon });
+  if (userRole === 'developer' || userRole === 'admin') tabs.push({ key: 'users', label: 'Users', icon: UsersIcon });
+  // Integrations moved to per-account detail pages
+  if (userRole === 'developer') tabs.push({ key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon });
+  if (userRole === 'developer') tabs.push({ key: 'knowledge', label: 'Knowledge Base', icon: BookOpenIcon });
+  tabs.push({ key: 'appearance', label: 'Appearance', icon: SwatchIcon });
+
+  const routeTab = pathname.startsWith('/settings/')
+    ? pathname.split('/')[2]
+    : undefined;
+  const defaultTab = tabs[0]?.key || 'appearance';
+  const activeTab = tabs.some(t => t.key === routeTab)
+    ? (routeTab as Tab)
+    : defaultTab;
+
+  // Enforce canonical route per tab so browser history/back works correctly.
+  useEffect(() => {
+    if (tabs.length === 0) return;
+    if (!routeTab || !tabs.some(t => t.key === routeTab)) {
+      router.replace(`/settings/${defaultTab}`, { scroll: false });
+    }
+  }, [routeTab, defaultTab, router, tabs.length, isAdmin, isAccount, userRole]);
+
+  return (
+    <div className="animate-fade-in-up">
+      <div className="page-sticky-header mb-8">
+        <h1 className="text-2xl font-bold text-[var(--foreground)]">Settings</h1>
+        <p className="text-sm text-[var(--muted-foreground)] mt-1">
+          Manage your preferences and configuration
+        </p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 mb-8 border-b border-[var(--border)]">
+        {tabs.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => router.push(`/settings/${tab.key}`)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors relative ${
+              activeTab === tab.key
+                ? 'text-[var(--foreground)]'
+                : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+            }`}
+          >
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+            {activeTab === tab.key && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {activeTab === 'accounts' && <AccountsList listPath="/settings/accounts" detailBasePath="/settings/accounts" />}
+      {activeTab === 'account' && <AccountSettingsTab />}
+      {activeTab === 'users' && <UsersTab />}
+      {/* Integrations tab removed — managed per-account */}
+      {activeTab === 'custom-values' && userRole === 'developer' && <CustomValuesTab />}
+      {activeTab === 'knowledge' && <KnowledgeBaseTab />}
+      {activeTab === 'appearance' && <AppearanceTab />}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
+// Account Settings Tab
+// ════════════════════════════════════════
+function AccountSettingsTab() {
+  const {
+    accountKey,
+    accountData,
+    refreshAccounts,
+  } = useAccount();
+
+  const [dealer, setDealer] = useState('');
+  const [category, setCategory] = useState('');
+  const [oems, setOems] = useState<string[]>([]);
+  const [logoLight, setLogoLight] = useState('');
+  const [logoDark, setLogoDark] = useState('');
+  const [logoWhite, setLogoWhite] = useState('');
+  const [logoBlack, setLogoBlack] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (accountData) {
+      setDealer(accountData.dealer || '');
+      setCategory(accountData.category || '');
+      setOems(getAccountOems(accountData));
+      setLogoLight(accountData.logos?.light || '');
+      setLogoDark(accountData.logos?.dark || '');
+      setLogoWhite(accountData.logos?.white || '');
+      setLogoBlack(accountData.logos?.black || '');
+    }
+  }, [accountData]);
+
+  if (!accountData || !accountKey) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-[var(--muted-foreground)] text-sm">Select an account to manage settings.</p>
+        <p className="text-[var(--muted-foreground)] text-xs mt-1">Use the Account switcher in the sidebar.</p>
+      </div>
+    );
+  }
+
+  async function handleSave() {
+    if (!accountKey) return;
+    setSaving(true);
+    try {
+      const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
+      const selectedOems = isAutomotiveIndustry ? oems : [];
+      const payload: Record<string, unknown> = {
+        dealer,
+        category,
+        oems: selectedOems,
+        logos: {
+          light: logoLight,
+          dark: logoDark,
+          white: logoWhite || undefined,
+          black: logoBlack || undefined,
+        },
+      };
+
+      const res = await fetch(`/api/accounts/${encodeURIComponent(accountKey)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        await refreshAccounts();
+        toast.success('Settings saved!');
+      } else {
+        toast.error('Failed to save settings');
+      }
+    } catch {
+      toast.error('Failed to save settings');
+    }
+    setSaving(false);
+  }
+
+  const inputClass = 'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
+  const labelClass = 'block text-xs font-medium text-[var(--muted-foreground)] mb-1.5';
+  const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      <div>
+        <label className={labelClass}>Account Key</label>
+        <div className="px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+          {accountKey}
+        </div>
+      </div>
+
+      <div>
+        <label className={labelClass}>Dealer Name</label>
+        <input type="text" value={dealer} onChange={e => setDealer(e.target.value)} className={inputClass} />
+      </div>
+
+      <div>
+        <label className={labelClass}>Industry</label>
+        <select value={category} onChange={e => setCategory(e.target.value)} className={inputClass}>
+          <option value="">Select industry...</option>
+          {CATEGORY_SUGGESTIONS.map(cat => (
+            <option key={cat} value={cat}>{cat}</option>
+          ))}
+        </select>
+      </div>
+
+      {isAutomotiveIndustry && (
+        <div>
+          <label className={labelClass}>Brands</label>
+          <OemMultiSelect
+            value={oems}
+            onChange={setOems}
+            placeholder="Select brands..."
+            maxSelections={8}
+          />
+        </div>
+      )}
+
+      <div>
+        <label className={labelClass}>Logos</label>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { label: 'Light Logo URL', value: logoLight, setter: setLogoLight },
+            { label: 'Dark Logo URL', value: logoDark, setter: setLogoDark },
+            { label: 'White Logo URL (optional)', value: logoWhite, setter: setLogoWhite },
+            { label: 'Black Logo URL (optional)', value: logoBlack, setter: setLogoBlack },
+          ].map(({ label, value, setter }) => (
+            <div key={label}>
+              <label className="block text-[10px] text-[var(--muted-foreground)] mb-1">{label}</label>
+              <input
+                type="text"
+                value={value}
+                onChange={e => setter(e.target.value)}
+                placeholder="https://..."
+                className={inputClass}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 pt-2">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="px-6 py-2.5 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save Settings'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
+// Users Tab
+// ════════════════════════════════════════
+function UsersTab() {
+  const router = useRouter();
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/users')
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) {
+          throw new Error(data?.error || 'Failed to load users');
+        }
+        if (!Array.isArray(data)) {
+          throw new Error('Unexpected users response');
+        }
+        return data as User[];
+      })
+      .then(setUsers)
+      .catch((err: unknown) => {
+        setUsers([]);
+        toast.error(err instanceof Error ? err.message : 'Failed to load users');
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <p className="text-sm text-[var(--muted-foreground)]">
+          Manage team members and their access
+        </p>
+        <button
+          onClick={() => router.push('/settings/users/new')}
+          className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-opacity"
+        >
+          <PlusIcon className="w-4 h-4" />
+          Add User
+        </button>
+      </div>
+
+      <div className="glass-table">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-[var(--border)]">
+              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Name</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Email</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Role</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Accounts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">Loading...</td>
+              </tr>
+            ) : users.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">No users found</td>
+              </tr>
+            ) : (
+              users.map(user => (
+                <tr
+                  key={user.id}
+                  onClick={() => router.push(`/settings/users/${user.id}`)}
+                  className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--muted)] cursor-pointer transition-colors"
+                >
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <UserAvatar
+                        name={user.name}
+                        email={user.email}
+                        avatarUrl={user.avatarUrl}
+                        size={36}
+                        className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-[var(--foreground)] truncate">{user.name}</p>
+                        {user.title && (
+                          <p className="text-xs text-[var(--muted-foreground)] truncate">{user.title}</p>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-[var(--muted-foreground)]">{user.email}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-[10px] font-medium uppercase tracking-wider rounded px-1.5 py-0.5 ${roleColors[user.role] || ''}`}>
+                      {user.role}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                    {user.accountKeys.length === 0
+                      ? <span className="text-xs opacity-50">All</span>
+                      : user.accountKeys.map(k => (
+                          <span key={k} className="inline-block text-xs bg-[var(--muted)] rounded px-1.5 py-0.5 mr-1 mb-0.5">{k}</span>
+                        ))
+                    }
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
+// Knowledge Base Tab (Developer only)
+// ════════════════════════════════════════
+function KnowledgeBaseTab() {
+  const [content, setContent] = useState('');
+  const [savedContent, setSavedContent] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const hasChanges = content !== savedContent;
+
+  useEffect(() => {
+    fetch('/api/knowledge')
+      .then(r => r.json())
+      .then(data => {
+        const c = data.content || '';
+        setContent(c);
+        setSavedContent(c);
+      })
+      .catch(() => toast.error('Failed to load knowledge base'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/knowledge', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (res.ok) {
+        setSavedContent(content);
+        toast.success('Knowledge base saved! AI will use the updated content immediately.');
+      } else {
+        toast.error('Failed to save knowledge base');
+      }
+    } catch {
+      toast.error('Failed to save knowledge base');
+    }
+    setSaving(false);
+  }
+
+  if (loading) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-sm text-[var(--muted-foreground)]">Loading knowledge base...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Info banner */}
+      <div className="flex items-start gap-3 p-3 rounded-xl border border-[var(--border)] bg-[var(--primary)]/5">
+        <SparklesIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-medium text-[var(--foreground)]">AI Knowledge Base</p>
+          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+            This markdown file powers both AI assistants (the global Loomi bubble and the template editor sidebar). Edit it to update what the AI knows about your platform, processes, and conventions. Changes take effect immediately.
+          </p>
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowPreview(false)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+              !showPreview
+                ? 'bg-[var(--primary)] text-white'
+                : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)]'
+            }`}
+          >
+            Editor
+          </button>
+          <button
+            onClick={() => setShowPreview(true)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+              showPreview
+                ? 'bg-[var(--primary)] text-white'
+                : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)]'
+            }`}
+          >
+            Preview
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          {hasChanges && (
+            <span className="text-xs text-amber-500 font-medium">Unsaved changes</span>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving || !hasChanges}
+            className="px-5 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+
+      {/* Editor / Preview */}
+      {!showPreview ? (
+        <div className="rounded-xl overflow-hidden border border-[var(--border)]" style={{ height: 'calc(100vh - 340px)', minHeight: '400px' }}>
+          <CodeEditor
+            value={content}
+            onChange={setContent}
+            language="markdown"
+            onSave={handleSave}
+          />
+        </div>
+      ) : (
+        <div
+          className="rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-auto p-6"
+          style={{ height: 'calc(100vh - 340px)', minHeight: '400px' }}
+        >
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <MarkdownPreview content={content} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Simple markdown renderer — no external dependencies
+function MarkdownPreview({ content }: { content: string }) {
+  const lines = content.split('\n');
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Headings
+    if (line.startsWith('# ')) {
+      elements.push(<h1 key={i} className="text-xl font-bold text-[var(--foreground)] mt-6 mb-3 first:mt-0">{line.slice(2)}</h1>);
+    } else if (line.startsWith('## ')) {
+      elements.push(<h2 key={i} className="text-lg font-semibold text-[var(--foreground)] mt-5 mb-2">{line.slice(3)}</h2>);
+    } else if (line.startsWith('### ')) {
+      elements.push(<h3 key={i} className="text-sm font-semibold text-[var(--foreground)] mt-4 mb-1.5">{line.slice(4)}</h3>);
+    }
+    // Horizontal rule
+    else if (line.trim() === '---') {
+      elements.push(<hr key={i} className="border-[var(--border)] my-4" />);
+    }
+    // Code block
+    else if (line.startsWith('```')) {
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      elements.push(
+        <pre key={`code-${i}`} className="bg-[var(--muted)] rounded-lg p-3 text-xs overflow-x-auto my-2 border border-[var(--border)]">
+          <code className="text-[var(--foreground)]">{codeLines.join('\n')}</code>
+        </pre>
+      );
+    }
+    // Table (basic)
+    else if (line.includes('|') && line.trim().startsWith('|')) {
+      const tableLines: string[] = [line];
+      i++;
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim().startsWith('|')) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      i--; // back up since outer loop will increment
+      const headerCells = tableLines[0].split('|').filter(c => c.trim()).map(c => c.trim());
+      const bodyRows = tableLines.slice(2); // skip header + separator
+      elements.push(
+        <div key={`table-${i}`} className="overflow-x-auto my-3">
+          <table className="w-full text-xs border border-[var(--border)] rounded-lg">
+            <thead>
+              <tr className="border-b border-[var(--border)]">
+                {headerCells.map((cell, ci) => (
+                  <th key={ci} className="px-3 py-2 text-left font-medium text-[var(--muted-foreground)]">{cell}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {bodyRows.map((row, ri) => {
+                const cells = row.split('|').filter(c => c.trim()).map(c => c.trim());
+                return (
+                  <tr key={ri} className="border-b border-[var(--border)] last:border-0">
+                    {cells.map((cell, ci) => (
+                      <td key={ci} className="px-3 py-2 text-[var(--foreground)]">{renderInline(cell)}</td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+    // List items
+    else if (line.trimStart().startsWith('- ')) {
+      const indent = line.length - line.trimStart().length;
+      elements.push(
+        <div key={i} className="flex gap-2 text-xs text-[var(--foreground)]" style={{ paddingLeft: `${indent * 4 + 8}px` }}>
+          <span className="text-[var(--muted-foreground)] flex-shrink-0">&#x2022;</span>
+          <span>{renderInline(line.trimStart().slice(2))}</span>
+        </div>
+      );
+    }
+    // Numbered list
+    else if (/^\d+\.\s/.test(line.trimStart())) {
+      const match = line.trimStart().match(/^(\d+)\.\s(.*)$/);
+      if (match) {
+        elements.push(
+          <div key={i} className="flex gap-2 text-xs text-[var(--foreground)] pl-2">
+            <span className="text-[var(--muted-foreground)] flex-shrink-0 w-4 text-right">{match[1]}.</span>
+            <span>{renderInline(match[2])}</span>
+          </div>
+        );
+      }
+    }
+    // Empty line
+    else if (line.trim() === '') {
+      elements.push(<div key={i} className="h-2" />);
+    }
+    // Paragraph
+    else {
+      elements.push(
+        <p key={i} className="text-xs leading-relaxed text-[var(--foreground)]">
+          {renderInline(line)}
+        </p>
+      );
+    }
+
+    i++;
+  }
+
+  return <>{elements}</>;
+}
+
+// Inline markdown rendering: bold, italic, code, links
+function renderInline(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  // Match: **bold**, *italic*, `code`, [link](url)
+  const regex = /(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    if (match[1]) {
+      parts.push(<strong key={match.index} className="font-semibold">{match[2]}</strong>);
+    } else if (match[3]) {
+      parts.push(<em key={match.index}>{match[4]}</em>);
+    } else if (match[5]) {
+      parts.push(<code key={match.index} className="px-1 py-0.5 rounded bg-[var(--muted)] text-[var(--primary)] text-[11px] font-mono">{match[6]}</code>);
+    } else if (match[7]) {
+      parts.push(<span key={match.index} className="text-[var(--primary)] underline">{match[8]}</span>);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? <>{parts}</> : text;
+}
+
+// ════════════════════════════════════════
+// Custom Values Tab (Developer only)
+// ════════════════════════════════════════
+
+interface CustomValueDef {
+  name: string;
+  value: string;
+}
+
+interface AccountSyncStatus {
+  key: string;
+  dealer: string;
+  provider: string;
+  connectionType: 'oauth' | 'api-key' | 'none';
+  oauthConnected: boolean;
+  locationId?: string;
+  scopes: string[];
+  requiredScopes: string[];
+  hasRequiredScopes: boolean;
+  needsReauthorization: boolean;
+  supportsCustomValues: boolean;
+  readyForSync: boolean;
+  overrideCount: number;
+  syncing: boolean;
+  lastResult?: { created: number; updated: number; deleted: number; skipped: number; errors: number } | null;
+  error?: string;
+}
+
+function CustomValuesTab() {
+  const { accounts } = useAccount();
+
+  // ── Global Defaults state ──
+  const [defaults, setDefaults] = useState<Record<string, CustomValueDef>>({});
+  const [savedDefaults, setSavedDefaults] = useState<Record<string, CustomValueDef>>({});
+  const [loadingDefaults, setLoadingDefaults] = useState(true);
+  const [savingDefaults, setSavingDefaults] = useState(false);
+
+  // New row being added
+  const [newFieldKey, setNewFieldKey] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newValue, setNewValue] = useState('');
+  const [showAddRow, setShowAddRow] = useState(false);
+
+  // ── Account Sync state ──
+  const [accountStatuses, setAccountStatuses] = useState<AccountSyncStatus[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(true);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [bulkSyncing, setBulkSyncing] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [requiredScopesByProvider, setRequiredScopesByProvider] = useState<Record<string, string[]>>({});
+
+  const hasDefaultChanges = JSON.stringify(defaults) !== JSON.stringify(savedDefaults);
+
+  // ── Load global defaults ──
+  useEffect(() => {
+    fetch('/api/custom-values')
+      .then(r => r.json())
+      .then(data => {
+        const defs = data.defaults || {};
+        setDefaults(defs);
+        setSavedDefaults(defs);
+      })
+      .catch(() => toast.error('Failed to load custom value defaults'))
+      .finally(() => setLoadingDefaults(false));
+  }, []);
+
+  // ── Load provider required OAuth scopes (provider-agnostic) ──
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRequiredScopes() {
+      try {
+        const scopeMap = await fetchRequiredScopesByCatalogUrl('/api/esp/providers');
+
+        if (cancelled) return;
+        setRequiredScopesByProvider((prev) => {
+          return { ...prev, ...scopeMap };
+        });
+      } catch {
+        // Best-effort metadata load; fallback behavior remains safe.
+      }
+    }
+
+    loadRequiredScopes();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ── Load account statuses ──
+  useEffect(() => {
+    if (!accounts || Object.keys(accounts).length === 0) {
+      setLoadingAccounts(false);
+      return;
+    }
+
+    const keys = Object.keys(accounts);
+    Promise.all(
+      keys.map(key =>
+        Promise.all([
+          fetchProviderCatalogPayload(`/api/esp/providers?accountKey=${encodeURIComponent(key)}`)
+            .then((payload) => payload || {
+              accountProvider: accounts[key]?.espProvider || null,
+              providers: [],
+            }),
+          fetch(`/api/custom-values/${encodeURIComponent(key)}`)
+            .then(r => r.json())
+            .catch(() => ({ overrides: {} })),
+        ]).then(([providerCatalog, cv]) => {
+          const providerEntries = extractProviderCatalog(providerCatalog as ProviderCatalogPayload);
+          const providers = new Map(
+            providerEntries.map((entry) => [entry.provider, entry] as const),
+          );
+          const provider = normalizeProviderId(
+            (typeof providerCatalog?.accountProvider === 'string' && providerCatalog.accountProvider
+              ? providerCatalog.accountProvider
+              : accounts[key]?.espProvider) || 'unknown',
+          ) || 'unknown';
+          const accountData = accounts[key];
+          const providerStatus = providers.get(provider) || null;
+          const providerStatusResolver = createProviderStatusResolver({
+            providerCatalog: providerEntries,
+            account: accountData || {},
+          });
+          const resolvedProviderStatus = providerStatusResolver.getProviderStatus(provider);
+          const supportsCustomValues = providerStatus?.capabilities?.customValues === true;
+          const syncReadiness = resolveCustomValuesSyncReadiness({
+            supportsCustomValues,
+            providerStatus: resolvedProviderStatus,
+            requiredScopes: requiredScopesByProvider[provider] || [],
+          });
+          return {
+            key,
+            dealer: accounts[key]?.dealer || key,
+            provider,
+            connectionType: resolvedProviderStatus.connectionType,
+            oauthConnected: resolvedProviderStatus.oauthConnected,
+            locationId: resolvedProviderStatus.locationId
+              || resolvedProviderStatus.accountId
+              || resolveAccountLocationId(accounts[key]),
+            scopes: resolvedProviderStatus.scopes,
+            requiredScopes: syncReadiness.requiredScopes,
+            hasRequiredScopes: syncReadiness.hasRequiredScopes,
+            needsReauthorization: syncReadiness.needsReauthorization,
+            supportsCustomValues: syncReadiness.supportsCustomValues,
+            readyForSync: syncReadiness.readyForSync,
+            overrideCount: Object.keys(cv.overrides || {}).length,
+            syncing: false,
+            lastResult: null,
+            error: undefined,
+          } as AccountSyncStatus;
+        })
+      )
+    ).then(statuses => {
+      setAccountStatuses(statuses);
+      setLoadingAccounts(false);
+    });
+  }, [accounts, requiredScopesByProvider]);
+
+  // ── Save global defaults ──
+  async function handleSaveDefaults() {
+    setSavingDefaults(true);
+    try {
+      const res = await fetch('/api/custom-values', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaults }),
+      });
+      if (res.ok) {
+        setSavedDefaults({ ...defaults });
+        toast.success('Custom value defaults saved');
+      } else {
+        toast.error('Failed to save defaults');
+      }
+    } catch {
+      toast.error('Failed to save defaults');
+    }
+    setSavingDefaults(false);
+  }
+
+  // ── Add a new default row ──
+  function handleAddDefault() {
+    const key = newFieldKey.trim().replace(/\s+/g, '_').toLowerCase();
+    if (!key || !newName.trim()) {
+      toast.error('Field key and display name are required');
+      return;
+    }
+    if (defaults[key]) {
+      toast.error(`Field key "${key}" already exists`);
+      return;
+    }
+    setDefaults(prev => ({
+      ...prev,
+      [key]: { name: newName.trim(), value: newValue },
+    }));
+    setNewFieldKey('');
+    setNewName('');
+    setNewValue('');
+    setShowAddRow(false);
+  }
+
+  // ── Remove a default ──
+  function handleRemoveDefault(fieldKey: string) {
+    setDefaults(prev => {
+      const next = { ...prev };
+      delete next[fieldKey];
+      return next;
+    });
+  }
+
+  // ── Sync single account ──
+  async function handleSyncAccount(accountKey: string) {
+    setAccountStatuses(prev =>
+      prev.map(a => a.key === accountKey ? { ...a, syncing: true, lastResult: null, error: undefined } : a)
+    );
+
+    try {
+      const res = await fetch(`/api/custom-values/${encodeURIComponent(accountKey)}/sync`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+
+      if (res.ok && data.result) {
+        const r = data.result;
+        setAccountStatuses(prev =>
+          prev.map(a => a.key === accountKey ? {
+            ...a,
+            syncing: false,
+            lastResult: {
+              created: r.created?.length || 0,
+              updated: r.updated?.length || 0,
+              deleted: r.deleted?.length || 0,
+              skipped: r.skipped?.length || 0,
+              errors: r.errors?.length || 0,
+            },
+          } : a)
+        );
+        toast.success(`Synced custom values for ${accountKey}`);
+      } else {
+        setAccountStatuses(prev =>
+          prev.map(a => a.key === accountKey ? {
+            ...a,
+            syncing: false,
+            error: data.error || 'Sync failed',
+          } : a)
+        );
+        toast.error(data.error || 'Sync failed');
+      }
+    } catch {
+      setAccountStatuses(prev =>
+        prev.map(a => a.key === accountKey ? { ...a, syncing: false, error: 'Network error' } : a)
+      );
+      toast.error('Network error during sync');
+    }
+  }
+
+  // ── Bulk sync ──
+  async function handleBulkSync(keys: string[]) {
+    const connectedKeys = keys.filter(k => {
+      const a = accountStatuses.find(s => s.key === k);
+      return a?.readyForSync;
+    });
+    if (connectedKeys.length === 0) {
+      toast.error('No eligible accounts to sync');
+      return;
+    }
+
+    setBulkSyncing(true);
+    setBulkProgress({ done: 0, total: connectedKeys.length });
+
+    // Mark all as syncing
+    setAccountStatuses(prev =>
+      prev.map(a => connectedKeys.includes(a.key) ? { ...a, syncing: true, lastResult: null, error: undefined } : a)
+    );
+
+    try {
+      const res = await fetch('/api/custom-values/sync-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountKeys: connectedKeys }),
+      });
+      const data = await res.json();
+      const results = data.results || {};
+
+      setAccountStatuses(prev =>
+        prev.map(a => {
+          if (!connectedKeys.includes(a.key)) return a;
+          const r = results[a.key];
+          if (!r) return { ...a, syncing: false, error: 'No result returned' };
+          if ('skipped' in r && r.skipped === true) return { ...a, syncing: false, error: r.error || 'Skipped' };
+          return {
+            ...a,
+            syncing: false,
+            lastResult: {
+              created: r.created?.length || 0,
+              updated: r.updated?.length || 0,
+              deleted: r.deleted?.length || 0,
+              skipped: r.skipped?.length || 0,
+              errors: r.errors?.length || 0,
+            },
+          };
+        })
+      );
+
+      const successCount = Object.values(results).filter((r: unknown) => r && typeof r === 'object' && !('skipped' in (r as Record<string, unknown>))).length;
+      toast.success(`Synced ${successCount} of ${connectedKeys.length} accounts`);
+    } catch {
+      setAccountStatuses(prev =>
+        prev.map(a => connectedKeys.includes(a.key) ? { ...a, syncing: false, error: 'Bulk sync failed' } : a)
+      );
+      toast.error('Bulk sync failed');
+    }
+
+    setBulkSyncing(false);
+    setBulkProgress(null);
+    setSelectedKeys(new Set());
+  }
+
+  const connectedAccounts = accountStatuses.filter(a => a.readyForSync);
+  const allSelected = connectedAccounts.length > 0 && connectedAccounts.every(a => selectedKeys.has(a.key));
+  const inputClass = 'w-full px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
+
+  return (
+    <div className="max-w-4xl space-y-10">
+      {/* ── Section 1: Global Defaults ── */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">Global Default Values</h3>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+              Define custom values that apply to all accounts. Accounts can override individual values.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasDefaultChanges && (
+              <span className="text-xs text-amber-500 font-medium">Unsaved changes</span>
+            )}
+            <button
+              onClick={handleSaveDefaults}
+              disabled={savingDefaults || !hasDefaultChanges}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+            >
+              {savingDefaults ? 'Saving...' : 'Save Defaults'}
+            </button>
+          </div>
+        </div>
+
+        {loadingDefaults ? (
+          <div className="py-8 text-center text-sm text-[var(--muted-foreground)]">Loading...</div>
+        ) : (
+          <div className="glass-table">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider w-1/4">Field Key</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider w-1/4">Display Name</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Default Value</th>
+                  <th className="w-10 px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(defaults).map(([fieldKey, def]) => (
+                  <tr key={fieldKey} className="border-b border-[var(--border)] last:border-b-0">
+                    <td className="px-4 py-2">
+                      <span className="text-xs font-mono text-[var(--muted-foreground)]">{fieldKey}</span>
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="text"
+                        value={def.name}
+                        onChange={e => setDefaults(prev => ({
+                          ...prev,
+                          [fieldKey]: { ...prev[fieldKey], name: e.target.value },
+                        }))}
+                        className={inputClass}
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="text"
+                        value={def.value}
+                        onChange={e => setDefaults(prev => ({
+                          ...prev,
+                          [fieldKey]: { ...prev[fieldKey], value: e.target.value },
+                        }))}
+                        placeholder="Default value (can be empty)"
+                        className={inputClass}
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <button
+                        onClick={() => handleRemoveDefault(fieldKey)}
+                        className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        title="Remove"
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+
+                {/* Add new row */}
+                {showAddRow && (
+                  <tr className="border-b border-[var(--border)] bg-[var(--primary)]/5">
+                    <td className="px-4 py-2">
+                      <input
+                        type="text"
+                        value={newFieldKey}
+                        onChange={e => setNewFieldKey(e.target.value)}
+                        placeholder="e.g. sales_phone"
+                        className={inputClass}
+                        autoFocus
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="text"
+                        value={newName}
+                        onChange={e => setNewName(e.target.value)}
+                        placeholder="e.g. Sales Phone"
+                        className={inputClass}
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="text"
+                        value={newValue}
+                        onChange={e => setNewValue(e.target.value)}
+                        placeholder="Default value"
+                        className={inputClass}
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={handleAddDefault}
+                          className="p-1.5 rounded-lg text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                          title="Add"
+                        >
+                          <CheckCircleIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => { setShowAddRow(false); setNewFieldKey(''); setNewName(''); setNewValue(''); }}
+                          className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          title="Cancel"
+                        >
+                          <XMarkIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!showAddRow && (
+          <button
+            onClick={() => setShowAddRow(true)}
+            className="mt-3 flex items-center gap-1.5 text-xs font-medium text-[var(--primary)] hover:opacity-80 transition-opacity"
+          >
+            <PlusIcon className="w-3.5 h-3.5" />
+            Add Custom Value
+          </button>
+        )}
+
+        <p className="text-[10px] text-[var(--muted-foreground)] mt-3">
+          Template token format: <code className="px-1 py-0.5 rounded bg-[var(--muted)] text-[var(--primary)] font-mono">{'{{custom_values.<field_key>}}'}</code>
+        </p>
+      </section>
+
+      {/* ── Section 2: Account Sync ── */}
+      <section className="border-t border-[var(--border)] pt-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">Push to Connected ESP Accounts</h3>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+              Sync custom values to accounts whose active provider supports custom values and has a valid connection.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedKeys.size > 0 && (
+              <button
+                onClick={() => handleBulkSync(Array.from(selectedKeys))}
+                disabled={bulkSyncing}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+              >
+                <ArrowPathIcon className={`w-4 h-4 ${bulkSyncing ? 'animate-spin' : ''}`} />
+                Push to Selected ({selectedKeys.size})
+              </button>
+            )}
+            <button
+              onClick={() => handleBulkSync(connectedAccounts.map(a => a.key))}
+              disabled={bulkSyncing || connectedAccounts.length === 0}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-40"
+            >
+              <ArrowPathIcon className={`w-4 h-4 ${bulkSyncing ? 'animate-spin' : ''}`} />
+              Push to All Ready
+            </button>
+          </div>
+        </div>
+
+        {accountStatuses.some((accountStatus) => accountStatus.needsReauthorization) && (
+          <div className="glass-card rounded-lg p-3 mb-4 border border-amber-500/20 bg-amber-500/5">
+            <p className="text-[11px] text-amber-400">
+              <strong>Re-authorization required:</strong> Some OAuth-connected accounts are missing required scopes for custom value sync. Click &quot;Re-auth needed&quot; next to each account to grant the required scopes.
+            </p>
+          </div>
+        )}
+
+        {bulkProgress && (
+          <div className="mb-4">
+            <div className="h-1.5 rounded-full bg-[var(--muted)] overflow-hidden">
+              <div
+                className="h-full rounded-full bg-[var(--primary)] transition-all duration-300"
+                style={{ width: `${(bulkProgress.done / bulkProgress.total) * 100}%` }}
+              />
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">
+              Syncing {bulkProgress.done} of {bulkProgress.total} accounts...
+            </p>
+          </div>
+        )}
+
+        {loadingAccounts ? (
+          <div className="py-8 text-center text-sm text-[var(--muted-foreground)]">Loading accounts...</div>
+        ) : accountStatuses.length === 0 ? (
+          <div className="py-8 text-center text-sm text-[var(--muted-foreground)]">
+            No accounts found. Create an account first.
+          </div>
+        ) : (
+          <div className="glass-table">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                  <th className="w-10 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setSelectedKeys(new Set(connectedAccounts.map(a => a.key)));
+                        } else {
+                          setSelectedKeys(new Set());
+                        }
+                      }}
+                      className="rounded border-[var(--border)]"
+                    />
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Account</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Connection</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Overrides</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Status</th>
+                  <th className="w-24 px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {accountStatuses.map(acct => (
+                  <tr key={acct.key} className="border-b border-[var(--border)] last:border-b-0">
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedKeys.has(acct.key)}
+                        disabled={!acct.readyForSync}
+                        onChange={e => {
+                          setSelectedKeys(prev => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(acct.key);
+                            else next.delete(acct.key);
+                            return next;
+                          });
+                        }}
+                        className="rounded border-[var(--border)] disabled:opacity-30"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-sm font-medium text-[var(--foreground)]">{acct.dealer}</span>
+                      <span className="block text-[10px] font-mono text-[var(--muted-foreground)]">{acct.key}</span>
+                      <span className="block text-[10px] text-[var(--muted-foreground)]">{providerDisplayName(acct.provider)}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {!acct.supportsCustomValues ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                          <ExclamationTriangleIcon className="w-2.5 h-2.5" /> Unsupported
+                        </span>
+                      ) : acct.readyForSync ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                          <CheckCircleIcon className="w-2.5 h-2.5" />
+                          {providerDisplayName(acct.provider)}{' '}
+                          {acct.connectionType === 'oauth'
+                            ? 'OAuth'
+                            : acct.connectionType === 'api-key'
+                              ? 'API Key'
+                              : 'Connected'}
+                        </span>
+                      ) : acct.needsReauthorization ? (
+                        <a
+                          href={`/api/esp/connections/authorize?provider=${encodeURIComponent(acct.provider)}&accountKey=${encodeURIComponent(acct.key)}`}
+                          className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition-colors"
+                          title={`Re-authorize ${providerDisplayName(acct.provider)} to grant required scopes`}
+                        >
+                          <ExclamationTriangleIcon className="w-2.5 h-2.5" /> Re-auth needed
+                        </a>
+                      ) : (
+                        <span className="text-xs text-[var(--muted-foreground)]">Not connected</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {acct.overrideCount > 0 ? (
+                        <span className="text-xs text-[var(--primary)] font-medium">
+                          {acct.overrideCount} override{acct.overrideCount !== 1 ? 's' : ''}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-[var(--muted-foreground)]">Defaults only</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {acct.syncing ? (
+                        <span className="text-xs text-[var(--muted-foreground)]">Syncing...</span>
+                      ) : acct.error ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-red-400">
+                          <ExclamationTriangleIcon className="w-3 h-3" /> {acct.error}
+                        </span>
+                      ) : acct.lastResult ? (
+                        <span className="text-[10px] text-[var(--muted-foreground)]">
+                          {acct.lastResult.created > 0 && <span className="text-emerald-400">{acct.lastResult.created} created</span>}
+                          {acct.lastResult.updated > 0 && <span className="text-blue-400 ml-1">{acct.lastResult.updated} updated</span>}
+                          {acct.lastResult.deleted > 0 && <span className="text-orange-400 ml-1">{acct.lastResult.deleted} deleted</span>}
+                          {acct.lastResult.skipped > 0 && <span className="ml-1">{acct.lastResult.skipped} unchanged</span>}
+                          {acct.lastResult.errors > 0 && <span className="text-red-400 ml-1">{acct.lastResult.errors} errors</span>}
+                          {acct.lastResult.created === 0 && acct.lastResult.updated === 0 && acct.lastResult.deleted === 0 && acct.lastResult.errors === 0 && (
+                            <span className="text-emerald-400">All up to date</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-[var(--muted-foreground)]">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleSyncAccount(acct.key)}
+                        disabled={!acct.readyForSync || acct.syncing}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        title={
+                          !acct.supportsCustomValues
+                            ? providerUnsupportedMessage(acct.provider, 'custom values')
+                            : !acct.readyForSync
+                              ? acct.needsReauthorization
+                                ? `Re-authorize ${providerDisplayName(acct.provider)} to enable custom values`
+                                : `Connect ${providerDisplayName(acct.provider)} first`
+                              : `Push custom values to ${providerDisplayName(acct.provider)}`
+                        }
+                      >
+                        <ArrowPathIcon className={`w-3 h-3 ${acct.syncing ? 'animate-spin' : ''}`} />
+                        Push
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// IntegrationsTab removed — integrations are now managed per-account on the account detail page
+
+// ════════════════════════════════════════
+// Appearance Tab
+// ════════════════════════════════════════
+function AppearanceTab() {
+  const { theme, setTheme } = useTheme();
+
+  const options: { value: 'dark' | 'light'; label: string; icon: typeof SunIcon; description: string }[] = [
+    { value: 'dark', label: 'Dark', icon: MoonIcon, description: 'Dark background with light text' },
+    { value: 'light', label: 'Light', icon: SunIcon, description: 'Light background with dark text' },
+  ];
+
+  return (
+    <div className="max-w-2xl">
+      <p className="text-sm text-[var(--muted-foreground)] mb-6">
+        Choose how Loomi Studio looks to you.
+      </p>
+
+      <div className="grid grid-cols-2 gap-4">
+        {options.map(opt => {
+          const isActive = theme === opt.value;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => setTheme(opt.value)}
+              className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all text-left ${
+                isActive
+                  ? 'border-[var(--primary)] bg-[var(--primary)]/5'
+                  : 'border-[var(--border)] hover:border-[var(--muted-foreground)]'
+              }`}
+            >
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                isActive ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
+              }`}>
+                <opt.icon className="w-5 h-5" />
+              </div>
+              <div>
+                <p className={`text-sm font-medium ${isActive ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>
+                  {opt.label}
+                </p>
+                <p className="text-xs text-[var(--muted-foreground)]">{opt.description}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

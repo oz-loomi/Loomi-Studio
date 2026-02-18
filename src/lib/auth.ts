@@ -1,0 +1,190 @@
+import { NextAuthOptions } from 'next-auth';
+import CredentialsProvider from 'next-auth/providers/credentials';
+import bcryptjs from 'bcryptjs';
+import { prisma } from '@/lib/prisma';
+
+export type UserRole = 'developer' | 'admin' | 'client';
+
+declare module 'next-auth' {
+  interface Session {
+    user: {
+      id: string;
+      name: string;
+      title: string | null;
+      email: string;
+      avatarUrl: string | null;
+      role: UserRole;
+      accountKeys: string[];
+      originalUserId?: string | null;
+    };
+  }
+
+  interface User {
+    id: string;
+    name: string;
+    title: string | null;
+    email: string;
+    avatarUrl: string | null;
+    role: UserRole;
+    accountKeys: string[];
+  }
+}
+
+declare module 'next-auth/jwt' {
+  interface JWT {
+    id: string;
+    title?: string | null;
+    avatarUrl: string | null;
+    role: UserRole;
+    accountKeys: string[];
+    originalUserId?: string;
+  }
+}
+
+async function getAllAccountKeys(): Promise<string[]> {
+  try {
+    const accounts = await prisma.account.findMany({ select: { key: true } });
+    return accounts.map((a) => a.key);
+  } catch {
+    return [];
+  }
+}
+
+function parseStoredAccountKeys(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+export const authOptions: NextAuthOptions = {
+  providers: [
+    CredentialsProvider({
+      name: 'Credentials',
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email },
+        });
+
+        if (!user) return null;
+
+        const isValid = await bcryptjs.compare(credentials.password, user.password);
+        if (!isValid) return null;
+
+        const accountKeys = parseStoredAccountKeys(user.accountKeys);
+        return {
+          id: user.id,
+          name: user.name,
+          title: user.title ?? null,
+          email: user.email,
+          avatarUrl: user.avatarUrl,
+          role: user.role as UserRole,
+          accountKeys,
+        };
+      },
+    }),
+  ],
+  session: {
+    strategy: 'jwt',
+  },
+  pages: {
+    signIn: '/login',
+  },
+  callbacks: {
+    async jwt({ token, user, trigger, session }) {
+      if (user) {
+        token.id = user.id;
+        token.title = user.title ?? null;
+        token.avatarUrl = user.avatarUrl;
+        token.role = user.role;
+        const accountKeys = Array.isArray(user.accountKeys) ? user.accountKeys : [];
+        token.accountKeys = accountKeys;
+      }
+
+      if (trigger === 'update' && session) {
+        const s = session as Record<string, unknown>;
+
+        if (s.name !== undefined) {
+          token.name = (s.name as string);
+        }
+        if (s.email !== undefined) {
+          token.email = (s.email as string);
+        }
+
+        // Avatar update
+        if (s.avatarUrl !== undefined) {
+          token.avatarUrl = (s.avatarUrl as string | null);
+        }
+        if (s.title !== undefined) {
+          token.title = (s.title as string | null);
+        }
+
+        // Start impersonation — overwrite token with target user data
+        if (s.impersonateAs) {
+          const imp = s.impersonateAs as {
+            id: string; name: string; email: string;
+            title: string | null; avatarUrl: string | null; role: UserRole;
+            accountKeys?: string[]; originalUserId: string;
+          };
+          const accountKeys = Array.isArray(imp.accountKeys) ? imp.accountKeys : [];
+          token.id = imp.id;
+          token.name = imp.name;
+          token.email = imp.email;
+          token.title = imp.title;
+          token.avatarUrl = imp.avatarUrl;
+          token.role = imp.role;
+          token.accountKeys = accountKeys;
+          token.originalUserId = imp.originalUserId;
+        }
+
+        // Stop impersonation — revert to original user data
+        if (s.revertImpersonation) {
+          const rev = s.revertImpersonation as {
+            id: string; name: string; email: string;
+            title: string | null; avatarUrl: string | null; role: UserRole;
+            accountKeys?: string[];
+          };
+          const accountKeys = Array.isArray(rev.accountKeys) ? rev.accountKeys : [];
+          token.id = rev.id;
+          token.name = rev.name;
+          token.email = rev.email;
+          token.title = rev.title;
+          token.avatarUrl = rev.avatarUrl;
+          token.role = rev.role;
+          token.accountKeys = accountKeys;
+          delete token.originalUserId;
+        }
+      }
+
+      if (!Array.isArray(token.accountKeys)) {
+        token.accountKeys = [];
+      }
+
+      // Admins with no explicit account assignments are treated as full access.
+      if (token.role === 'admin' && token.accountKeys.length === 0) {
+        token.accountKeys = await getAllAccountKeys();
+      }
+
+      return token;
+    },
+    async session({ session, token }) {
+      session.user.id = token.id;
+      session.user.name = token.name || session.user.name;
+      session.user.email = token.email || session.user.email;
+      session.user.title = token.title ?? null;
+      session.user.avatarUrl = token.avatarUrl ?? null;
+      session.user.role = token.role;
+      session.user.accountKeys = token.accountKeys;
+      session.user.originalUserId = token.originalUserId ?? null;
+      return session;
+    },
+  },
+};

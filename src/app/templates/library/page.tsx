@@ -1,0 +1,1002 @@
+'use client';
+
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import {
+  PlusIcon,
+  XMarkIcon,
+  BookOpenIcon,
+  TrashIcon,
+  EllipsisVerticalIcon,
+  TagIcon,
+  DocumentDuplicateIcon,
+  PencilIcon,
+  ArrowPathIcon,
+  AdjustmentsHorizontalIcon,
+} from '@heroicons/react/24/outline';
+import { toast } from 'sonner';
+import { useAccount } from '@/contexts/account-context';
+import { TemplatePreview } from '@/components/template-preview';
+import {
+  parseTemplateTagsPayload,
+  assignmentsMapToArray,
+} from '@/lib/template-tags-payload';
+
+// ── Types ──
+
+interface TemplateEntry {
+  design: string;
+  name: string;
+  updatedAt?: string;
+}
+
+interface TagData {
+  tags: string[];
+  assignments: Record<string, string[]>;
+}
+
+interface BulkResult {
+  dryRun: boolean;
+  totalTemplates: number;
+  affectedCount: number;
+  appliedCount?: number;
+  totalChanges: number;
+  errors: { design: string; error: string }[];
+  affectedTemplates: { design: string; summary: string }[];
+}
+
+// ── Helpers ──
+
+function formatDesign(d: string) {
+  return d
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ── Main Page ──
+// ═══════════════════════════════════════════════════════════════════
+
+export default function TemplateLibraryPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { userRole, isAccount } = useAccount();
+  const campaignDraftQuery = searchParams.get('campaignDraft') === '1' ? '?campaignDraft=1' : '';
+
+  const isDeveloper = userRole === 'developer';
+  const isAdmin = !isAccount && !isDeveloper;
+
+  // Client-role users do not access Template Library; redirect to account templates.
+  useEffect(() => {
+    if (isAccount) router.replace('/templates');
+  }, [isAccount, router]);
+
+  if (isAccount) return null;
+
+  return (
+    <div>
+      {/* Sticky header */}
+      <div className="page-sticky-header mb-6">
+        <div className="flex items-center gap-3">
+          <BookOpenIcon className="w-6 h-6 text-[var(--primary)]" />
+          <h1 className="text-2xl font-bold">Templates</h1>
+        </div>
+      </div>
+
+      {/* Route-based tab bar */}
+      <div className="flex items-center gap-1 mb-6 border-b border-[var(--border)]">
+        <Link
+          href={`/templates${campaignDraftQuery}`}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            pathname === '/templates'
+              ? 'border-[var(--primary)] text-[var(--primary)]'
+              : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          Account Templates
+        </Link>
+        <Link
+          href={`/templates/library${campaignDraftQuery}`}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            pathname === '/templates/library'
+              ? 'border-[var(--primary)] text-[var(--primary)]'
+              : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          Template Library
+        </Link>
+      </div>
+
+      {/* Role-based content */}
+      {isDeveloper && <DeveloperView campaignDraftQuery={campaignDraftQuery} />}
+      {isAdmin && <AdminView campaignDraftQuery={campaignDraftQuery} />}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ── Developer View (full management) ──
+// ═══════════════════════════════════════════════════════════════════
+
+function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
+  const router = useRouter();
+  const [templates, setTemplates] = useState<TemplateEntry[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [tagData, setTagData] = useState<TagData>({ tags: [], assignments: {} });
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [showTagModal, setShowTagModal] = useState(false);
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const loadTemplates = async () => {
+    try {
+      const [tRes, tagRes] = await Promise.all([
+        fetch('/api/templates'),
+        fetch('/api/template-tags'),
+      ]);
+      const tData = await tRes.json();
+      const tagResult = await tagRes.json();
+      setTemplates(Array.isArray(tData) ? tData : []);
+      setTagData(parseTemplateTagsPayload(tagResult));
+      setLoaded(true);
+    } catch {
+      setLoaded(true);
+    }
+  };
+
+  useEffect(() => { loadTemplates(); }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
+
+  const editorHref = (design: string) => `/templates/${design}/template${campaignDraftQuery}`;
+
+  const tplMap = useMemo(() => {
+    const map: Record<string, TemplateEntry> = {};
+    templates.forEach((t) => { map[t.design] = t; });
+    return map;
+  }, [templates]);
+
+  const templateKeys = useMemo(() => templates.map((t) => t.design), [templates]);
+
+  const filtered = useMemo(() => {
+    let list = templates;
+    if (selectedTag) {
+      const assigned = tagData.assignments;
+      list = list.filter((t) => (assigned[t.design] || []).includes(selectedTag));
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (t) =>
+          t.name.toLowerCase().includes(q) ||
+          t.design.toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }, [templates, selectedTag, search, tagData]);
+
+  const filteredKeys = useMemo(() => filtered.map((t) => t.design), [filtered]);
+
+  const createTemplate = async () => {
+    if (!newName.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ design: newName.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || 'Failed to create'); setSaving(false); return; }
+      toast.success('Template created');
+      setCreating(false);
+      setNewName('');
+      await loadTemplates();
+    } catch { toast.error('Failed to create'); }
+    setSaving(false);
+  };
+
+  const deleteTemplate = async (design: string) => {
+    if (!confirm(`Delete "${formatDesign(design)}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/templates?design=${encodeURIComponent(design)}`, { method: 'DELETE' });
+      if (!res.ok) { toast.error('Failed to delete'); return; }
+      toast.success('Template deleted');
+      await loadTemplates();
+    } catch { toast.error('Failed to delete'); }
+  };
+
+  const cloneTemplate = async (sourceDesign: string) => {
+    try {
+      const res = await fetch('/api/templates/clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceDesign }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || 'Failed to clone'); return; }
+      toast.success(`Cloned as "${data.name}"`);
+      await loadTemplates();
+    } catch { toast.error('Failed to clone'); }
+  };
+
+  const saveTagData = async (data: TagData) => {
+    try {
+      await fetch('/api/template-tags', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tags: data.tags,
+          assignments: assignmentsMapToArray(data.assignments),
+        }),
+      });
+      setTagData(data);
+      setShowTagModal(false);
+      toast.success('Tags saved');
+    } catch { toast.error('Failed to save tags'); }
+  };
+
+  if (!loaded) {
+    return <div className="text-[var(--muted-foreground)]">Loading...</div>;
+  }
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search templates..."
+            className="w-full max-w-xs text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
+          />
+          {tagData.tags.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => setSelectedTag(null)}
+                className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+                  !selectedTag
+                    ? 'bg-[var(--primary)] text-white'
+                    : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                }`}
+              >
+                All
+              </button>
+              {tagData.tags.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                  className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+                    selectedTag === tag
+                      ? 'bg-[var(--primary)] text-white'
+                      : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => setShowTagModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
+            title="Manage Tags"
+          >
+            <TagIcon className="w-3.5 h-3.5" />
+            Tags
+          </button>
+          <button
+            onClick={() => setShowBulkModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
+            title="Bulk Edit"
+          >
+            <AdjustmentsHorizontalIcon className="w-3.5 h-3.5" />
+            Bulk Edit
+          </button>
+          <button
+            onClick={() => { setCreating(true); setNewName(''); }}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
+          >
+            <PlusIcon className="w-3.5 h-3.5" />
+            New Template
+          </button>
+        </div>
+      </div>
+
+      {/* Create template input */}
+      {creating && (
+        <div className="flex items-center gap-2 mb-4 p-3 glass-card rounded-xl">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && createTemplate()}
+            placeholder="Template name (e.g. spring-sale)"
+            className="flex-1 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
+            autoFocus
+          />
+          <button
+            onClick={createTemplate}
+            disabled={saving || !newName.trim()}
+            className="px-3 py-2 bg-[var(--primary)] text-white rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? 'Creating...' : 'Create'}
+          </button>
+          <button
+            onClick={() => setCreating(false)}
+            className="px-3 py-2 text-xs font-medium rounded-lg bg-[var(--muted)] hover:bg-[var(--accent)] transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Template grid */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-16 border border-dashed border-[var(--border)] rounded-xl">
+          <BookOpenIcon className="w-8 h-8 mx-auto mb-3 text-[var(--muted-foreground)]" />
+          <p className="text-[var(--muted-foreground)] text-sm">
+            {search || selectedTag ? 'No templates match your filters.' : 'No templates yet.'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {filtered.map((t) => {
+            const tags = tagData.assignments[t.design] || [];
+            const isOpen = menuOpen === t.design;
+            return (
+              <div
+                key={t.design}
+                className="group relative glass-card rounded-xl overflow-hidden"
+              >
+                {/* Preview area */}
+                <Link href={editorHref(t.design)} className="block">
+                  <TemplatePreview design={t.design} height={220} />
+                </Link>
+
+                {/* Info */}
+                <div className="p-3">
+                  <div className="flex items-center justify-between gap-1">
+                    <Link
+                      href={editorHref(t.design)}
+                      className="text-sm font-medium truncate hover:text-[var(--primary)] transition-colors"
+                    >
+                      {t.name || formatDesign(t.design)}
+                    </Link>
+
+                    {/* Menu */}
+                    <div className="relative" ref={isOpen ? menuRef : undefined}>
+                      <button
+                        onClick={() => setMenuOpen(isOpen ? null : t.design)}
+                        className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                      >
+                        <EllipsisVerticalIcon className="w-4 h-4" />
+                      </button>
+                      {isOpen && (
+                        <div className="absolute right-0 top-full mt-1 z-50 w-40 glass-dropdown">
+                          <button
+                            onClick={() => { router.push(editorHref(t.design)); setMenuOpen(null); }}
+                            className="w-full text-left px-3 py-2 text-xs text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                          >
+                            <PencilIcon className="w-3.5 h-3.5" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => { cloneTemplate(t.design); setMenuOpen(null); }}
+                            className="w-full text-left px-3 py-2 text-xs text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                          >
+                            <DocumentDuplicateIcon className="w-3.5 h-3.5" />
+                            Clone
+                          </button>
+                          <button
+                            onClick={() => { deleteTemplate(t.design); setMenuOpen(null); }}
+                            className="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2"
+                          >
+                            <TrashIcon className="w-3.5 h-3.5" />
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {tags.length > 0 && (
+                    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                      {tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)]"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="text-[10px] text-[var(--muted-foreground)] mt-1">{t.design}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="text-xs text-[var(--muted-foreground)] mt-4">
+        {filtered.length} template{filtered.length !== 1 ? 's' : ''} available
+      </p>
+
+      {/* Modals */}
+      {showTagModal && (
+        <ManageTagsModal
+          tagData={tagData}
+          templateKeys={templateKeys}
+          tplMap={tplMap}
+          onSave={saveTagData}
+          onClose={() => setShowTagModal(false)}
+        />
+      )}
+      {showBulkModal && (
+        <BulkEditModal
+          templates={templates}
+          filteredKeys={filteredKeys}
+          tplMap={tplMap}
+          onReload={loadTemplates}
+          onClose={() => setShowBulkModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ── Admin View (read-only browse with tags) ──
+// ═══════════════════════════════════════════════════════════════════
+
+function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
+  const router = useRouter();
+  const [templates, setTemplates] = useState<TemplateEntry[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [search, setSearch] = useState('');
+  const [tagData, setTagData] = useState<TagData>({ tags: [], assignments: {} });
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const isCampaignDraft = campaignDraftQuery.length > 0;
+  const editorHref = (design: string) => `/templates/${design}/template${campaignDraftQuery}`;
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/templates').then((r) => r.json()),
+      fetch('/api/template-tags').then((r) => r.json()),
+    ]).then(([tData, tagResult]) => {
+      setTemplates(Array.isArray(tData) ? tData : []);
+      setTagData(parseTemplateTagsPayload(tagResult));
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, []);
+
+  const filtered = useMemo(() => {
+    let list = templates;
+    if (selectedTag) {
+      const assigned = tagData.assignments;
+      list = list.filter((t) => (assigned[t.design] || []).includes(selectedTag));
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (t) => t.name.toLowerCase().includes(q) || t.design.toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }, [templates, selectedTag, search, tagData]);
+
+  if (!loaded) {
+    return <div className="text-[var(--muted-foreground)]">Loading...</div>;
+  }
+
+  return (
+    <div>
+      {isCampaignDraft && (
+        <div className="mb-4 rounded-xl border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-2 text-xs text-[var(--muted-foreground)]">
+          Select a template to open it in the editor, then click <span className="text-[var(--foreground)] font-medium">Schedule</span>.
+        </div>
+      )}
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search templates..."
+          className="w-full max-w-xs text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
+        />
+        {tagData.tags.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => setSelectedTag(null)}
+              className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+                !selectedTag
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              All
+            </button>
+            {tagData.tags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+                  selectedTag === tag
+                    ? 'bg-[var(--primary)] text-white'
+                    : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                }`}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Grid */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-16 border border-dashed border-[var(--border)] rounded-xl">
+          <BookOpenIcon className="w-8 h-8 mx-auto mb-3 text-[var(--muted-foreground)]" />
+          <p className="text-[var(--muted-foreground)] text-sm">
+            {search || selectedTag ? 'No templates match your filters.' : 'No templates available.'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {filtered.map((t) => {
+            const tags = tagData.assignments[t.design] || [];
+            return (
+              <div
+                key={t.design}
+                role={isCampaignDraft ? 'button' : undefined}
+                tabIndex={isCampaignDraft ? 0 : undefined}
+                onClick={
+                  isCampaignDraft
+                    ? () => router.push(editorHref(t.design))
+                    : undefined
+                }
+                onKeyDown={
+                  isCampaignDraft
+                    ? (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          router.push(editorHref(t.design));
+                        }
+                      }
+                    : undefined
+                }
+                className={`glass-card rounded-xl overflow-hidden ${isCampaignDraft ? 'cursor-pointer hover:border-[var(--primary)]/40 transition-colors' : ''}`}
+              >
+                <TemplatePreview design={t.design} height={220} />
+                <div className="p-3">
+                  <p className="text-sm font-medium truncate">
+                    {t.name || formatDesign(t.design)}
+                  </p>
+                  {tags.length > 0 && (
+                    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                      {tags.map((tag) => (
+                        <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)]">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-[var(--muted-foreground)] mt-1">{t.design}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="text-xs text-[var(--muted-foreground)] mt-4">
+        {filtered.length} template{filtered.length !== 1 ? 's' : ''} available
+      </p>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ── Manage Tags Modal ──
+// ═══════════════════════════════════════════════════════════════════
+
+function ManageTagsModal({
+  tagData, templateKeys, tplMap, onSave, onClose,
+}: {
+  tagData: TagData; templateKeys: string[];
+  tplMap: Record<string, TemplateEntry>;
+  onSave: (data: TagData) => void; onClose: () => void;
+}) {
+  const [local, setLocal] = useState<TagData>(JSON.parse(JSON.stringify(tagData)));
+  const [newTagName, setNewTagName] = useState('');
+  const [editingTag, setEditingTag] = useState<string | null>(null);
+  const [editTagValue, setEditTagValue] = useState('');
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setOpenDropdown(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const addTag = () => {
+    const name = newTagName.trim();
+    if (!name) return;
+    if (local.tags.some((t) => t.toLowerCase() === name.toLowerCase())) return;
+    setLocal({ ...local, tags: [...local.tags, name] });
+    setNewTagName('');
+  };
+
+  const renameTag = (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) { setEditingTag(null); return; }
+    if (local.tags.some((t) => t !== oldName && t.toLowerCase() === trimmed.toLowerCase())) { setEditingTag(null); return; }
+    const newTags = local.tags.map((t) => (t === oldName ? trimmed : t));
+    const newAssignments: Record<string, string[]> = {};
+    for (const [key, tags] of Object.entries(local.assignments)) {
+      newAssignments[key] = tags.map((t) => (t === oldName ? trimmed : t));
+    }
+    setLocal({ tags: newTags, assignments: newAssignments });
+    setEditingTag(null);
+  };
+
+  const deleteTag = (tagName: string) => {
+    const count = Object.values(local.assignments).filter((tags) => tags.includes(tagName)).length;
+    if (count > 0 && !confirm(`Remove "${tagName}" tag from ${count} template${count > 1 ? 's' : ''}?`)) return;
+    const newTags = local.tags.filter((t) => t !== tagName);
+    const newAssignments: Record<string, string[]> = {};
+    for (const [key, tags] of Object.entries(local.assignments)) {
+      const filtered = tags.filter((t) => t !== tagName);
+      if (filtered.length > 0) newAssignments[key] = filtered;
+    }
+    setLocal({ tags: newTags, assignments: newAssignments });
+  };
+
+  const assignTag = (templateKey: string, tagName: string) => {
+    const current = local.assignments[templateKey] || [];
+    if (current.includes(tagName)) return;
+    setLocal({
+      ...local,
+      assignments: { ...local.assignments, [templateKey]: [...current, tagName] },
+    });
+    setOpenDropdown(null);
+  };
+
+  const unassignTag = (templateKey: string, tagName: string) => {
+    const current = local.assignments[templateKey] || [];
+    const filtered = current.filter((t) => t !== tagName);
+    const newAssignments = { ...local.assignments };
+    if (filtered.length > 0) {
+      newAssignments[templateKey] = filtered;
+    } else {
+      delete newAssignments[templateKey];
+    }
+    setLocal({ ...local, assignments: newAssignments });
+  };
+
+  const getTagCount = (tagName: string) =>
+    Object.values(local.assignments).filter((tags) => tags.includes(tagName)).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={onClose}>
+      <div className="glass-modal w-[560px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
+          <h3 className="text-sm font-semibold">Manage Tags</h3>
+          <button onClick={onClose} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+            <XMarkIcon className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          {/* Tags */}
+          <div>
+            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">Tags</h4>
+            <div className="space-y-1.5">
+              {local.tags.map((tag) => (
+                <div key={tag} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--background)]">
+                  {editingTag === tag ? (
+                    <input
+                      type="text"
+                      value={editTagValue}
+                      onChange={(e) => setEditTagValue(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') renameTag(tag, editTagValue); if (e.key === 'Escape') setEditingTag(null); }}
+                      onBlur={() => renameTag(tag, editTagValue)}
+                      className="flex-1 text-sm bg-transparent border-none outline-none text-[var(--foreground)]"
+                      autoFocus
+                    />
+                  ) : (
+                    <span className="flex-1 text-sm font-medium">{tag}</span>
+                  )}
+                  <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">{getTagCount(tag)}</span>
+                  <button onClick={() => { setEditingTag(tag); setEditTagValue(tag); }} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors" title="Rename">
+                    <PencilIcon className="w-3 h-3" />
+                  </button>
+                  <button onClick={() => deleteTag(tag)} className="p-1 rounded text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete tag">
+                    <XMarkIcon className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <input type="text" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTag()} className="flex-1 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-[var(--foreground)]" placeholder="New tag name..." />
+              <button onClick={addTag} disabled={!newTagName.trim()} className="px-3 py-1.5 bg-[var(--primary)] text-white rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-50">Add</button>
+            </div>
+          </div>
+
+          {/* Assignments */}
+          <div>
+            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">Template Assignments</h4>
+            <div className="space-y-2">
+              {templateKeys.map((k) => {
+                const t = tplMap[k];
+                if (!t) return null;
+                const assigned = local.assignments[k] || [];
+                const available = local.tags.filter((tg) => !assigned.includes(tg));
+                const isDropdownOpen = openDropdown === k;
+                const designLabel = t.name || formatDesign(t.design);
+
+                return (
+                  <div key={k} className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-[var(--border)] bg-[var(--background)]">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{designLabel}</p>
+                    </div>
+                    <div className="flex-1 flex items-center gap-1.5 flex-wrap justify-end">
+                      {assigned.map((tag) => (
+                        <span key={tag} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)]">
+                          {tag}
+                          <button onClick={() => unassignTag(k, tag)} className="hover:text-red-400 transition-colors">
+                            <XMarkIcon className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                      {assigned.length === 0 && <span className="text-[10px] text-[var(--muted-foreground)] italic">untagged</span>}
+                      {available.length > 0 && (
+                        <div className="relative" ref={isDropdownOpen ? dropdownRef : undefined}>
+                          <button
+                            onClick={() => setOpenDropdown(isDropdownOpen ? null : k)}
+                            className="p-0.5 rounded text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:bg-[var(--muted)] transition-colors"
+                            title="Add tag"
+                          >
+                            <PlusIcon className="w-3.5 h-3.5" />
+                          </button>
+                          {isDropdownOpen && (
+                            <div className="absolute right-0 top-full mt-1 z-50 w-36 glass-dropdown">
+                              {available.map((tag) => (
+                                <button key={tag} onClick={() => assignTag(k, tag)} className="w-full text-left px-3 py-1.5 text-xs text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors">
+                                  {tag}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-[var(--border)] bg-[var(--muted)]/30 flex-shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors">Cancel</button>
+          <button onClick={() => onSave(local)} className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90">Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ── Bulk Edit Modal ──
+// ═══════════════════════════════════════════════════════════════════
+
+function BulkEditModal({
+  templates, filteredKeys, tplMap, onReload, onClose,
+}: {
+  templates: TemplateEntry[]; filteredKeys: string[];
+  tplMap: Record<string, TemplateEntry>;
+  onReload: () => Promise<void>; onClose: () => void;
+}) {
+  const [operation, setOperation] = useState<'findReplace' | 'setComponentProp'>('findReplace');
+  const [scope, setScope] = useState<'filtered' | 'all'>('filtered');
+  const [findText, setFindText] = useState('');
+  const [replaceText, setReplaceText] = useState('');
+  const [regexMode, setRegexMode] = useState(false);
+  const [regexFlags, setRegexFlags] = useState('gi');
+  const [componentType, setComponentType] = useState('footer');
+  const [propKey, setPropKey] = useState('');
+  const [propValue, setPropValue] = useState('');
+  const [propAction, setPropAction] = useState<'set' | 'unset'>('set');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<BulkResult | null>(null);
+
+  const selectedDesigns = useMemo(() => {
+    if (scope === 'all') return templates.map((t) => t.design);
+    return filteredKeys.map((key) => tplMap[key]?.design).filter(Boolean) as string[];
+  }, [scope, templates, filteredKeys, tplMap]);
+
+  const operationPayload = useMemo(() => {
+    if (operation === 'findReplace') {
+      return { kind: 'findReplace' as const, find: findText, replace: replaceText, mode: regexMode ? 'regex' : 'plain', flags: regexMode ? regexFlags : undefined };
+    }
+    return { kind: 'setComponentProp' as const, componentType, propKey, value: propValue, action: propAction };
+  }, [operation, findText, replaceText, regexMode, regexFlags, componentType, propKey, propValue, propAction]);
+
+  const runBulk = async (dryRun: boolean) => {
+    if (selectedDesigns.length === 0) { toast.error('No templates in selected scope'); return; }
+    if (operation === 'findReplace' && !findText) { toast.error('Find text is required'); return; }
+    if (operation === 'setComponentProp' && (!componentType || !propKey)) { toast.error('Component type and prop key are required'); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/templates/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun, designs: selectedDesigns, operation: operationPayload }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || 'Bulk operation failed'); return; }
+      setResult(data as BulkResult);
+
+      if (dryRun) {
+        toast.success(`Preview ready: ${data.affectedCount} template${data.affectedCount === 1 ? '' : 's'} affected`);
+      } else {
+        toast.success(`Applied to ${data.appliedCount} template${data.appliedCount === 1 ? '' : 's'}`);
+        await onReload();
+      }
+    } catch {
+      toast.error('Bulk operation failed');
+    }
+    setLoading(false);
+  };
+
+  const commonComponents = [
+    'header', 'hero', 'copy', 'cta', 'features', 'image', 'image-overlay',
+    'image-card-overlay', 'vehicle-card', 'countdown-stat', 'testimonial', 'footer',
+    'spacer', 'divider',
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={onClose}>
+      <div className="glass-modal w-[760px] max-h-[88vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+          <div>
+            <h3 className="text-sm font-semibold">Bulk Edit Templates</h3>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">Run a dry preview first, then apply with automatic version snapshots.</p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"><XMarkIcon className="w-4 h-4" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {/* Operation */}
+          <div>
+            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2">Operation</h4>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { setOperation('findReplace'); setResult(null); }} className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${operation === 'findReplace' ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5' : 'border-[var(--border)] text-[var(--muted-foreground)]'}`}>Find & Replace</button>
+              <button onClick={() => { setOperation('setComponentProp'); setResult(null); }} className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${operation === 'setComponentProp' ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5' : 'border-[var(--border)] text-[var(--muted-foreground)]'}`}>Set Component Prop</button>
+            </div>
+          </div>
+
+          {/* Scope */}
+          <div>
+            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2">Scope</h4>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { setScope('filtered'); setResult(null); }} className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${scope === 'filtered' ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5' : 'border-[var(--border)] text-[var(--muted-foreground)]'}`}>Current Filter</button>
+              <button onClick={() => { setScope('all'); setResult(null); }} className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${scope === 'all' ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5' : 'border-[var(--border)] text-[var(--muted-foreground)]'}`}>All Templates</button>
+              <span className="text-xs text-[var(--muted-foreground)] ml-1">{selectedDesigns.length} selected</span>
+            </div>
+          </div>
+
+          {/* Fields */}
+          {operation === 'findReplace' ? (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Find</label>
+                <input type="text" value={findText} onChange={(e) => { setFindText(e.target.value); setResult(null); }} className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]" placeholder={regexMode ? 'Regex pattern...' : 'Text to find...'} />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Replace With</label>
+                <input type="text" value={replaceText} onChange={(e) => { setReplaceText(e.target.value); setResult(null); }} className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]" placeholder="Replacement text (can be empty)" />
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => { setRegexMode(!regexMode); setResult(null); }} className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${regexMode ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5' : 'border-[var(--border)] text-[var(--muted-foreground)]'}`}>Regex Mode</button>
+                {regexMode && (
+                  <input type="text" value={regexFlags} onChange={(e) => { setRegexFlags(e.target.value); setResult(null); }} className="w-24 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-[var(--foreground)] font-mono" placeholder="flags" />
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Component Type</label>
+                  <select value={componentType} onChange={(e) => { setComponentType(e.target.value); setResult(null); }} className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]">
+                    {commonComponents.map((comp) => (<option key={comp} value={comp}>{comp}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Action</label>
+                  <select value={propAction} onChange={(e) => { setPropAction(e.target.value as 'set' | 'unset'); setResult(null); }} className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]">
+                    <option value="set">Set/Update Prop</option>
+                    <option value="unset">Unset Prop</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Prop Key</label>
+                <input type="text" value={propKey} onChange={(e) => { setPropKey(e.target.value); setResult(null); }} className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] font-mono" placeholder="e.g. phone-color" />
+              </div>
+              {propAction === 'set' && (
+                <div>
+                  <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Prop Value</label>
+                  <input type="text" value={propValue} onChange={(e) => { setPropValue(e.target.value); setResult(null); }} className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]" placeholder="e.g. {{location.phone}}" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Results */}
+          {result && (
+            <div className="border border-[var(--border)] rounded-xl bg-[var(--background)] p-3 space-y-2">
+              <p className="text-xs font-medium">{result.dryRun ? 'Dry Run' : 'Applied'}: {result.affectedCount} / {result.totalTemplates} templates affected, {result.totalChanges} changes</p>
+              {result.errors.length > 0 && (
+                <div className="text-xs text-red-400 space-y-1">
+                  {result.errors.map((err) => (<p key={`${err.design}-${err.error}`}>{err.design}: {err.error}</p>))}
+                </div>
+              )}
+              {result.affectedTemplates.length > 0 && (
+                <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                  {result.affectedTemplates.map((change) => (
+                    <div key={`${change.design}-${change.summary}`} className="text-xs flex items-center gap-2 px-2 py-1.5 rounded border border-[var(--border)]">
+                      <span className="font-medium">{change.design}</span>
+                      <span className="text-[var(--muted-foreground)]">&bull; {change.summary}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-between items-center gap-2 px-5 py-3 border-t border-[var(--border)] bg-[var(--muted)]/30">
+          <p className="text-[10px] text-[var(--muted-foreground)]">Apply mode snapshots each changed template before writing.</p>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors">Close</button>
+            <button onClick={() => runBulk(true)} disabled={loading} className="flex items-center gap-1.5 px-4 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors disabled:opacity-50">
+              <ArrowPathIcon className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />Preview Impact
+            </button>
+            <button onClick={() => runBulk(false)} disabled={loading} className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50">Apply Changes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

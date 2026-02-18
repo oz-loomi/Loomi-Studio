@@ -1,0 +1,69 @@
+<script props>
+  module.exports = {
+    // Content
+    quote: props.quote || '',
+    author: props.author || '',
+    source: props.source || '',
+    // Layout
+    align: props.align || 'center',
+    padding: props.padding || '32px',
+    // Typography
+    font: props.font || "Helvetica Neue, Helvetica, Arial, sans-serif",
+    // Quote
+    quoteSize: props['quote-size'] || '18px',
+    quoteWeight: props['quote-weight'] || '400',
+    quoteLineHeight: props['quote-line-height'] || '1.7',
+    quoteStyle: props['quote-style'] || 'italic',
+    quoteMargin: props['quote-margin'] || '0 0 16px 0',
+    // Author
+    authorSize: props['author-size'] || '13px',
+    authorWeight: props['author-weight'] || '700',
+    authorMargin: props['author-margin'] || '0',
+    // Source
+    sourceSize: props['source-size'] || '12px',
+    sourceWeight: props['source-weight'] || '400',
+    sourceMargin: props['source-margin'] || '4px 0 0 0',
+    // Colors
+    bgColor: props['bg-color'] || '#ebebeb',
+    radius: props.radius || '0',
+    quoteColor: props['quote-color'] || '#222222',
+    authorColor: props['author-color'] || '#000000',
+    sourceColor: props['source-color'] || '#666666',
+    accentColor: props['accent-color'] || '#cc0000',
+    accentWidth: props['accent-width'] || '3px',
+    borderColor: props['border-color'] || '',
+    borderWidth: props['border-width'] || '0.5px',
+    borderStyle: props['border-style'] || 'solid',
+  };
+</script>
+
+<tr>
+  <td>
+    <table
+      role="presentation"
+      width="100%"
+      cellspacing="0"
+      cellpadding="0"
+      border="0"
+      style="background-color: {{ bgColor }}; border-radius: {{ radius }};{{ borderColor ? ' border: ' + borderWidth + ' ' + borderStyle + ' ' + borderColor + ';' : '' }}"
+    >
+      <tr>
+        <td style="padding: {{ padding }}; text-align: {{ align }}; border-left: {{ accentWidth }} solid {{ accentColor }};">
+          <p style="font-family: {{ font }}; font-size: {{ quoteSize }}; font-weight: {{ quoteWeight }}; font-style: {{ quoteStyle }}; line-height: {{ quoteLineHeight }}; color: {{ quoteColor }}; margin: {{ quoteMargin }};">
+            &ldquo;{{ quote }}&rdquo;
+          </p>
+          <if condition="author">
+            <p style="font-family: {{ font }}; font-size: {{ authorSize }}; font-weight: {{ authorWeight }}; color: {{ authorColor }}; margin: {{ authorMargin }};">
+              {{ author }}
+            </p>
+          </if>
+          <if condition="source">
+            <p style="font-family: {{ font }}; font-size: {{ sourceSize }}; font-weight: {{ sourceWeight }}; color: {{ sourceColor }}; margin: {{ sourceMargin }};">
+              {{ source }}
+            </p>
+          </if>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>

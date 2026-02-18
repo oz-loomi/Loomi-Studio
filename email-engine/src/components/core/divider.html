@@ -1,0 +1,15 @@
+<script props>
+  module.exports = {
+    color: props.color || 'rgba(255,255,255,0.1)',
+    thickness: props.thickness || '1px',
+    style: props.style || 'solid',
+    margin: props.margin || '',
+    padding: props.padding || '',
+  };
+</script>
+
+<tr>
+  <td style="{{ padding ? 'padding: ' + padding + ';' : '' }}">
+    <div style="border-top: {{ thickness }} {{ style }} {{ color }}; font-size: 0; line-height: 0;{{ margin ? ' margin: ' + margin + ';' : '' }}">&nbsp;</div>
+  </td>
+</tr>

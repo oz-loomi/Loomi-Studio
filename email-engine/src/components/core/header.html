@@ -1,0 +1,29 @@
+<script props>
+  module.exports = {
+    // Content
+    logoUrl: props['logo-url'] || '',
+    logoAlt: props['logo-alt'] || '',
+    linkUrl: props['link-url'] || '{{custom_values.website_url}}',
+    // Layout
+    align: props.align || 'center',
+    padding: props.padding || '35px',
+    bgColor: props['bg-color'] || '',
+    // Logo sizing
+    logoWidth: props['logo-width'] || '200',
+    logoHeight: props['logo-height'] || '',
+    logoOpacity: props['logo-opacity'] || '',
+  };
+</script>
+
+<tr>
+  <td style="text-align: {{ align }}; padding: {{ padding }};{{ bgColor ? ' background-color: ' + bgColor + ';' : '' }}">
+    <a href="{{ linkUrl }}" style="text-decoration: none;">
+      <img
+        src="{{ logoUrl }}"
+        alt="{{ logoAlt }}"
+        width="{{ logoWidth }}"
+        style="display: inline-block; border: 0; height: auto;{{ logoHeight ? ' max-height: ' + logoHeight + ';' : '' }}{{ logoOpacity ? ' opacity: ' + logoOpacity + ';' : '' }}"
+      />
+    </a>
+  </td>
+</tr>

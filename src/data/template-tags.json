@@ -1,0 +1,53 @@
+{
+  "tags": [
+    "Modern",
+    "Classic",
+    "Luxury",
+    "Minimal",
+    "Bold"
+  ],
+  "assignments": {
+    "bold-accent/template": [
+      "Bold",
+      "Modern"
+    ],
+    "card-based/template": [
+      "Modern"
+    ],
+    "classic-professional/template": [
+      "Classic"
+    ],
+    "clean-minimal/template": [
+      "Minimal"
+    ],
+    "luxury-editorial/template": [
+      "Luxury"
+    ],
+    "luxury-heritage/template": [
+      "Luxury",
+      "Classic"
+    ],
+    "luxury-modern/template": [
+      "Luxury",
+      "Modern"
+    ],
+    "luxury-noir/template": [
+      "Luxury",
+      "Bold"
+    ],
+    "luxury-platinum/template": [
+      "Luxury"
+    ],
+    "modern-dark/template": [
+      "Modern",
+      "Bold"
+    ],
+    "modern-light/template": [
+      "Modern",
+      "Minimal"
+    ],
+    "split-hero/template": [
+      "Modern"
+    ]
+  }
+}

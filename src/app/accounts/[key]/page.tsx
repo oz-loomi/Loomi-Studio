@@ -1,0 +1,1812 @@
+'use client';
+
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import {
+  ArrowLeftIcon,
+  ArrowPathIcon,
+  CheckCircleIcon,
+  LinkIcon,
+  XMarkIcon,
+  ShieldCheckIcon,
+  CloudArrowUpIcon,
+  TrashIcon,
+  ExclamationTriangleIcon,
+} from '@heroicons/react/24/outline';
+import { toast } from 'sonner';
+import { AdminOnly } from '@/components/route-guard';
+import { OemMultiSelect } from '@/components/oem-multi-select';
+import { ContactsTable } from '@/components/contacts/contacts-table';
+import type { Contact } from '@/components/contacts/contacts-table';
+import type { AccountData } from '@/contexts/account-context';
+import { useAccount } from '@/contexts/account-context';
+import { getAccountOems } from '@/lib/oems';
+import type { EspCapabilities } from '@/lib/esp/types';
+import {
+  createFallbackProviderEntry,
+  extractProviderCatalog,
+  fetchProviderCatalogPayload,
+  mergeProviderCatalog,
+  normalizeProviderId,
+  type ProviderCatalogEntry,
+} from '@/lib/esp/provider-catalog';
+import {
+  createProviderStatusResolver,
+  resolveCustomValuesSyncReadiness,
+} from '@/lib/esp/provider-status';
+import {
+  collectOAuthProviderIds,
+  fetchRequiredScopesMap,
+  missingProviderScopes,
+} from '@/lib/esp/provider-scopes';
+import {
+  resolveAccountAddress,
+  resolveAccountCity,
+  resolveAccountEmail,
+  resolveAccountPhone,
+  resolveAccountPostalCode,
+  resolveAccountState,
+  resolveAccountTimezone,
+  resolveAccountWebsite,
+} from '@/lib/account-resolvers';
+import { providerCardTheme, providerDisplayName, providerUnsupportedMessage } from '@/lib/esp/provider-display';
+
+const CATEGORY_SUGGESTIONS = ['Automotive', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
+
+const WEBSAFE_FONTS = [
+  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Helvetica', value: '"Helvetica Neue", Helvetica, Arial, sans-serif' },
+  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
+  { label: 'Tahoma', value: 'Tahoma, Geneva, sans-serif' },
+  { label: 'Trebuchet MS', value: '"Trebuchet MS", Helvetica, sans-serif' },
+  { label: 'Georgia', value: 'Georgia, "Times New Roman", serif' },
+  { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
+  { label: 'Palatino', value: '"Palatino Linotype", "Book Antiqua", Palatino, serif' },
+  { label: 'Garamond', value: 'Garamond, Georgia, serif' },
+  { label: 'Courier New', value: '"Courier New", Courier, monospace' },
+  { label: 'Lucida Console', value: '"Lucida Console", Monaco, monospace' },
+];
+
+const DEFAULT_HEADING_FONT = WEBSAFE_FONTS[1].value;
+const DEFAULT_BODY_FONT = WEBSAFE_FONTS[0].value;
+
+function validHexColor(value: string, fallback: string): string {
+  return /^#(?:[0-9a-fA-F]{3}){1,2}$/.test(value) ? value : fallback;
+}
+
+function providerSecretLabel(auth: EspCapabilities['auth']): string {
+  if (auth === 'api-key') return 'API Key';
+  if (auth === 'both') return 'Credential Secret';
+  return 'Credential';
+}
+
+function providerSecretPlaceholder(auth: EspCapabilities['auth']): string {
+  if (auth === 'api-key') return 'Enter API key';
+  if (auth === 'both') return 'Enter API key or token';
+  return 'Enter credential';
+}
+
+type DetailTab = 'company' | 'branding' | 'integration' | 'custom-values' | 'contacts';
+type AccountImageVariant = 'light' | 'dark' | 'white' | 'black' | 'storefront';
+
+function deriveProviderCatalogFromAccount(accountData: AccountData | null | undefined): ProviderCatalogEntry[] {
+  if (!accountData) return [];
+  const providers = new Set<string>();
+  const addProvider = (value: unknown) => {
+    const provider = normalizeProviderId(value);
+    if (provider) providers.add(provider);
+  };
+
+  addProvider(accountData.espProvider);
+  addProvider(accountData.activeEspProvider);
+  addProvider(accountData.activeConnection?.provider);
+  (accountData.connectedProviders || []).forEach(addProvider);
+  (accountData.oauthConnections || []).forEach((connection) => addProvider(connection.provider));
+  (accountData.espConnections || []).forEach((connection) => addProvider(connection.provider));
+
+  return Array.from(providers).sort().map((provider) => createFallbackProviderEntry(provider));
+}
+
+const TABS: { key: DetailTab; label: string }[] = [
+  { key: 'company', label: 'Company' },
+  { key: 'branding', label: 'Branding' },
+  { key: 'integration', label: 'Integrations' },
+  { key: 'custom-values', label: 'Custom Values' },
+  { key: 'contacts', label: 'Contacts' },
+];
+
+export default function AccountDetailPage() {
+  const params = useParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const key = params.key as string;
+  const { refreshAccounts: refreshAccountList } = useAccount();
+
+  const [activeTab, setActiveTab] = useState<DetailTab>('company');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [account, setAccount] = useState<AccountData | null>(null);
+
+  // Integration detail modals
+  const [integrationModal, setIntegrationModal] = useState<string | null>(null);
+  const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>([]);
+  const [genericProviderSecrets, setGenericProviderSecrets] = useState<Record<string, string>>({});
+  const [genericProviderConnecting, setGenericProviderConnecting] = useState<Record<string, boolean>>({});
+  const [genericProviderDisconnecting, setGenericProviderDisconnecting] = useState<Record<string, boolean>>({});
+  const [requiredScopesByProvider, setRequiredScopesByProvider] = useState<Record<string, string[]>>({});
+
+  // ── Company fields ──
+  const [dealer, setDealer] = useState('');
+  const [category, setCategory] = useState('General');
+  const [oems, setOems] = useState<string[]>([]);
+  const [storefrontImage, setStorefrontImage] = useState('');
+  const [bizEmail, setBizEmail] = useState('');
+  const [bizPhone, setBizPhone] = useState('');
+  const [bizPhoneSales, setBizPhoneSales] = useState('');
+  const [bizPhoneService, setBizPhoneService] = useState('');
+  const [bizPhoneParts, setBizPhoneParts] = useState('');
+  const [bizAddress, setBizAddress] = useState('');
+  const [bizCity, setBizCity] = useState('');
+  const [bizState, setBizState] = useState('');
+  const [bizZip, setBizZip] = useState('');
+  const [bizWebsite, setBizWebsite] = useState('');
+  const [bizTimezone, setBizTimezone] = useState('');
+
+  // ── Branding fields ──
+  const [logoLight, setLogoLight] = useState('');
+  const [logoDark, setLogoDark] = useState('');
+  const [logoWhite, setLogoWhite] = useState('');
+  const [logoBlack, setLogoBlack] = useState('');
+  const [brandPrimaryColor, setBrandPrimaryColor] = useState('#2563eb');
+  const [brandSecondaryColor, setBrandSecondaryColor] = useState('#1d4ed8');
+  const [brandAccentColor, setBrandAccentColor] = useState('#0ea5e9');
+  const [brandBackgroundColor, setBrandBackgroundColor] = useState('#ffffff');
+  const [brandTextColor, setBrandTextColor] = useState('#111827');
+  const [brandHeadingFont, setBrandHeadingFont] = useState(DEFAULT_HEADING_FONT);
+  const [brandBodyFont, setBrandBodyFont] = useState(DEFAULT_BODY_FONT);
+
+  // ── Integration fields ──
+  const [providerReimporting, setProviderReimporting] = useState<Record<string, boolean>>({});
+
+  // ── Custom Values ──
+  type CustomValueDef = { name: string; value: string };
+  const [customValues, setCustomValues] = useState<Record<string, CustomValueDef>>({});
+  const [customValueDefaults, setCustomValueDefaults] = useState<Record<string, CustomValueDef>>({});
+  const [savedCustomValues, setSavedCustomValues] = useState<Record<string, CustomValueDef>>({});
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteNames, setPendingDeleteNames] = useState<string[]>([]);
+
+  // Compute whether any custom values are empty (for tab badge)
+  const customValuesAllKeys = new Set(
+    [...Object.keys(customValueDefaults), ...Object.keys(customValues)].filter((k) => k !== 'storefront_image'),
+  );
+  const customValuesEmptyCount = Array.from(customValuesAllKeys).filter(k => {
+    const val = (customValues[k] || customValueDefaults[k] || { value: '' }).value;
+    return !val || val.trim() === '';
+  }).length;
+  const hasEmptyCustomValues = customValuesEmptyCount > 0 && customValuesAllKeys.size > 0;
+
+  // ── Populate from fetched data ──
+  function populateFromAccount(accountData: AccountData) {
+    setAccount(accountData);
+    setDealer(accountData.dealer || '');
+    setCategory(accountData.category || 'General');
+    setOems(getAccountOems(accountData));
+    // Business details from account-level fields.
+    setBizEmail(resolveAccountEmail(accountData));
+    setBizPhone(resolveAccountPhone(accountData));
+    setBizPhoneSales(accountData.phoneSales || accountData.salesPhone || '');
+    setBizPhoneService(accountData.phoneService || accountData.servicePhone || '');
+    setBizPhoneParts(accountData.phoneParts || accountData.partsPhone || '');
+    setBizAddress(resolveAccountAddress(accountData));
+    setBizCity(resolveAccountCity(accountData));
+    setBizState(resolveAccountState(accountData));
+    setBizZip(resolveAccountPostalCode(accountData));
+    setBizWebsite(resolveAccountWebsite(accountData));
+    setBizTimezone(resolveAccountTimezone(accountData));
+    setStorefrontImage(accountData.storefrontImage || accountData.customValues?.storefront_image?.value || '');
+    // Logos
+    setLogoLight(accountData.logos?.light || '');
+    setLogoDark(accountData.logos?.dark || '');
+    setLogoWhite(accountData.logos?.white || '');
+    setLogoBlack(accountData.logos?.black || '');
+    // Branding
+    setBrandPrimaryColor(accountData.branding?.colors?.primary || '#2563eb');
+    setBrandSecondaryColor(accountData.branding?.colors?.secondary || '#1d4ed8');
+    setBrandAccentColor(accountData.branding?.colors?.accent || '#0ea5e9');
+    setBrandBackgroundColor(accountData.branding?.colors?.background || '#ffffff');
+    setBrandTextColor(accountData.branding?.colors?.text || '#111827');
+    setBrandHeadingFont(accountData.branding?.fonts?.heading || DEFAULT_HEADING_FONT);
+    setBrandBodyFont(accountData.branding?.fonts?.body || DEFAULT_BODY_FONT);
+    // Custom values
+    setCustomValues(accountData.customValues || {});
+    setSavedCustomValues(accountData.customValues || {});
+  }
+
+  function applyProviderCatalog(catalog: ProviderCatalogEntry[]) {
+    setProviderCatalog(catalog);
+  }
+
+  async function resolveProviderCatalog(
+    accountData?: AccountData | null,
+  ): Promise<ProviderCatalogEntry[]> {
+    const [accountPayload, globalPayload] = await Promise.all([
+      fetchProviderCatalogPayload(`/api/esp/providers?accountKey=${encodeURIComponent(key)}`),
+      fetchProviderCatalogPayload('/api/esp/providers'),
+    ]);
+    const accountEntries = extractProviderCatalog(accountPayload);
+    const accountProvider = normalizeProviderId(
+      accountPayload?.accountProvider || accountData?.espProvider,
+    );
+    const globalEntries = extractProviderCatalog(globalPayload).map((entry) => ({
+      ...entry,
+      activeForAccount: accountProvider
+        ? entry.provider === accountProvider
+        : entry.activeForAccount,
+    }));
+    const derivedEntries = deriveProviderCatalogFromAccount(accountData || account);
+
+    return mergeProviderCatalog(
+      accountEntries,
+      mergeProviderCatalog(globalEntries, derivedEntries),
+    );
+  }
+
+  async function refreshAccountData() {
+    try {
+      const res = await fetch(`/api/accounts/${key}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      populateFromAccount(data as AccountData);
+    } catch {
+      // Non-blocking UI metadata refresh.
+    }
+  }
+
+  async function refreshProviderCatalog() {
+    try {
+      const catalog = await resolveProviderCatalog();
+      applyProviderCatalog(catalog);
+    } catch {
+      // Non-blocking UI metadata refresh.
+    }
+  }
+
+  // Load required OAuth scopes for catalog providers (provider-agnostic).
+  useEffect(() => {
+    const catalogEntries = providerCatalog;
+    if (catalogEntries.length === 0) return;
+    const oauthProviders = collectOAuthProviderIds(catalogEntries);
+    const missingProviders = missingProviderScopes(oauthProviders, requiredScopesByProvider);
+    if (missingProviders.length === 0) return;
+
+    let cancelled = false;
+    fetchRequiredScopesMap(missingProviders).then((scopeMap) => {
+      if (cancelled) return;
+      setRequiredScopesByProvider((prev) => {
+        return { ...prev, ...scopeMap };
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [providerCatalog, requiredScopesByProvider]);
+
+  // ── Fetch on mount ──
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [accountData, cvDefaults] = await Promise.all([
+          fetch(`/api/accounts/${key}`).then(r => {
+            if (!r.ok) throw new Error('not found');
+            return r.json();
+          }),
+          fetch('/api/custom-values').then(r => r.json()).catch(() => ({})),
+        ]);
+        if (cancelled) return;
+
+        const resolvedAccount = accountData as AccountData;
+        populateFromAccount(resolvedAccount);
+        if (cvDefaults?.defaults && typeof cvDefaults.defaults === 'object') {
+          setCustomValueDefaults(cvDefaults.defaults);
+        }
+
+        const catalog = await resolveProviderCatalog(resolvedAccount);
+        if (cancelled) return;
+        applyProviderCatalog(catalog);
+      } catch {
+        if (cancelled) return;
+        toast.error('Account not found');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+
+  // Handle ?tab= query param for deep-linking to a specific tab
+  useEffect(() => {
+    const tabParam = searchParams.get('tab') as DetailTab | null;
+    if (tabParam && ['company', 'branding', 'integration', 'custom-values', 'contacts'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
+
+  // Handle OAuth callback query params.
+  useEffect(() => {
+    const connected = searchParams.get('esp_connected');
+    const errorMessage = searchParams.get('esp_error');
+    const provider = searchParams.get('esp_provider');
+    const label = providerDisplayName(provider);
+
+    if (connected === 'true') {
+      toast.success(`Successfully connected to ${label}!`);
+      setActiveTab('integration');
+      refreshProviderCatalog();
+      refreshAccountData();
+      router.replace(`/accounts/${key}`, { scroll: false });
+    } else if (errorMessage) {
+      toast.error(`${label} connection failed: ${errorMessage}`);
+      setActiveTab('integration');
+      router.replace(`/accounts/${key}`, { scroll: false });
+    }
+  }, [searchParams, key, router]);
+
+  // ── Save ──
+  function buildCustomValuesForSave(): Record<string, CustomValueDef> {
+    const nextValues = { ...customValues };
+    const storefrontName =
+      nextValues.storefront_image?.name ||
+      savedCustomValues.storefront_image?.name ||
+      customValueDefaults.storefront_image?.name ||
+      'Storefront Image';
+    const trimmedStorefront = storefrontImage.trim();
+
+    if (trimmedStorefront) {
+      nextValues.storefront_image = { name: storefrontName, value: trimmedStorefront };
+    } else if (
+      nextValues.storefront_image ||
+      (savedCustomValues.storefront_image?.value || '').trim()
+    ) {
+      // Keep an explicit empty value so clearing can be confirmed/deleted from connected ESP.
+      nextValues.storefront_image = { name: storefrontName, value: '' };
+    }
+
+    return nextValues;
+  }
+
+  // Detect custom values that were previously filled but are now empty (would be deleted from connected ESP)
+  function getClearedValueNames(): string[] {
+    const currentValues = buildCustomValuesForSave();
+    const allKeys = new Set([
+      ...Object.keys(customValueDefaults),
+      ...Object.keys(currentValues),
+      ...Object.keys(savedCustomValues),
+    ]);
+    const cleared: string[] = [];
+    for (const k of allKeys) {
+      const savedVal = (savedCustomValues[k] || customValueDefaults[k])?.value || '';
+      const currentVal = (currentValues[k] || customValueDefaults[k])?.value || '';
+      const savedName = (savedCustomValues[k] || customValueDefaults[k])?.name || k;
+      // Was filled before, now empty
+      if (savedVal.trim() && !currentVal.trim()) {
+        cleared.push(savedName);
+      }
+    }
+    return cleared;
+  }
+
+  function handleSave() {
+    // Check if any values were cleared — if so, ask user to confirm deletion from connected ESP.
+    if (canSyncCustomValuesToActiveProvider) {
+      const cleared = getClearedValueNames();
+      if (cleared.length > 0) {
+        setPendingDeleteNames(cleared);
+        setShowDeleteConfirm(true);
+        return; // Wait for modal response
+      }
+    }
+    // No cleared values — save normally
+    doSave(false);
+  }
+
+  async function doSave(deleteManaged: boolean) {
+    setSaving(true);
+    try {
+      const customValuesToSave = buildCustomValuesForSave();
+      const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
+      const selectedOems = isAutomotiveIndustry ? oems : [];
+      const body: Record<string, unknown> = {
+        dealer,
+        category,
+        // Always send oems so PATCH can clear stale values when industry is non-automotive.
+        oems: selectedOems,
+        oem: selectedOems[0] || null,
+        storefrontImage: storefrontImage.trim() || undefined,
+        email: bizEmail || undefined,
+        phone: bizPhone || undefined,
+        phoneSales: bizPhoneSales || undefined,
+        phoneService: bizPhoneService || undefined,
+        phoneParts: bizPhoneParts || undefined,
+        address: bizAddress || undefined,
+        city: bizCity || undefined,
+        state: bizState || undefined,
+        postalCode: bizZip || undefined,
+        website: bizWebsite || undefined,
+        timezone: bizTimezone || undefined,
+        logos: {
+          light: logoLight,
+          dark: logoDark,
+          white: logoWhite || undefined,
+          black: logoBlack || undefined,
+        },
+        branding: {
+          colors: {
+            primary: brandPrimaryColor || undefined,
+            secondary: brandSecondaryColor || undefined,
+            accent: brandAccentColor || undefined,
+            background: brandBackgroundColor || undefined,
+            text: brandTextColor || undefined,
+          },
+          fonts: {
+            heading: brandHeadingFont || undefined,
+            body: brandBodyFont || undefined,
+          },
+        },
+        customValues: Object.keys(customValuesToSave).length > 0 ? customValuesToSave : undefined,
+        _deleteManaged: deleteManaged, // Tell backend to delete cleared Loomi-managed values in the connected ESP
+      };
+
+      const res = await fetch(`/api/accounts/${key}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        // Surface provider sync warning if present.
+        const syncWarning =
+          ((updated as Record<string, unknown>)._syncWarning as string | undefined);
+        delete (updated as Record<string, unknown>)._syncWarning;
+        setAccount(updated as AccountData);
+        setCustomValues(customValuesToSave);
+        setSavedCustomValues(customValuesToSave); // Update saved state after successful save
+        await refreshAccountList();
+        if (syncWarning) {
+          toast.success('Saved locally!');
+          toast.warning(syncWarning);
+        } else {
+          toast.success(deleteManaged ? 'Saved! Cleared values removed from connected ESP.' : 'Saved!');
+        }
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to save');
+      }
+    } catch {
+      toast.error('Failed to save');
+    }
+    setSaving(false);
+  }
+
+  // ── Delete ──
+  async function handleDelete() {
+    if (!confirm(`Delete "${dealer || key}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/accounts?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
+      if (res.ok) {
+        await refreshAccountList();
+        router.push('/accounts');
+      } else {
+        toast.error('Failed to delete');
+      }
+    } catch {
+      toast.error('Failed to delete');
+    }
+  }
+
+  // ── Refresh provider business details (best effort) ──
+  async function handleProviderReimport(providerId: string) {
+    const normalizedProvider = normalizeProviderId(providerId);
+    if (!normalizedProvider) return;
+    setProviderReimporting((prev) => ({ ...prev, [normalizedProvider]: true }));
+    try {
+      const res = await fetch('/api/esp/connections/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: normalizedProvider, accountKey: key }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || `Failed to refresh details from ${providerDisplayName(normalizedProvider)}`);
+      } else if (data.location) {
+        setBizEmail(data.location.email || '');
+        setBizPhone(data.location.phone || '');
+        setBizAddress(data.location.address || '');
+        setBizCity(data.location.city || '');
+        setBizState(data.location.state || '');
+        setBizZip(data.location.postalCode || '');
+        setBizWebsite(data.location.website || '');
+        setBizTimezone(data.location.timezone || '');
+        setDealer(data.location.name || dealer);
+        toast.success(`Business details refreshed from ${providerDisplayName(normalizedProvider)}!`);
+      } else if (data.account) {
+        const accountName = typeof data.account.name === 'string' ? data.account.name : '';
+        if (accountName) setDealer(accountName);
+        toast.success(`Account details refreshed from ${providerDisplayName(normalizedProvider)}!`);
+      } else {
+        toast.error(data.error || `No account details were returned by ${providerDisplayName(normalizedProvider)}`);
+      }
+    } catch {
+      toast.error(`Failed to refresh details from ${providerDisplayName(normalizedProvider)}`);
+    } finally {
+      setProviderReimporting((prev) => ({ ...prev, [normalizedProvider]: false }));
+    }
+  }
+
+  // ── Connect Provider with Direct Credentials ──
+  async function handleProviderCredentialConnect(providerId: string) {
+    const secret = (genericProviderSecrets[providerId] || '').trim();
+    if (!secret) {
+      toast.error('Credential is required');
+      return;
+    }
+
+    setGenericProviderConnecting(prev => ({ ...prev, [providerId]: true }));
+    try {
+      const res = await fetch('/api/esp/connections/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountKey: key,
+          provider: providerId,
+          apiKey: secret,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || `Failed to connect ${providerDisplayName(providerId)}`);
+        return;
+      }
+
+      setGenericProviderSecrets(prev => ({ ...prev, [providerId]: '' }));
+      await refreshProviderCatalog();
+      await refreshAccountData();
+      await refreshAccountList();
+      const connectedName = data.accountName || data.accountId || providerDisplayName(providerId);
+      toast.success(`Connected to ${connectedName}`);
+    } catch {
+      toast.error(`Failed to connect ${providerDisplayName(providerId)}`);
+    } finally {
+      setGenericProviderConnecting(prev => ({ ...prev, [providerId]: false }));
+    }
+  }
+
+  // ── Disconnect Provider ──
+  async function handleProviderDisconnect(providerId: string) {
+    const providerLabel = providerDisplayName(providerId);
+    const confirmMessage = `Disconnect this account from ${providerLabel}? You can reconnect later.`;
+    if (!confirm(confirmMessage)) return;
+
+    setGenericProviderDisconnecting(prev => ({ ...prev, [providerId]: true }));
+    try {
+      const res = await fetch('/api/esp/connections/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountKey: key, provider: providerId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || `Failed to disconnect ${providerDisplayName(providerId)}`);
+        return;
+      }
+
+      await refreshProviderCatalog();
+      await refreshAccountData();
+      await refreshAccountList();
+      toast.success(`Disconnected from ${providerLabel}`);
+    } catch {
+      toast.error(`Failed to disconnect ${providerLabel}`);
+    } finally {
+      setGenericProviderDisconnecting(prev => ({ ...prev, [providerId]: false }));
+    }
+  }
+
+  // ── Logo upload handler ──
+  async function handleLogoUpload(variant: AccountImageVariant, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('variant', variant);
+
+    try {
+      const res = await fetch(`/api/accounts/${key}/logos`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok && data.url) {
+        if (variant === 'storefront') {
+          setStorefrontImage(data.url);
+          toast.success('Storefront image uploaded!');
+        } else {
+          const setters = { light: setLogoLight, dark: setLogoDark, white: setLogoWhite, black: setLogoBlack };
+          setters[variant](data.url);
+          toast.success(`${variant} logo uploaded!`);
+        }
+      } else {
+        toast.error(data.error || 'Upload failed');
+      }
+    } catch {
+      toast.error('Upload failed');
+    }
+  }
+
+  if (loading) {
+    return <AdminOnly><div className="text-[var(--muted-foreground)]">Loading...</div></AdminOnly>;
+  }
+
+  if (!account) {
+    return (
+      <AdminOnly>
+        <div className="text-center py-16">
+          <p className="text-[var(--muted-foreground)]">Account not found</p>
+          <Link href="/accounts" className="text-sm text-[var(--primary)] mt-2 inline-block hover:underline">
+            Back to Accounts
+          </Link>
+        </div>
+      </AdminOnly>
+    );
+  }
+
+  const inputClass = 'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
+  const labelClass = 'block text-xs font-medium text-[var(--muted-foreground)] mb-1.5';
+  const sectionHeadingClass = 'text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4';
+  const showContactsTab = !pathname.startsWith('/settings/accounts/');
+  const visibleTabs = showContactsTab ? TABS : TABS.filter((tab) => tab.key !== 'contacts');
+  const backHref = '/settings/accounts';
+  const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
+  const isEcommerceIndustry = category.trim().toLowerCase() === 'ecommerce';
+  const catalogProviders =
+    providerCatalog.length > 0
+      ? providerCatalog
+      : deriveProviderCatalogFromAccount(account);
+  const providerStatusResolver = createProviderStatusResolver({
+    providerCatalog: catalogProviders,
+    account,
+  });
+  const providerById = providerStatusResolver.providerById;
+  const getProviderStatus = providerStatusResolver.getProviderStatus;
+  const providerCards = catalogProviders.map((entry) => {
+    const provider = normalizeProviderId(entry.provider);
+    return {
+      ...entry,
+      provider,
+      status: getProviderStatus(provider),
+    };
+  });
+  const activeProvider =
+    normalizeProviderId(catalogProviders.find((entry) => entry.activeForAccount)?.provider) ||
+    normalizeProviderId(account.espProvider) ||
+    normalizeProviderId(catalogProviders[0]?.provider) ||
+    '';
+  const activeProviderEntry = providerById.get(activeProvider);
+  const activeProviderStatus = getProviderStatus(activeProvider);
+  const activeProviderSupportsCustomValues =
+    activeProviderEntry?.capabilities.customValues === true;
+  const activeProviderSupportsBusinessDetailsSync =
+    activeProviderEntry?.businessDetailsSyncSupported === true;
+  const activeProviderSyncReadiness = resolveCustomValuesSyncReadiness({
+    supportsCustomValues: activeProviderSupportsCustomValues,
+    providerStatus: activeProviderStatus,
+    requiredScopes: requiredScopesByProvider[activeProvider] || [],
+  });
+  const activeProviderNeedsReauthorization = activeProviderSyncReadiness.needsReauthorization;
+  const connectedProviderBadges = providerCards.filter((provider) => provider.status.connected);
+  const activeProviderConnected = activeProviderStatus.connected;
+  const canSyncCustomValuesToActiveProvider = activeProviderSyncReadiness.readyForSync;
+  const hasAnyProviderConnection = providerStatusResolver.hasAnyProviderConnection;
+
+  return (
+    <AdminOnly>
+      <div>
+        {/* ── Header ── */}
+        <div className="page-sticky-header flex items-center gap-3 mb-6">
+          <Link
+            href={backHref}
+            className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+          >
+            <ArrowLeftIcon className="w-4 h-4" />
+          </Link>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-2xl font-bold truncate">{dealer || key}</h2>
+            <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+              <span className="font-mono">{key}</span>
+              {connectedProviderBadges.map((provider) => (
+                <span
+                  key={provider.provider}
+                  className="inline-flex items-center gap-1 text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+                >
+                  {provider.status.oauthConnected ? (
+                    <ShieldCheckIcon className="w-2.5 h-2.5" />
+                  ) : (
+                    <LinkIcon className="w-2.5 h-2.5" />
+                  )}
+                  {providerDisplayName(provider.provider)}
+                </span>
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex-shrink-0"
+          >
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+
+        {/* ── Tabs ── */}
+        <div className="flex gap-1 mb-8 border-b border-[var(--border)]">
+          {visibleTabs.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-2.5 text-sm font-medium transition-colors relative ${
+                activeTab === tab.key
+                  ? 'text-[var(--foreground)]'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                {tab.label}
+                {tab.key === 'custom-values' && hasEmptyCustomValues && (
+                  <ExclamationTriangleIcon className="w-3.5 h-3.5 text-amber-400" />
+                )}
+              </span>
+              {activeTab === tab.key && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ════════════ COMPANY TAB ════════════ */}
+        {activeTab === 'company' && (
+          <div className="max-w-2xl space-y-10">
+            {/* General */}
+            <section>
+              <h3 className={sectionHeadingClass}>General</h3>
+              <div className="space-y-4">
+                <LogoSlot
+                  label="Storefront Image"
+                  variant="storefront"
+                  value={storefrontImage}
+                  onChange={setStorefrontImage}
+                  onUpload={(file) => handleLogoUpload('storefront', file)}
+                  required={false}
+                />
+                <div>
+                  <label className={labelClass}>Account Name</label>
+                  <input type="text" value={dealer} onChange={e => setDealer(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Industry</label>
+                  <select value={category} onChange={e => setCategory(e.target.value)} className={inputClass}>
+                    {CATEGORY_SUGGESTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                {isAutomotiveIndustry && (
+                  <div>
+                    <label className={labelClass}>Brands</label>
+                    <OemMultiSelect
+                      value={oems}
+                      onChange={setOems}
+                      placeholder="Select brands..."
+                      maxSelections={8}
+                    />
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* Business Details */}
+            <section>
+              <h3 className={sectionHeadingClass}>Business Details</h3>
+              <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
+                {activeProviderConnected && activeProviderSupportsBusinessDetailsSync
+                  ? 'These details are synced to your connected ESP when saved.'
+                  : activeProviderConnected
+                    ? `${providerUnsupportedMessage(activeProvider, 'business detail push sync')} Changes are saved locally in Loomi.`
+                    : 'Connect an ESP in Integrations to sync these details. Until then, changes are saved locally in Loomi.'}
+              </p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>{isEcommerceIndustry ? 'Support Email' : 'Email'}</label>
+                    <input type="email" value={bizEmail} onChange={e => setBizEmail(e.target.value)} className={inputClass} placeholder={isEcommerceIndustry ? 'support@store.com' : 'info@dealer.com'} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>{isEcommerceIndustry ? 'Support Phone' : 'Main Phone'}</label>
+                    <input type="tel" value={bizPhone} onChange={e => setBizPhone(e.target.value)} className={inputClass} placeholder="(801) 555-1234" />
+                  </div>
+                </div>
+                {isAutomotiveIndustry && (
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className={labelClass}>Sales Phone</label>
+                      <input type="tel" value={bizPhoneSales} onChange={e => setBizPhoneSales(e.target.value)} className={inputClass} placeholder="(801) 555-1001" />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Service Phone</label>
+                      <input type="tel" value={bizPhoneService} onChange={e => setBizPhoneService(e.target.value)} className={inputClass} placeholder="(801) 555-1002" />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Parts Phone</label>
+                      <input type="tel" value={bizPhoneParts} onChange={e => setBizPhoneParts(e.target.value)} className={inputClass} placeholder="(801) 555-1003" />
+                    </div>
+                  </div>
+                )}
+                {!isEcommerceIndustry && (
+                  <>
+                    <div>
+                      <label className={labelClass}>Street Address</label>
+                      <input type="text" value={bizAddress} onChange={e => setBizAddress(e.target.value)} className={inputClass} placeholder="1234 Main St" />
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <label className={labelClass}>City</label>
+                        <input type="text" value={bizCity} onChange={e => setBizCity(e.target.value)} className={inputClass} placeholder="Ogden" />
+                      </div>
+                      <div>
+                        <label className={labelClass}>State</label>
+                        <input type="text" value={bizState} onChange={e => setBizState(e.target.value)} className={inputClass} placeholder="UT" />
+                      </div>
+                      <div>
+                        <label className={labelClass}>Zip Code</label>
+                        <input type="text" value={bizZip} onChange={e => setBizZip(e.target.value)} className={inputClass} placeholder="84401" />
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>{isEcommerceIndustry ? 'Store URL' : 'Website'}</label>
+                    <input type="url" value={bizWebsite} onChange={e => setBizWebsite(e.target.value)} className={inputClass} placeholder={isEcommerceIndustry ? 'https://store.com' : 'https://dealer.com'} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Timezone</label>
+                    <select value={bizTimezone} onChange={e => setBizTimezone(e.target.value)} className={inputClass}>
+                      <option value="">Select...</option>
+                      <option value="US/Eastern">Eastern (ET)</option>
+                      <option value="US/Central">Central (CT)</option>
+                      <option value="US/Mountain">Mountain (MT)</option>
+                      <option value="US/Pacific">Pacific (PT)</option>
+                      <option value="US/Alaska">Alaska (AKT)</option>
+                      <option value="US/Hawaii">Hawaii (HT)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Danger Zone */}
+            <section className="border-t border-red-500/20 pt-6">
+              <h3 className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-3">Danger Zone</h3>
+              <div className="flex items-center justify-between p-4 border border-red-500/20 rounded-xl">
+                <div>
+                  <p className="text-sm font-medium">Delete this account</p>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    Permanently remove {dealer || key} and all associated data.
+                  </p>
+                </div>
+                <button
+                  onClick={handleDelete}
+                  className="px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-colors flex-shrink-0"
+                >
+                  Delete Account
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* ════════════ BRANDING TAB ════════════ */}
+        {activeTab === 'branding' && (
+          <div className="max-w-2xl space-y-6">
+            <section>
+              <h3 className={sectionHeadingClass}>Logo Variants</h3>
+              <p className="text-[11px] text-[var(--muted-foreground)] mb-6 -mt-2">
+                Upload or paste URLs for each logo variant. Used in email templates and previews.
+              </p>
+              <div className="grid grid-cols-2 gap-6">
+                {([
+                  { label: 'Light Logo', variant: 'light' as const, value: logoLight, setter: setLogoLight, required: true },
+                  { label: 'Dark Logo', variant: 'dark' as const, value: logoDark, setter: setLogoDark, required: true },
+                  { label: 'White Logo', variant: 'white' as const, value: logoWhite, setter: setLogoWhite, required: false },
+                  { label: 'Black Logo', variant: 'black' as const, value: logoBlack, setter: setLogoBlack, required: false },
+                ]).map(({ label, variant, value, setter, required }) => (
+                  <LogoSlot
+                    key={variant}
+                    label={label}
+                    variant={variant}
+                    value={value}
+                    onChange={setter}
+                    onUpload={(file) => handleLogoUpload(variant, file)}
+                    required={required}
+                  />
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h3 className={sectionHeadingClass}>Brand Colors</h3>
+              <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
+                Set reusable color values for this account. These are available as custom value fallbacks in previews.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                {([
+                  { label: 'Primary', value: brandPrimaryColor, onChange: setBrandPrimaryColor, fallback: '#2563eb' },
+                  { label: 'Secondary', value: brandSecondaryColor, onChange: setBrandSecondaryColor, fallback: '#1d4ed8' },
+                  { label: 'Accent', value: brandAccentColor, onChange: setBrandAccentColor, fallback: '#0ea5e9' },
+                  { label: 'Background', value: brandBackgroundColor, onChange: setBrandBackgroundColor, fallback: '#ffffff' },
+                  { label: 'Text', value: brandTextColor, onChange: setBrandTextColor, fallback: '#111827' },
+                ]).map(({ label, value, onChange, fallback }) => (
+                  <div key={label}>
+                    <label className={labelClass}>{label} Color</label>
+                    <div className="flex items-center bg-[var(--card)] border border-[var(--border)] rounded-lg overflow-hidden">
+                      <input
+                        type="color"
+                        value={validHexColor(value, fallback)}
+                        onChange={(e) => onChange(e.target.value)}
+                        className="w-10 h-9 bg-transparent border-none p-1 cursor-pointer flex-shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder={fallback}
+                        className="flex-1 px-3 py-2 text-sm font-mono bg-transparent focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h3 className={sectionHeadingClass}>Websafe Fonts</h3>
+              <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
+                Choose fallback-safe font stacks for headings and body copy.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Heading Font</label>
+                  <select value={brandHeadingFont} onChange={(e) => setBrandHeadingFont(e.target.value)} className={inputClass}>
+                    {WEBSAFE_FONTS.map((font) => (
+                      <option key={font.value} value={font.value}>{font.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>Body Font</label>
+                  <select value={brandBodyFont} onChange={(e) => setBrandBodyFont(e.target.value)} className={inputClass}>
+                    {WEBSAFE_FONTS.map((font) => (
+                      <option key={font.value} value={font.value}>{font.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="mt-3 p-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/40">
+                <p className="text-sm text-[var(--foreground)]" style={{ fontFamily: brandHeadingFont }}>
+                  Heading preview
+                </p>
+                <p className="text-xs text-[var(--muted-foreground)] mt-1" style={{ fontFamily: brandBodyFont }}>
+                  Body preview in selected websafe stack.
+                </p>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* ════════════ INTEGRATIONS TAB ════════════ */}
+        {activeTab === 'integration' && (
+          <div className="max-w-3xl space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+              {providerCards.map((provider) => {
+                const providerId = provider.provider;
+                const providerLabel = providerDisplayName(providerId);
+                const providerTheme = providerCardTheme(providerId);
+                const connected = provider.status.connected;
+                const supportsDirectCredentials = provider.credentialConnectSupported === true;
+
+                return (
+                  <div key={providerId} className="glass-card rounded-xl border border-[var(--border)] overflow-hidden flex flex-col">
+                    <div className={`flex items-center justify-center px-6 py-8 ${providerTheme.headerClassName || 'bg-[var(--muted)]'} rounded-t-xl`}>
+                      {providerTheme.logoSrc ? (
+                        <img
+                          src={providerTheme.logoSrc}
+                          alt={providerTheme.logoAlt || providerLabel}
+                          className="w-full max-w-[180px] object-contain"
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full border border-[var(--border)] bg-[var(--card)] flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                          {providerId.slice(0, 3)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-5 flex-1 flex flex-col">
+                      <h3 className="text-base font-semibold text-[var(--foreground)] mb-1">{providerLabel}</h3>
+                      <p className="text-xs text-[var(--muted-foreground)] mb-4 leading-relaxed">
+                        {providerTheme.description}
+                      </p>
+
+                      {connected ? (
+                        <div className="space-y-3 mt-auto">
+                          <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                            <CheckCircleIcon className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                            <span className="text-emerald-400 text-xs font-medium flex-1 truncate">
+                              {provider.status.connectionType === 'oauth'
+                                ? 'Connected via OAuth'
+                                : `Connected${provider.status.accountName ? ` — ${provider.status.accountName}` : ''}`}
+                            </span>
+                            {provider.status.oauthConnected && (
+                              <span className="text-[10px] text-emerald-400/70 bg-emerald-500/10 px-1.5 py-0.5 rounded">Secure</span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => setIntegrationModal(providerId)}
+                            className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-xs font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                          >
+                            Manage
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-2 mt-auto">
+                          <button
+                            onClick={() => setIntegrationModal(providerId)}
+                            className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-xs font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                          >
+                            Learn More
+                          </button>
+                          {provider.oauthSupported ? (
+                            <a
+                              href={`/api/esp/connections/authorize?provider=${encodeURIComponent(providerId)}&accountKey=${encodeURIComponent(key)}`}
+                              className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${providerTheme.connectButtonClassName || 'bg-[var(--primary)] text-white hover:opacity-90'}`}
+                            >
+                              Connect {providerLabel}
+                            </a>
+                          ) : supportsDirectCredentials ? (
+                            <button
+                              onClick={() => setIntegrationModal(providerId)}
+                              className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${providerTheme.connectButtonClassName || 'bg-[var(--primary)] text-white hover:opacity-90'}`}
+                            >
+                              Connect {providerLabel}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setIntegrationModal(providerId)}
+                              className="w-full px-4 py-2.5 border border-[var(--border)] rounded-lg text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                            >
+                              Configure Provider
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+            </div>
+
+            {/* ══════ Provider Detail Modal ══════ */}
+            {integrationModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setIntegrationModal(null)}>
+                <div className="glass-card glass-modal rounded-xl p-0 max-w-lg w-full mx-4 border border-[var(--border)] shadow-2xl overflow-hidden animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                  <div className="p-6 space-y-5">
+                    {(() => {
+                      const provider = providerById.get(normalizeProviderId(integrationModal));
+                      if (!provider) {
+                        return (
+                          <div className="space-y-3">
+                            <h3 className="text-lg font-semibold text-[var(--foreground)]">Provider</h3>
+                            <p className="text-sm text-[var(--muted-foreground)]">Provider metadata is unavailable.</p>
+                          </div>
+                        );
+                      }
+
+                      const enabledCapabilities = Object.entries(provider.capabilities)
+                        .filter(([key, value]) => key !== 'auth' && Boolean(value))
+                        .map(([key]) => key);
+                      const providerId = normalizeProviderId(provider.provider);
+                      const providerTheme = providerCardTheme(providerId);
+                      const providerLabel = providerDisplayName(provider.provider);
+                      const resolvedStatus = getProviderStatus(providerId);
+                      const connected = resolvedStatus.connected;
+                      const connectedAccountName = resolvedStatus.accountName || provider.accountName || resolvedStatus.locationName || provider.locationName;
+                      const connectedAccountId = resolvedStatus.accountId || provider.accountId || resolvedStatus.locationId || account.activeLocationId;
+                      const secret = genericProviderSecrets[providerId] || '';
+                      const connecting = genericProviderConnecting[providerId] === true;
+                      const disconnecting = genericProviderDisconnecting[providerId] === true;
+                      const reimporting = providerReimporting[providerId] === true;
+                      const supportsDirectCredentials = provider.credentialConnectSupported === true;
+                      const providerSyncReadiness = resolveCustomValuesSyncReadiness({
+                        supportsCustomValues: provider.capabilities.customValues === true,
+                        providerStatus: resolvedStatus,
+                        requiredScopes: requiredScopesByProvider[providerId] || [],
+                      });
+                      const needsReauthorization = providerSyncReadiness.needsReauthorization;
+                      const canRefreshBusinessDetails =
+                        connected && provider.businessDetailsRefreshSupported === true;
+                      const webhookEndpointEntries = Object.entries(provider.webhookEndpoints || {})
+                        .filter(([family, endpoint]) => Boolean(family.trim()) && Boolean((endpoint || '').trim()));
+
+                      return (
+                        <>
+                          {providerTheme.logoSrc && (
+                            <div className={`-mx-6 -mt-6 mb-2 flex items-center justify-center px-6 py-6 ${providerTheme.headerClassName || 'bg-[var(--muted)]'}`}>
+                              <img
+                                src={providerTheme.logoSrc}
+                                alt={providerTheme.logoAlt || providerLabel}
+                                className="w-full max-w-[200px] object-contain"
+                              />
+                            </div>
+                          )}
+
+                          <div>
+                            <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                              {providerLabel}
+                            </h3>
+                            <p className="text-sm text-[var(--muted-foreground)] mt-1 leading-relaxed">
+                              {providerTheme.description || 'This provider is registered in Loomi&apos;s ESP adapter registry.'}
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className={labelClass}>Status</label>
+                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                                {connected ? 'Connected' : 'Not connected'}
+                              </div>
+                            </div>
+                            <div>
+                              <label className={labelClass}>Auth Type</label>
+                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                                {provider.capabilities.auth}
+                              </div>
+                            </div>
+                            <div>
+                              <label className={labelClass}>Credential Validation</label>
+                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                                {provider.validationSupported ? 'Supported' : 'Not available'}
+                              </div>
+                            </div>
+                            <div>
+                              <label className={labelClass}>Details Refresh</label>
+                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                                {provider.businessDetailsRefreshSupported ? 'Supported' : 'Not available'}
+                              </div>
+                            </div>
+                            <div>
+                              <label className={labelClass}>Details Push Sync</label>
+                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                                {provider.businessDetailsSyncSupported ? 'Supported' : 'Not available'}
+                              </div>
+                            </div>
+                            <div>
+                              <label className={labelClass}>Webhook Families</label>
+                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                                {webhookEndpointEntries.length > 0
+                                  ? `${webhookEndpointEntries.length} enabled`
+                                  : 'Not available'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {connected && resolvedStatus.installedAt && (
+                            <p className="text-xs text-[var(--muted-foreground)]">
+                              Connected since {new Date(resolvedStatus.installedAt).toLocaleDateString()}
+                            </p>
+                          )}
+
+                          {connected && connectedAccountName && (
+                            <div>
+                              <label className={labelClass}>Connected Account</label>
+                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)] truncate">
+                                {connectedAccountName}
+                              </div>
+                            </div>
+                          )}
+
+                          {connected && connectedAccountId && (
+                            <div>
+                              <label className={labelClass}>
+                                {resolvedStatus.oauthConnected ? 'Location ID' : 'Account ID'}
+                              </label>
+                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)] font-mono truncate">
+                                {connectedAccountId}
+                              </div>
+                            </div>
+                          )}
+
+                          {resolvedStatus.scopes.length > 0 && (
+                            <div>
+                              <label className={labelClass}>Granted Scopes</label>
+                              <div className="flex flex-wrap gap-1">
+                                {resolvedStatus.scopes.map((scope) => (
+                                  <span key={scope} className="px-1.5 py-0.5 text-[9px] font-mono bg-[var(--muted)] text-[var(--muted-foreground)] rounded-full border border-[var(--border)]">
+                                    {scope}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {needsReauthorization && (
+                            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400">
+                              Missing required OAuth scopes for this provider.{' '}
+                              <a
+                                href={`/api/esp/connections/authorize?provider=${encodeURIComponent(providerId)}&accountKey=${encodeURIComponent(key)}`}
+                                className="underline font-medium hover:text-amber-300"
+                              >
+                                Re-authorize
+                              </a>
+                              {' '}to grant required scopes.
+                            </div>
+                          )}
+
+                          <div>
+                            <label className={labelClass}>Enabled Capabilities</label>
+                            {enabledCapabilities.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {enabledCapabilities.map((capability) => (
+                                  <span key={capability} className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--muted)] text-[var(--muted-foreground)] rounded-full border border-[var(--border)] uppercase">
+                                    {capability}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-[var(--muted-foreground)]">No runtime capabilities reported.</p>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className={labelClass}>Webhook Endpoints</label>
+                            {webhookEndpointEntries.length > 0 ? (
+                              <div className="space-y-2">
+                                {webhookEndpointEntries.map(([family, endpoint]) => (
+                                  <div key={`${family}:${endpoint}`} className="px-3 py-1.5 text-[11px] rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)] font-mono break-all">
+                                    <span className="block mb-1 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)] font-sans">
+                                      {family}
+                                    </span>
+                                    {endpoint}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-[var(--muted-foreground)]">
+                                No webhook endpoints are currently implemented for this provider.
+                              </p>
+                            )}
+                          </div>
+
+                          {connected ? (
+                            <div className="flex items-center gap-2">
+                              {canRefreshBusinessDetails && (
+                                <button
+                                  onClick={() => handleProviderReimport(providerId)}
+                                  disabled={reimporting}
+                                  className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] rounded-lg text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+                                >
+                                  <ArrowPathIcon className={`w-3.5 h-3.5 ${reimporting ? 'animate-spin' : ''}`} />
+                                  {reimporting ? 'Refreshing...' : 'Refresh Business Details'}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleProviderDisconnect(providerId)}
+                                disabled={disconnecting}
+                                className="flex items-center gap-1.5 px-3 py-2 border border-red-500/30 rounded-lg text-xs text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                              >
+                                <XMarkIcon className="w-3.5 h-3.5" />
+                                {disconnecting ? 'Disconnecting...' : 'Disconnect'}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {provider.oauthSupported && (
+                                <a
+                                  href={`/api/esp/connections/authorize?provider=${encodeURIComponent(providerId)}&accountKey=${encodeURIComponent(key)}`}
+                                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors"
+                                >
+                                  Connect with OAuth
+                                </a>
+                              )}
+
+                              {supportsDirectCredentials && (
+                                <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 p-3">
+                                  <div>
+                                    <label className={labelClass}>{providerSecretLabel(provider.capabilities.auth)}</label>
+                                    <input
+                                      type="password"
+                                      value={secret}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        setGenericProviderSecrets(prev => ({ ...prev, [providerId]: value }));
+                                      }}
+                                      placeholder={providerSecretPlaceholder(provider.capabilities.auth)}
+                                      className={`${inputClass} font-mono text-xs`}
+                                    />
+                                  </div>
+                                  <button
+                                    onClick={() => handleProviderCredentialConnect(providerId)}
+                                    disabled={!secret.trim() || connecting}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+                                  >
+                                    {connecting ? (
+                                      <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Connecting...</>
+                                    ) : (
+                                      <><LinkIcon className="w-4 h-4" /> Connect with Credentials</>
+                                    )}
+                                  </button>
+                                </div>
+                              )}
+
+                              {!provider.oauthSupported && !supportsDirectCredentials && (
+                                <p className="text-xs text-[var(--muted-foreground)]">
+                                  This provider does not expose a connection flow in Loomi yet.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+
+                    <div className="flex justify-end pt-2">
+                      <button
+                        onClick={() => setIntegrationModal(null)}
+                        className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* ════════════ CUSTOM VALUES TAB ════════════ */}
+        {activeTab === 'custom-values' && (
+          <div className="max-w-2xl space-y-6">
+
+            {/* ── Custom Values Sync ── */}
+            <section>
+              <h3 className={sectionHeadingClass}>Custom Values</h3>
+              <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
+                Fill in values for this account. Filled values are automatically synced to the connected ESP when supported.
+                Clearing a value will remove it from the connected ESP after confirmation.
+                Use <span className="font-mono">{'{{custom_values.field_key}}'}</span> in templates.
+              </p>
+
+              {/* Deletion confirmation modal */}
+              {showDeleteConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                  <div className="glass-card glass-modal rounded-xl p-6 max-w-md w-full mx-4 border border-[var(--border)] shadow-2xl">
+                    <div className="flex items-start gap-3 mb-4">
+                      <ExclamationTriangleIcon className="w-6 h-6 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="text-sm font-semibold text-[var(--foreground)]">Remove from connected ESP?</h4>
+                        <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                          The following custom values were cleared and will be <strong>deleted from the connected ESP</strong>:
+                        </p>
+                      </div>
+                    </div>
+                    <ul className="ml-9 mb-4 space-y-1">
+                      {pendingDeleteNames.map(name => (
+                        <li key={name} className="text-xs text-[var(--foreground)] flex items-center gap-1.5">
+                          <TrashIcon className="w-3 h-3 text-red-400" />
+                          {name}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => {
+                          setShowDeleteConfirm(false);
+                          setPendingDeleteNames([]);
+                          doSave(false); // Save without deleting from connected ESP
+                        }}
+                        className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                      >
+                        Keep in ESP
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowDeleteConfirm(false);
+                          setPendingDeleteNames([]);
+                          doSave(true); // Save and delete from connected ESP
+                        }}
+                        className="px-4 py-2 text-xs font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
+                      >
+                        Remove from ESP
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeProviderSupportsCustomValues && !activeProviderConnected && (
+                <div className="glass-card rounded-lg p-3 mb-3 border border-amber-500/20 bg-amber-500/5">
+                  <p className="text-[11px] text-amber-400">
+                    {providerDisplayName(activeProvider)} is not connected. Custom values can be saved locally but won&apos;t sync until you{' '}
+                    {activeProviderEntry?.oauthSupported ? (
+                      <a
+                        href={`/api/esp/connections/authorize?provider=${encodeURIComponent(activeProvider)}&accountKey=${encodeURIComponent(key)}`}
+                        className="underline font-medium hover:text-amber-300"
+                      >
+                        connect {providerDisplayName(activeProvider)}
+                      </a>
+                    ) : (
+                      <span className="font-medium">connect this provider from the Integrations tab</span>
+                    )}
+                    .
+                  </p>
+                </div>
+              )}
+
+              {activeProviderNeedsReauthorization && (
+                <div className="glass-card rounded-lg p-3 mb-3 border border-amber-500/20 bg-amber-500/5">
+                  <p className="text-[11px] text-amber-400">
+                    <strong>Re-authorization required:</strong> This account&apos;s OAuth token is missing one or more required scopes for custom value sync in {providerDisplayName(activeProvider)}.{' '}
+                    <a
+                      href={`/api/esp/connections/authorize?provider=${encodeURIComponent(activeProvider)}&accountKey=${encodeURIComponent(key)}`}
+                      className="underline font-medium hover:text-amber-300"
+                    >
+                      Re-authorize OAuth
+                    </a>{' '}
+                    to enable syncing custom values.
+                  </p>
+                </div>
+              )}
+
+              {!activeProviderSupportsCustomValues && (
+                <div className="glass-card rounded-lg p-3 mb-3 border border-amber-500/20 bg-amber-500/5">
+                  <p className="text-[11px] text-amber-400">
+                    {providerDisplayName(activeProvider)} does not currently support custom value field sync. Values will be saved locally in Loomi.
+                  </p>
+                </div>
+              )}
+
+              {/* Filled / empty summary */}
+              {(() => {
+                const allKeys = new Set(
+                  [...Object.keys(customValueDefaults), ...Object.keys(customValues)].filter((k) => k !== 'storefront_image'),
+                );
+                const filledCount = Array.from(allKeys).filter(k => {
+                  const val = (customValues[k] || customValueDefaults[k] || { value: '' }).value;
+                  return val && val.trim() !== '';
+                }).length;
+                const totalCount = allKeys.size;
+                const emptyCount = totalCount - filledCount;
+
+                return totalCount > 0 ? (
+                  <div className="flex items-center gap-3 mb-4 text-[11px]">
+                    <span className="flex items-center gap-1 text-emerald-400">
+                      <CheckCircleIcon className="w-3.5 h-3.5" />
+                      {filledCount} filled
+                    </span>
+                    {emptyCount > 0 && (
+                      <span className="flex items-center gap-1 text-amber-400">
+                        <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+                        {emptyCount} empty &mdash; won&apos;t sync
+                      </span>
+                    )}
+                  </div>
+                ) : null;
+              })()}
+
+              <div className="space-y-2">
+                {(() => {
+                  // Merge defaults + overrides for display
+                  const allKeys = new Set(
+                    [...Object.keys(customValueDefaults), ...Object.keys(customValues)].filter((k) => k !== 'storefront_image'),
+                  );
+                  const sortedKeys = Array.from(allKeys).sort();
+
+                  return sortedKeys.map(fieldKey => {
+                    const hasOverride = fieldKey in customValues;
+                    const def = customValues[fieldKey] || customValueDefaults[fieldKey] || { name: '', value: '' };
+                    const hasValue = def.value && def.value.trim() !== '';
+
+                    return (
+                      <div key={fieldKey} className={`glass-card rounded-lg p-3 flex items-start gap-3 ${!hasValue ? 'opacity-60' : ''}`}>
+                        {/* Status icon */}
+                        <div
+                          className="mt-4 flex-shrink-0"
+                          title={
+                            hasValue
+                              ? activeProviderSupportsCustomValues
+                                ? `Value set — will sync to ${providerDisplayName(activeProvider)}`
+                                : 'Value set — saved locally in Loomi'
+                              : 'Empty — will not sync until filled in'
+                          }
+                        >
+                          {hasValue ? (
+                            <CheckCircleIcon className="w-4 h-4 text-emerald-400" />
+                          ) : (
+                            <ExclamationTriangleIcon className="w-4 h-4 text-amber-400" />
+                          )}
+                        </div>
+                        <div className="flex-1 grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-[var(--muted-foreground)] mb-0.5">
+                              Field Key
+                            </label>
+                            <div className="font-mono text-xs text-[var(--muted-foreground)] py-1.5">{fieldKey}</div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-[var(--muted-foreground)] mb-0.5">Display Name</label>
+                            <input
+                              type="text"
+                              value={def.name}
+                              onChange={e => setCustomValues(prev => ({
+                                ...prev,
+                                [fieldKey]: { name: e.target.value, value: (prev[fieldKey] || customValueDefaults[fieldKey] || { value: '' }).value },
+                              }))}
+                              className="w-full px-2 py-1 text-xs rounded border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-[var(--muted-foreground)] mb-0.5">Value</label>
+                            <input
+                              type="text"
+                              value={def.value}
+                              onChange={e => setCustomValues(prev => ({
+                                ...prev,
+                                [fieldKey]: { name: (prev[fieldKey] || customValueDefaults[fieldKey] || { name: '' }).name, value: e.target.value },
+                              }))}
+                              placeholder={customValueDefaults[fieldKey]?.value || 'Enter value...'}
+                              className="w-full px-2 py-1 text-xs rounded border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]"
+                            />
+                          </div>
+                        </div>
+                        {hasOverride && !(fieldKey in customValueDefaults) && (
+                          <button
+                            onClick={() => setCustomValues(prev => {
+                              const next = { ...prev };
+                              delete next[fieldKey];
+                              return next;
+                            })}
+                            className="mt-4 text-[var(--muted-foreground)] hover:text-red-400 transition-colors"
+                            title="Remove custom value"
+                          >
+                            <TrashIcon className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+
+              {/* Add new custom value */}
+              <button
+                onClick={() => {
+                  const fieldKey = prompt('Enter a field key (e.g. sales_phone, custom_url):');
+                  if (!fieldKey || !fieldKey.trim()) return;
+                  const cleanKey = fieldKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+                  if (customValues[cleanKey] || customValueDefaults[cleanKey]) {
+                    toast.error(`Field key "${cleanKey}" already exists.`);
+                    return;
+                  }
+                  setCustomValues(prev => ({
+                    ...prev,
+                    [cleanKey]: { name: cleanKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), value: '' },
+                  }));
+                }}
+                className="mt-3 text-xs text-[var(--primary)] hover:underline flex items-center gap-1"
+              >
+                <span className="text-sm">+</span> Add Custom Value
+              </button>
+            </section>
+
+          </div>
+        )}
+
+        {/* ════════════ CONTACTS TAB ════════════ */}
+        {showContactsTab && activeTab === 'contacts' && (
+          <AccountContactsTab accountKey={key} isConnected={hasAnyProviderConnection} />
+        )}
+
+      </div>
+    </AdminOnly>
+  );
+}
+
+// ════════════════════════════════════════
+// Account Contacts Tab
+// ════════════════════════════════════════
+
+function AccountContactsTab({ accountKey, isConnected }: { accountKey: string; isConnected: boolean }) {
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch(`/api/esp/contacts?accountKey=${encodeURIComponent(accountKey)}&limit=100`);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to fetch contacts');
+      }
+      const data = await res.json();
+      setContacts(data.contacts || []);
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : 'Failed to fetch contacts');
+      setContacts([]);
+    }
+    setLoading(false);
+  }, [accountKey]);
+
+  useEffect(() => {
+    if (isConnected) {
+      fetchData();
+    } else {
+      setLoading(false);
+    }
+  }, [isConnected, fetchData]);
+
+  if (!isConnected) {
+    return (
+      <div className="text-center py-16 border border-dashed border-[var(--border)] rounded-xl">
+        <ExclamationTriangleIcon className="w-8 h-8 text-[var(--muted-foreground)] mx-auto mb-3" />
+        <p className="text-[var(--muted-foreground)] text-sm font-medium">No ESP Connection</p>
+        <p className="text-[var(--muted-foreground)] text-xs mt-1">
+          Connect this account to an ESP provider to view contacts.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <ContactsTable
+      contacts={contacts}
+      loading={loading}
+      error={fetchError}
+      accountKey={accountKey}
+    />
+  );
+}
+
+// ════════════════════════════════════════
+// Logo Upload Slot Component
+// ════════════════════════════════════════
+function LogoSlot({
+  label,
+  variant,
+  value,
+  onChange,
+  onUpload,
+  required,
+}: {
+  label: string;
+  variant: AccountImageVariant;
+  value: string;
+  onChange: (v: string) => void;
+  onUpload: (file: File) => void;
+  required: boolean;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File must be under 5MB');
+      return;
+    }
+    setUploading(true);
+    await onUpload(file);
+    setUploading(false);
+  }, [onUpload]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const inputClass = 'w-full px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
+
+  return (
+    <div data-variant={variant}>
+      <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-2">
+        {label} {!required && <span className="opacity-50">(optional)</span>}
+      </label>
+
+      {/* Upload zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        onClick={() => fileRef.current?.click()}
+        className={`relative rounded-xl border-2 border-dashed transition-all cursor-pointer flex items-center justify-center overflow-hidden ${
+          dragging
+            ? 'border-[var(--primary)] bg-[var(--primary)]/5'
+            : value
+            ? 'border-[var(--border)] bg-[var(--muted)]'
+            : 'border-[var(--border)] bg-[var(--muted)]/50 hover:border-[var(--muted-foreground)]'
+        }`}
+        style={{ height: '120px' }}
+      >
+        {uploading ? (
+          <div className="flex flex-col items-center gap-2 text-[var(--muted-foreground)]">
+            <ArrowPathIcon className="w-5 h-5 animate-spin" />
+            <span className="text-[10px]">Uploading...</span>
+          </div>
+        ) : value ? (
+          <img
+            src={value}
+            alt={label}
+            className="max-w-full max-h-full object-contain p-3"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-[var(--muted-foreground)]">
+            <CloudArrowUpIcon className="w-6 h-6" />
+            <span className="text-[10px]">Drop image or click to upload</span>
+          </div>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleFile(file);
+            e.target.value = '';
+          }}
+        />
+      </div>
+
+      {/* URL fallback + remove */}
+      <div className="mt-2 flex gap-1.5">
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="https://... or upload above"
+          className={`${inputClass} flex-1`}
+        />
+        {value && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onChange(''); }}
+            className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors flex-shrink-0"
+            title="Remove logo"
+          >
+            <TrashIcon className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

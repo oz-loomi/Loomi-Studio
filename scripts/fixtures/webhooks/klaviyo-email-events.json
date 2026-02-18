@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "type": "event",
+      "attributes": {
+        "event": "Email Delivered",
+        "timestamp": "__TIMESTAMP__",
+        "account_id": "__ACCOUNT_ID__",
+        "event_properties": {
+          "campaign_id": "__CAMPAIGN_ID__"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "attributes": {
+        "event": "Email Clicked",
+        "timestamp": "__TIMESTAMP__",
+        "account_id": "__ACCOUNT_ID__",
+        "event_properties": {
+          "campaign_id": "__CAMPAIGN_ID__"
+        }
+      }
+    }
+  ]
+}

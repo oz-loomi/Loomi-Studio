@@ -1,0 +1,11 @@
+{
+  "type": "LCEmailStats",
+  "locationId": "__LOCATION_ID__",
+  "webhookPayload": {
+    "event": "opened",
+    "id": "__EVENT_ID__",
+    "timestamp": "__TIMESTAMP__",
+    "campaigns": ["__CAMPAIGN_ID__"],
+    "tags": []
+  }
+}

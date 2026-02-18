@@ -1,0 +1,71 @@
+<script props>
+  module.exports = {
+    rooftop: props.rooftop || '',
+    // Content
+    buttonText: props['button-text'] || 'Schedule Service',
+    buttonUrl: props['button-url'] || '{{custom_values.service_scheduler_url}}',
+    // UTM
+    utmSource: props['utm-source'] || 'email',
+    utmMedium: props['utm-medium'] || 'lifecycle',
+    utmCampaign: props['utm-campaign'] || 'service-reminder',
+    utmContent: props['utm-content'] || '',
+    get fullUrl() {
+      let url = this.buttonUrl;
+      url += '?utm_source=' + this.utmSource;
+      url += '&utm_medium=' + this.utmMedium;
+      url += '&utm_campaign=' + this.utmCampaign;
+      if (this.utmContent) url += '&utm_content=' + this.utmContent;
+      return url;
+    },
+    // Phone (PostHTML may coerce "false" to boolean false)
+    showPhone: props['show-phone'] !== 'false' && props['show-phone'] !== false,
+    phoneDisplay: (props['show-phone'] === 'false' || props['show-phone'] === false) ? 'none' : 'block',
+    phoneText: props['phone-text'] || 'Or call your Service Advisor',
+    // Layout
+    align: props.align || 'center',
+    containerPadding: props['container-padding'] || '',
+    // Typography
+    font: props.font || "Helvetica Neue, Helvetica, Arial, sans-serif",
+    // Button typography
+    fontSize: props['font-size'] || '12px',
+    fontWeight: props['font-weight'] || '700',
+    letterSpacing: props['letter-spacing'] || '2px',
+    textTransform: props['text-transform'] || 'uppercase',
+    // Button style
+    bgColor: props['bg-color'] || '#000000',
+    textColor: props['text-color'] || '#ffffff',
+    radius: props.radius || '0',
+    padding: props.padding || '18px 48px',
+    border: props.border || '',
+    // Phone typography
+    phoneSize: props['phone-size'] || '13px',
+    phoneWeight: props['phone-weight'] || '400',
+    phoneMargin: props['phone-margin'] || '20px 0 0 0',
+    phoneLinkWeight: props['phone-link-weight'] || '700',
+    phoneColor: props['phone-color'] || '#666666',
+    phoneLinkColor: props['phone-link-color'] || '#000000',
+    // Section border
+    sectionBorderColor: props['section-border-color'] || '',
+    sectionBorderWidth: props['section-border-width'] || '0px',
+    sectionBorderStyle: props['section-border-style'] || 'none',
+  };
+</script>
+
+<tr>
+  <td class="mobile-padding" style="text-align: {{ align }};{{ containerPadding ? ' padding: ' + containerPadding + ';' : '' }}{{ sectionBorderColor ? ' border: ' + sectionBorderWidth + ' ' + sectionBorderStyle + ' ' + sectionBorderColor + ';' : '' }}">
+    <a
+      href="{{ fullUrl }}"
+      target="_blank"
+      class="mobile-full-width"
+      style="display: inline-block; background-color: {{ bgColor }}; border-radius: {{ radius }}; color: {{ textColor }}; font-family: {{ font }}; font-size: {{ fontSize }}; font-weight: {{ fontWeight }}; letter-spacing: {{ letterSpacing }}; text-decoration: none; text-transform: {{ textTransform }}; padding: {{ padding }};{{ border ? ' border: ' + border + ';' : '' }}"
+    >
+      {{ buttonText }}
+    </a>
+    <p style="display: {{ phoneDisplay }}; font-family: {{ font }}; font-size: {{ phoneSize }}; font-weight: {{ phoneWeight }}; color: {{ phoneColor }}; margin: {{ phoneMargin }};">
+        {{ phoneText }}
+        <a href="tel:{{location.phone}}" style="color: {{ phoneLinkColor }}; text-decoration: none; font-weight: {{ phoneLinkWeight }};">
+          {{location.phone}}
+        </a>
+      </p>
+  </td>
+</tr>

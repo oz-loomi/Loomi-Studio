@@ -1,0 +1,400 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  PlusIcon,
+  XMarkIcon,
+  TrashIcon,
+  ShieldCheckIcon,
+  ArrowLeftIcon,
+} from '@heroicons/react/24/outline';
+import { toast } from 'sonner';
+import { AccountAvatar } from '@/components/account-avatar';
+import { OemMultiSelect } from '@/components/oem-multi-select';
+import { formatAccountCityState } from '@/lib/account-resolvers';
+import type { AccountData } from '@/contexts/account-context';
+import { providerDisplayName, providerIcon } from '@/lib/esp/provider-display';
+
+type CreateMode = null | 'choose' | 'manual';
+
+interface AccountsListProps {
+  listPath?: string;
+  detailBasePath?: string;
+}
+
+const CATEGORY_SUGGESTIONS = ['Automotive', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
+
+/** Convert a display name to camelCase slug, e.g. "Young Ford Ogden" → "youngFordOgden" */
+function toCamelCaseSlug(name: string): string {
+  return name
+    .replace(/[^a-zA-Z0-9\s]/g, '')
+    .trim()
+    .split(/\s+/)
+    .map((w, i) =>
+      i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+    )
+    .join('');
+}
+
+function normalizeConnectedProviders(account: AccountData): string[] {
+  if (Array.isArray(account.connectedProviders) && account.connectedProviders.length > 0) {
+    return [...new Set(
+      account.connectedProviders
+        .map((provider) => String(provider || '').trim().toLowerCase())
+        .filter(Boolean),
+    )];
+  }
+
+  if (account.activeConnection?.connected && account.activeConnection.provider) {
+    return [String(account.activeConnection.provider).trim().toLowerCase()].filter(Boolean);
+  }
+
+  return [];
+}
+
+export function AccountsList({
+  listPath = '/accounts',
+  detailBasePath = '/accounts',
+}: AccountsListProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [accounts, setAccounts] = useState<Record<string, AccountData> | null>(null);
+
+  // Create account state
+  const [createMode, setCreateMode] = useState<CreateMode>(null);
+  const [newKey, setNewKey] = useState('');
+  const [newDealer, setNewDealer] = useState('');
+  const [newCategory, setNewCategory] = useState('General');
+  const [newOems, setNewOems] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/accounts')
+      .then(r => r.json())
+      .then(data => setAccounts(data))
+      .catch(err => console.error(err));
+  }, []);
+
+  // Handle OAuth error from redirect.
+  useEffect(() => {
+    const errorMessage = searchParams.get('esp_error');
+    const provider = searchParams.get('esp_provider');
+
+    if (errorMessage) {
+      toast.error(`${providerDisplayName(provider)} connection failed: ${errorMessage}`);
+      router.replace(listPath, { scroll: false });
+    }
+  }, [searchParams, router, listPath]);
+
+  const resetCreate = () => {
+    setCreateMode(null);
+    setNewKey('');
+    setNewDealer('');
+    setNewCategory('General');
+    setNewOems([]);
+    setCreating(false);
+  };
+
+  /** Create account — simplified: name + industry + optional brand, then redirect to detail page */
+  const handleCreateManual = async () => {
+    if (!newKey.trim() || !newDealer.trim() || creating) return;
+    setCreating(true);
+    try {
+      const isAutomotiveIndustry = newCategory.trim().toLowerCase() === 'automotive';
+      const selectedOems = isAutomotiveIndustry ? newOems : [];
+      const accountBody: Record<string, unknown> = {
+        key: newKey.trim(),
+        dealer: newDealer.trim(),
+        category: newCategory,
+        oems: selectedOems.length > 0 ? selectedOems : undefined,
+        oem: selectedOems[0] || undefined,
+      };
+
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(accountBody),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || 'Failed to create'); setCreating(false); return; }
+
+      toast.success('Account created!');
+      resetCreate();
+      // Redirect to the new account's detail page
+      router.push(`${detailBasePath}/${newKey.trim()}`);
+    } catch {
+      toast.error('Failed to create account');
+    }
+    setCreating(false);
+  };
+
+
+  const handleDelete = async (key: string) => {
+    if (!confirm(`Delete account "${accounts?.[key]?.dealer || key}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/accounts?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed to delete'); return; }
+      setAccounts(prev => {
+        if (!prev) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    } catch {
+      toast.error('Failed to delete account');
+    }
+  };
+
+  if (!accounts) return <div className="text-[var(--muted-foreground)]">Loading...</div>;
+
+  const entries = Object.entries(accounts);
+  const showManualBrands = newCategory.trim().toLowerCase() === 'automotive';
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <p className="text-sm text-[var(--muted-foreground)]">
+          {entries.length} account{entries.length !== 1 ? 's' : ''} configured
+        </p>
+        <button
+          onClick={() => setCreateMode('choose')}
+          className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+        >
+          <PlusIcon className="w-4 h-4" /> New Account
+        </button>
+      </div>
+
+      {/* ─── Add Account Modal ─── */}
+      {createMode && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-overlay-in">
+          <div className="glass-modal w-full max-w-lg mx-4">
+
+            {/* ── Step 1: Choose path ── */}
+            {createMode === 'choose' && (
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-semibold">Add New Account</h3>
+                  <button onClick={resetCreate} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]">
+                    <XMarkIcon className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setCreateMode('manual')}
+                    className="w-full flex items-center gap-4 p-4 glass-card rounded-xl hover:bg-[var(--primary)]/5 transition-all text-left group"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-500/20 transition-colors">
+                      <ShieldCheckIcon className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium">Create Account</div>
+                      <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                        Set up account details, then connect an ESP + branding
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-medium bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full flex-shrink-0">
+                      Recommended
+                    </span>
+                  </button>
+                  <p className="text-xs text-[var(--muted-foreground)] px-1">
+                    Legacy direct-token imports are retired. Create the account first, then connect your ESP in Integrations.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── Manual Create (simplified: Name + Industry + Brand) ── */}
+            {createMode === 'manual' && (
+              <div className="p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <button onClick={() => setCreateMode('choose')} className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]">
+                    <ArrowLeftIcon className="w-4 h-4" />
+                  </button>
+                  <h3 className="text-lg font-semibold flex-1">Create Account</h3>
+                  <button onClick={resetCreate} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]">
+                    <XMarkIcon className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Account Name *</label>
+                    <input
+                      type="text"
+                      value={newDealer}
+                      onChange={(e) => {
+                        setNewDealer(e.target.value);
+                        setNewKey(toCamelCaseSlug(e.target.value));
+                      }}
+                      className="w-full bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm"
+                      placeholder="e.g. Young Ford Ogden"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Slug</label>
+                      <input
+                        type="text"
+                        value={newKey}
+                        onChange={(e) => setNewKey(e.target.value)}
+                        className="w-full bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm font-mono text-[var(--muted-foreground)]"
+                        placeholder="auto-generated"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Industry</label>
+                      <select
+                        value={newCategory}
+                        onChange={(e) => setNewCategory(e.target.value)}
+                        className="w-full bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm"
+                      >
+                        {CATEGORY_SUGGESTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {showManualBrands && (
+                    <div>
+                      <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Brands</label>
+                      <OemMultiSelect
+                        value={newOems}
+                        onChange={setNewOems}
+                        placeholder="Select brands..."
+                        maxSelections={8}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-[var(--muted-foreground)] mt-4">
+                  You&apos;ll be taken to the account detail page to add business details, logos, and ESP connection.
+                </p>
+
+                <div className="flex items-center gap-2 mt-4">
+                  <button
+                    onClick={handleCreateManual}
+                    disabled={!newKey.trim() || !newDealer.trim() || creating}
+                    className="flex-1 px-4 py-2.5 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                  >
+                    {creating ? 'Creating...' : 'Create Account'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* ─── Account Table ─── */}
+      {entries.length === 0 ? (
+        <div className="text-center py-16 text-[var(--muted-foreground)]">
+          <p className="text-sm">No accounts yet.</p>
+          <p className="text-xs mt-1">Click &quot;New Account&quot; to get started.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto glass-table">
+          <table className="w-full min-w-[600px]">
+            <thead>
+              <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                <th className="w-12 px-4 py-3"></th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Account Name</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Industry</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Location</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Integrations</th>
+                <th className="w-12 px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map(([key, account]) => {
+                const cityState = formatAccountCityState(account) || '';
+                return (
+                  <tr
+                    key={key}
+                    onClick={() => router.push(`${detailBasePath}/${key}`)}
+                    className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--muted)]/50 transition-colors cursor-pointer"
+                  >
+                    <td className="px-4 py-3">
+                      <AccountAvatar
+                        name={account.dealer}
+                        accountKey={key}
+                        storefrontImage={account.storefrontImage}
+                        size={32}
+                        className="w-8 h-8 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-sm font-medium">{account.dealer}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs text-[var(--muted-foreground)] bg-[var(--muted)] px-2 py-0.5 rounded-full">
+                        {account.category || 'General'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs text-[var(--muted-foreground)]">
+                        {cityState || '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        {(() => {
+                          const connectedProviders = normalizeConnectedProviders(account);
+                          if (connectedProviders.length === 0) {
+                            return <span className="text-xs text-[var(--muted-foreground)]">—</span>;
+                          }
+
+                          return connectedProviders.map((provider) => {
+                            const icon = providerIcon(provider);
+                            if (icon) {
+                              return (
+                                <button
+                                  key={provider}
+                                  onClick={(e) => { e.stopPropagation(); router.push(`${detailBasePath}/${key}?tab=integration`); }}
+                                  className="w-6 h-6 rounded-full bg-white border border-[var(--border)] flex items-center justify-center flex-shrink-0 overflow-hidden hover:ring-2 hover:ring-[var(--primary)]/40 transition-shadow"
+                                  title={`${providerDisplayName(provider)} — Click to manage`}
+                                >
+                                  <img
+                                    src={icon.src}
+                                    alt={icon.alt}
+                                    className="w-4 h-4 object-contain"
+                                  />
+                                </button>
+                              );
+                            }
+
+                            return (
+                              <button
+                                key={provider}
+                                onClick={(e) => { e.stopPropagation(); router.push(`${detailBasePath}/${key}?tab=integration`); }}
+                                className="h-6 min-w-6 px-1 rounded-full bg-[var(--muted)] border border-[var(--border)] text-[10px] font-semibold uppercase text-[var(--muted-foreground)] hover:ring-2 hover:ring-[var(--primary)]/40 transition-shadow"
+                                title={`${providerDisplayName(provider)} — Click to manage`}
+                              >
+                                {provider.slice(0, 2)}
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDelete(key); }}
+                        className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        title="Delete account"
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

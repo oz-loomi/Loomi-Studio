@@ -1,0 +1,366 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  // For local development: "sqlite" with @prisma/adapter-better-sqlite3
+  // For production (Railway): Change to "postgresql" and set DATABASE_URL
+  provider = "sqlite"
+}
+
+// ─────────────────────────────────────────────────────
+// Auth & Users
+// ─────────────────────────────────────────────────────
+
+model User {
+  id         String   @id @default(cuid())
+  name       String
+  title      String?
+  email      String   @unique
+  password   String
+  avatarUrl  String?
+  role       String   @default("client") // developer | admin | client
+  accountKeys String  @default("[]") // JSON array of assigned account keys
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────
+// Accounts (formerly rooftops.json)
+// ─────────────────────────────────────────────────────
+
+model Account {
+  id             String   @id @default(cuid())
+  key            String   @unique // "youngHonda", "smithToyota"
+  dealer         String // "Young Honda"
+  category       String? // "Automotive", "Healthcare", etc.
+  oem            String? // single OEM key
+  oems           String? // JSON array of OEM keys for multi-brand dealers
+  email          String?
+  phone          String?
+  salesPhone     String?
+  servicePhone   String?
+  partsPhone     String?
+  address        String?
+  city           String?
+  state          String?
+  postalCode     String?
+  website        String?
+  timezone       String?
+  logos          String? // JSON: { light, dark, white?, black? }
+  branding       String? // JSON: { colors: { primary, secondary, ... }, fonts: { heading, body } }
+  customValues   String? // JSON: Record<string, { name, value }>
+  espProvider     String // active provider id (must match a registered adapter)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  emails        AccountEmail[]
+  espConnections EspConnection[]
+  espOAuthConnections EspOAuthConnection[]
+  audiences     Audience[]
+  loomiFlows    LoomiFlow[]
+}
+
+model CampaignEmailStats {
+  id                String    @id @default(cuid())
+  provider          String // provider id
+  accountId         String // provider-specific account/location identifier
+  campaignId        String // provider campaign/schedule identifier from webhook payload
+  firstDeliveredAt  DateTime? // precise "Sent Date" — timestamp of first delivered event
+  deliveredCount    Int       @default(0)
+  openedCount       Int       @default(0)
+  clickedCount      Int       @default(0)
+  bouncedCount      Int       @default(0)
+  complainedCount   Int       @default(0)
+  unsubscribedCount Int       @default(0)
+  lastEventAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([provider, accountId, campaignId])
+  @@index([provider, accountId])
+}
+
+// ─────────────────────────────────────────────────────
+// ESP Connections (API-key-based providers)
+// ─────────────────────────────────────────────────────
+
+model EspConnection {
+  id          String   @id @default(cuid())
+  accountKey  String
+  account     Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  provider    String // provider id
+  apiKey      String // encrypted at rest (AES-256-GCM)
+  accountId   String? // provider-specific account identifier
+  accountName String?
+  metadata    String? // JSON for provider-specific extras
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([accountKey, provider])
+  @@index([provider])
+  @@index([accountKey])
+}
+
+model EspOAuthConnection {
+  id             String   @id @default(cuid())
+  accountKey     String
+  account        Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  provider       String // provider id
+  locationId     String?
+  locationName   String?
+  accessToken    String // encrypted at rest (AES-256-GCM)
+  refreshToken   String // encrypted at rest (AES-256-GCM)
+  tokenExpiresAt DateTime
+  scopes         String   @default("[]") // JSON array of granted scopes
+  installedAt    DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([accountKey, provider])
+  @@index([provider])
+  @@index([accountKey])
+}
+
+// ─────────────────────────────────────────────────────
+// Template Library
+// ─────────────────────────────────────────────────────
+
+model Template {
+  id        String   @id @default(cuid())
+  slug      String   @unique // "service-reminder", "modern-dark"
+  title     String // "Service Reminder", "Modern Dark"
+  type      String // "lifecycle" | "design"
+  category  String? // "service", "sales", "loyalty", etc.
+  content   String // full raw HTML template source
+  preheader String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  versions TemplateVersion[]
+  tags     TemplateTagAssignment[]
+  emails   AccountEmail[]
+}
+
+model TemplateVersion {
+  id         String   @id @default(cuid())
+  templateId String
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  content    String // snapshot of full HTML at this version
+  createdAt  DateTime @default(now())
+
+  @@index([templateId])
+}
+
+// ─────────────────────────────────────────────────────
+// Template Tags
+// ─────────────────────────────────────────────────────
+
+model TemplateTag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  assignments TemplateTagAssignment[]
+}
+
+model TemplateTagAssignment {
+  id         String      @id @default(cuid())
+  templateId String
+  template   Template    @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  tagId      String
+  tag        TemplateTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, tagId])
+}
+
+// ─────────────────────────────────────────────────────
+// Account Emails (template instances per account)
+// ─────────────────────────────────────────────────────
+
+model AccountEmail {
+  id         String       @id @default(cuid())
+  accountKey String
+  account    Account      @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  templateId String
+  template   Template     @relation(fields: [templateId], references: [id])
+  name       String // "Service Reminder - Young Honda"
+  content    String? // null = use library template, non-null = customized copy
+  status     String       @default("draft") // draft | active | archived
+  folderId   String?
+  folder     EmailFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([accountKey])
+  @@index([templateId])
+}
+
+// ─────────────────────────────────────────────────────
+// Email Folders
+// ─────────────────────────────────────────────────────
+
+model EmailFolder {
+  id         String   @id @default(cuid())
+  name       String
+  accountKey String? // null = global folder
+  createdAt  DateTime @default(now())
+
+  emails AccountEmail[]
+
+  @@unique([name, accountKey])
+}
+
+// ─────────────────────────────────────────────────────
+// Audiences (saved contact filters)
+// ─────────────────────────────────────────────────────
+
+model Audience {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  accountKey      String?
+  account         Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  createdByUserId String?
+  filters         String   // JSON: FilterDefinition
+  icon            String?
+  color           String?
+  sortOrder       Int      @default(0)
+  providerMetadata String? // JSON map for provider-specific audience refs
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([name, accountKey])
+  @@index([accountKey])
+}
+
+// ─────────────────────────────────────────────────────
+// Loomi Flows (native flow definitions managed in Loomi)
+// ─────────────────────────────────────────────────────
+
+model LoomiFlow {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  status          String   @default("inactive") // active | inactive
+  accountKey      String?
+  account         Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  createdByUserId String?
+  sourceAudienceId String?
+  sourceFilter    String?
+  metadata        String?
+  publishedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([accountKey])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────
+// SMS Campaigns (bulk + scheduled outbound)
+// ─────────────────────────────────────────────────────
+
+model SmsCampaign {
+  id              String   @id @default(cuid())
+  name            String?
+  message         String
+  status          String   @default("queued") // queued | scheduled | processing | completed | partial | failed | canceled
+  scheduledFor    DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdByUserId String?
+  createdByRole   String?
+  sourceAudienceId String?
+  sourceFilter    String?
+  accountKeys     String   @default("[]") // JSON array of account keys
+  totalRecipients Int      @default(0)
+  sentCount       Int      @default(0)
+  failedCount     Int      @default(0)
+  metadata        String?
+  error           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  recipients SmsCampaignRecipient[]
+
+  @@index([status, scheduledFor])
+  @@index([createdAt])
+}
+
+model SmsCampaignRecipient {
+  id             String      @id @default(cuid())
+  campaignId     String
+  campaign       SmsCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId      String
+  accountKey     String
+  phone          String?
+  fullName       String?
+  status         String      @default("pending") // pending | sent | failed | skipped
+  messageId      String?
+  conversationId String?
+  sentAt         DateTime?
+  error          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([campaignId, contactId, accountKey])
+  @@index([campaignId, status])
+  @@index([accountKey, status])
+}
+
+// ─────────────────────────────────────────────────────
+// Email Campaigns (bulk + scheduled outbound)
+// ─────────────────────────────────────────────────────
+
+model EmailCampaign {
+  id               String   @id @default(cuid())
+  name             String?
+  subject          String
+  previewText      String?
+  htmlContent      String
+  textContent      String?
+  sourceType       String   @default("template-library") // template-library | drag-drop | html
+  status           String   @default("queued") // queued | scheduled | processing | completed | partial | failed | canceled
+  scheduledFor     DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdByUserId  String?
+  createdByRole    String?
+  sourceAudienceId String?
+  sourceFilter     String?
+  accountKeys      String   @default("[]") // JSON array of account keys
+  totalRecipients  Int      @default(0)
+  sentCount        Int      @default(0)
+  failedCount      Int      @default(0)
+  metadata         String?
+  error            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  recipients EmailCampaignRecipient[]
+
+  @@index([status, scheduledFor])
+  @@index([createdAt])
+}
+
+model EmailCampaignRecipient {
+  id         String        @id @default(cuid())
+  campaignId String
+  campaign   EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId  String
+  accountKey String
+  email      String?
+  fullName   String?
+  status     String        @default("pending") // pending | sent | failed | skipped
+  messageId  String?
+  sentAt     DateTime?
+  error      String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([campaignId, contactId, accountKey])
+  @@index([campaignId, status])
+  @@index([accountKey, status])
+}

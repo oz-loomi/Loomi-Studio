@@ -1,0 +1,100 @@
+<script props>
+  module.exports = {
+    rooftop: props.rooftop || '',
+    // Content
+    cardLabel: props['card-label'] || 'Your Vehicle',
+    vehicleYear: props['vehicle-year'] || '{{contact.vehicle_year}}',
+    vehicleMake: props['vehicle-make'] || '{{contact.vehicle_make}}',
+    vehicleModel: props['vehicle-model'] || '{{contact.vehicle_model}}',
+    stat1Label: props['stat-1-label'] || props['field1-label'] || 'Last Service',
+    stat1Value: props['stat-1-value'] || props['field1-value'] || '{{contact.last_service_date}}',
+    stat2Label: props['stat-2-label'] || props['field2-label'] || 'Current Mileage',
+    stat2Value: props['stat-2-value'] || props['field2-value'] || '{{contact.vehicle_mileage}} mi',
+    showStats: props['show-stats'] !== 'false',
+    // Layout
+    cardPadding: props['card-padding'] || '32px',
+    statPadding: props['stat-padding'] || '20px 32px',
+    align: props.align || 'left',
+    // Typography
+    font: props.font || "Helvetica Neue, Helvetica, Arial, sans-serif",
+    // Label typography
+    labelSize: props['label-size'] || '10px',
+    labelWeight: props['label-weight'] || '700',
+    labelSpacing: props['label-spacing'] || '2px',
+    labelTransform: props['label-transform'] || 'uppercase',
+    labelMargin: props['label-margin'] || '0 0 8px 0',
+    // Vehicle name typography
+    vehicleSize: props['vehicle-size'] || '24px',
+    vehicleWeight: props['vehicle-weight'] || '700',
+    vehicleLineHeight: props['vehicle-line-height'] || '1.2',
+    // Stat label typography
+    statLabelSize: props['stat-label-size'] || '10px',
+    statLabelWeight: props['stat-label-weight'] || '600',
+    statLabelSpacing: props['stat-label-spacing'] || '1.5px',
+    statLabelTransform: props['stat-label-transform'] || 'uppercase',
+    // Stat value typography
+    statValueSize: props['stat-value-size'] || '16px',
+    statValueWeight: props['stat-value-weight'] || '700',
+    // Colors
+    bgColor: props['bg-color'] || '#ebebeb',
+    radius: props.radius || '0',
+    accentColor: props['accent-color'] || '#cc0000',
+    labelColor: props['label-color'] || '#494949',
+    vehicleColor: props['vehicle-color'] || '#000000',
+    statLabelColor: props['stat-label-color'] || '#494949',
+    statValueColor: props['stat-value-color'] || '#494949',
+    borderColor: props['border-color'] || '',
+    borderWidth: props['border-width'] || '0.5px',
+    borderStyle: props['border-style'] || 'solid',
+  };
+</script>
+
+<tr>
+  <td class="mobile-full-width">
+    <table
+      role="presentation"
+      width="100%"
+      cellspacing="0"
+      cellpadding="0"
+      border="0"
+      style="background-color: {{ bgColor }}; border-radius: {{ radius }};{{ borderColor ? ' border: ' + borderWidth + ' ' + borderStyle + ' ' + borderColor + ';' : '' }}"
+    >
+      <tr>
+        <td style="padding: {{ cardPadding }}; text-align: {{ align }};">
+          <p style="font-family: {{ font }}; font-size: {{ labelSize }}; font-weight: {{ labelWeight }}; letter-spacing: {{ labelSpacing }}; text-transform: {{ labelTransform }}; color: {{ labelColor }}; margin: {{ labelMargin }};">
+            {{ cardLabel }}
+          </p>
+          <p style="font-family: {{ font }}; font-size: {{ vehicleSize }}; font-weight: {{ vehicleWeight }}; color: {{ vehicleColor }}; margin: 0; line-height: {{ vehicleLineHeight }};">
+            {{ vehicleYear }} {{ vehicleMake }} {{ vehicleModel }}
+          </p>
+        </td>
+      </tr>
+      <if condition="showStats">
+        <tr>
+          <td style="padding: 0;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td width="50%" style="border-top: {{ borderWidth }} solid {{ borderColor || accentColor }}; padding: {{ statPadding }};" valign="top">
+                  <p style="font-family: {{ font }}; font-size: {{ statLabelSize }}; font-weight: {{ statLabelWeight }}; letter-spacing: {{ statLabelSpacing }}; text-transform: {{ statLabelTransform }}; color: {{ statLabelColor }}; margin: 0 0 6px 0;">
+                    {{ stat1Label }}
+                  </p>
+                  <p style="font-family: {{ font }}; font-size: {{ statValueSize }}; font-weight: {{ statValueWeight }}; color: {{ statValueColor }}; margin: 0;">
+                    {{ stat1Value }}
+                  </p>
+                </td>
+                <td width="50%" style="border-top: {{ borderWidth }} solid {{ borderColor || accentColor }}; border-left: {{ borderWidth }} solid {{ borderColor || accentColor }}; padding: {{ statPadding }};" valign="top">
+                  <p style="font-family: {{ font }}; font-size: {{ statLabelSize }}; font-weight: {{ statLabelWeight }}; letter-spacing: {{ statLabelSpacing }}; text-transform: {{ statLabelTransform }}; color: {{ statLabelColor }}; margin: 0 0 6px 0;">
+                    {{ stat2Label }}
+                  </p>
+                  <p style="font-family: {{ font }}; font-size: {{ statValueSize }}; font-weight: {{ statValueWeight }}; color: {{ statValueColor }}; margin: 0;">
+                    {{ stat2Value }}
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </if>
+    </table>
+  </td>
+</tr>

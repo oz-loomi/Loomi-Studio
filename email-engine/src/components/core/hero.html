@@ -1,0 +1,148 @@
+<script props>
+  module.exports = {
+    rooftop: props.rooftop || '',
+    // Content
+    eyebrow: props.eyebrow || '',
+    headline: props.headline || '',
+    subheadline: props.subheadline || '',
+    // Background
+    bgImage: props['bg-image'] || '',
+    bgSize: props['bg-size'] || 'cover',
+    bgPosition: props['bg-position'] || 'center center',
+    heroHeight: props['hero-height'] || '500px',
+    fallbackBg: props['fallback-bg'] || '#1a1a1a',
+    gradient: props.gradient || '',
+    // Layout
+    textAlign: props['text-align'] || 'left',
+    contentPadding: props['content-padding'] || '48px',
+    contentValign: props['content-valign'] || 'bottom',
+    // Buttons
+    primaryButtonText: props['primary-button-text'] || props['button-text'] || '',
+    primaryButtonUrl: props['primary-button-url'] || props['button-url'] || '{{custom_values.website_url}}',
+    secondaryButtonText: props['secondary-button-text'] || '',
+    secondaryButtonUrl: props['secondary-button-url'] || '{{custom_values.website_url}}',
+    buttonGap: props['button-gap'] || '12px',
+    utmCampaign: props['utm-campaign'] || 'hero',
+    // Typography
+    font: props.font || "Helvetica Neue, Helvetica, Arial, sans-serif",
+    eyebrowSize: props['eyebrow-size'] || '11px',
+    eyebrowWeight: props['eyebrow-weight'] || '600',
+    eyebrowSpacing: props['eyebrow-spacing'] || '3px',
+    eyebrowTransform: props['eyebrow-transform'] || 'uppercase',
+    eyebrowMargin: props['eyebrow-margin'] || '0 0 12px 0',
+    headlineSize: props['headline-size'] || '32px',
+    headlineWeight: props['headline-weight'] || '700',
+    headlineSpacing: props['headline-spacing'] || 'normal',
+    headlineTransform: props['headline-transform'] || 'none',
+    headlineLineHeight: props['headline-line-height'] || '1.2',
+    headlineMargin: props['headline-margin'] || '0 0 12px 0',
+    subheadlineSize: props['subheadline-size'] || '15px',
+    subheadlineWeight: props['subheadline-weight'] || '400',
+    subheadlineLineHeight: props['subheadline-line-height'] || '1.6',
+    subheadlineMargin: props['subheadline-margin'] || '0 0 28px 0',
+    // Button typography
+    btnFontSize: props['btn-font-size'] || '12px',
+    btnFontWeight: props['btn-font-weight'] || '700',
+    btnLetterSpacing: props['btn-letter-spacing'] || '2px',
+    btnTransform: props['btn-transform'] || 'uppercase',
+    btnPadding: props['btn-padding'] || '16px 36px',
+    // Primary button colors
+    primaryBgColor: props['primary-bg-color'] || '#ffffff',
+    primaryTextColor: props['primary-text-color'] || '#000000',
+    primaryRadius: props['primary-radius'] || '0',
+    primaryBorder: props['primary-border'] || '',
+    // Secondary button colors
+    secondaryBgColor: props['secondary-bg-color'] || 'transparent',
+    secondaryTextColor: props['secondary-text-color'] || '#ffffff',
+    secondaryBorderColor: props['secondary-border-color'] || '#ffffff',
+    secondaryRadius: props['secondary-radius'] || '0',
+    // Text colors
+    eyebrowColor: props['eyebrow-color'] || 'rgba(255,255,255,0.7)',
+    headlineColor: props['headline-color'] || '#ffffff',
+    subheadlineColor: props['subheadline-color'] || 'rgba(255,255,255,0.85)',
+    // Border
+    borderColor: props['border-color'] || '',
+    borderWidth: props['border-width'] || '0px',
+    borderStyle: props['border-style'] || 'none',
+  };
+</script>
+
+<!--[if mso]>
+<v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:{{ heroHeight }};">
+<v:fill type="frame" src="{{ bgImage }}" />
+<v:textbox inset="0,0,0,0">
+<![endif]-->
+<tr>
+  <td
+    background="{{ bgImage }}"
+    bgcolor="{{ fallbackBg }}"
+    width="600"
+    height="{{ heroHeight }}"
+    valign="{{ contentValign }}"
+    style="background-image: url('{{ bgImage }}'); background-size: {{ bgSize }}; background-position: {{ bgPosition }}; height: {{ heroHeight }};{{ borderColor ? ' border: ' + borderWidth + ' ' + borderStyle + ' ' + borderColor + ';' : '' }}"
+  >
+    <div style="{{ gradient ? 'background: ' + gradient + ';' : '' }} padding: {{ contentPadding }}; height: 100%; box-sizing: border-box;" valign="{{ contentValign }}">
+      <!--[if mso]>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+          <td valign="{{ contentValign }}" style="padding: 0;">
+      <![endif]-->
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="height: 100%;">
+        <tr>
+          <td valign="{{ contentValign }}" style="text-align: {{ textAlign }};">
+            <if condition="eyebrow">
+              <p style="font-family: {{ font }}; font-size: {{ eyebrowSize }}; font-weight: {{ eyebrowWeight }}; letter-spacing: {{ eyebrowSpacing }}; text-transform: {{ eyebrowTransform }}; color: {{ eyebrowColor }}; margin: {{ eyebrowMargin }};">
+                {{ eyebrow }}
+              </p>
+            </if>
+            <if condition="headline">
+              <h1 style="font-family: {{ font }}; font-size: {{ headlineSize }}; font-weight: {{ headlineWeight }}; letter-spacing: {{ headlineSpacing }}; text-transform: {{ headlineTransform }}; line-height: {{ headlineLineHeight }}; color: {{ headlineColor }}; margin: {{ headlineMargin }};">
+                {{{ headline }}}
+              </h1>
+            </if>
+            <if condition="subheadline">
+              <p style="font-family: {{ font }}; font-size: {{ subheadlineSize }}; font-weight: {{ subheadlineWeight }}; line-height: {{ subheadlineLineHeight }}; color: {{ subheadlineColor }}; margin: {{ subheadlineMargin }};">
+                {{ subheadline }}
+              </p>
+            </if>
+            <if condition="primaryButtonText">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="{{ textAlign === 'center' ? 'margin: 0 auto;' : '' }}">
+                <tr>
+                  <td style="padding-right: {{ secondaryButtonText ? buttonGap : '0' }};">
+                    <a
+                      href="{{ primaryButtonUrl }}?utm_source=email&utm_medium=lifecycle&utm_campaign={{ utmCampaign }}&utm_content=hero_primary"
+                      target="_blank"
+                      style="display: inline-block; background-color: {{ primaryBgColor }}; border-radius: {{ primaryRadius }}; color: {{ primaryTextColor }}; font-family: {{ font }}; font-size: {{ btnFontSize }}; font-weight: {{ btnFontWeight }}; letter-spacing: {{ btnLetterSpacing }}; text-decoration: none; text-transform: {{ btnTransform }}; padding: {{ btnPadding }};{{ primaryBorder ? ' border: ' + primaryBorder + ';' : '' }}"
+                    >
+                      {{ primaryButtonText }}
+                    </a>
+                  </td>
+                  <if condition="secondaryButtonText">
+                    <td>
+                      <a
+                        href="{{ secondaryButtonUrl }}?utm_source=email&utm_medium=lifecycle&utm_campaign={{ utmCampaign }}&utm_content=hero_secondary"
+                        target="_blank"
+                        style="display: inline-block; background-color: {{ secondaryBgColor }}; border: 1px solid {{ secondaryBorderColor }}; border-radius: {{ secondaryRadius }}; color: {{ secondaryTextColor }}; font-family: {{ font }}; font-size: {{ btnFontSize }}; font-weight: {{ btnFontWeight }}; letter-spacing: {{ btnLetterSpacing }}; text-decoration: none; text-transform: {{ btnTransform }}; padding: {{ btnPadding }};"
+                      >
+                        {{ secondaryButtonText }}
+                      </a>
+                    </td>
+                  </if>
+                </tr>
+              </table>
+            </if>
+          </td>
+        </tr>
+      </table>
+      <!--[if mso]>
+          </td>
+        </tr>
+      </table>
+      <![endif]-->
+    </div>
+  </td>
+</tr>
+<!--[if mso]>
+</v:textbox>
+</v:rect>
+<![endif]-->

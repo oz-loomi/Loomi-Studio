@@ -1,0 +1,18 @@
+{
+  "General": [
+    "modern-dark",
+    "modern-light",
+    "bold-accent",
+    "clean-minimal",
+    "classic-professional",
+    "split-hero",
+    "card-based"
+  ],
+  "Luxury": [
+    "luxury-noir",
+    "luxury-platinum",
+    "luxury-modern",
+    "luxury-editorial",
+    "luxury-heritage"
+  ]
+}

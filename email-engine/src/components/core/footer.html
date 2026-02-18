@@ -1,0 +1,283 @@
+<script props>
+  module.exports = {
+    variant: props.variant || 'dealer',
+    // Typography
+    font: props.font || "Helvetica Neue, Helvetica, Arial, sans-serif",
+    // Colors
+    bgColor: props['bg-color'] || '#000000',
+    textColor: props['text-color'] || '#bdbdbd',
+    dealerNameColor: props['dealer-name-color'] || '#ffffff',
+    linkColor: props['link-color'] || '#bdbdbd',
+    dividerColor: props['divider-color'] || '#2a2a2a',
+    phoneColor: props['phone-color'] || '#ffffff',
+    copyrightColor: props['copyright-color'] || 'rgba(255,255,255,0.4)',
+    iconColor: props['icon-color'] || 'bdbdbd',
+    // Content
+    dealerName: props['dealer-name'] || '{{location.name}}',
+    logoUrl: props['logo-url'] || '',
+    logoWidth: props['logo-width'] || '220',
+    // Social URLs
+    facebookUrl: props['facebook-url'] || '',
+    instagramUrl: props['instagram-url'] || '',
+    youtubeUrl: props['youtube-url'] || '',
+    linkedinUrl: props['linkedin-url'] || '',
+    tiktokUrl: props['tiktok-url'] || '',
+    xUrl: props['x-url'] || '',
+    // Layout - Dealer variant
+    containerPadding: props['container-padding'] || '48px 40px',
+    // Dealer name typography
+    nameSize: props['name-size'] || '13px',
+    nameWeight: props['name-weight'] || '800',
+    nameSpacing: props['name-spacing'] || '1.5px',
+    nameTransform: props['name-transform'] || 'uppercase',
+    nameMargin: props['name-margin'] || '22px 0 8px 0',
+    // Address typography
+    addressSize: props['address-size'] || '13px',
+    addressWeight: props['address-weight'] || '400',
+    addressLineHeight: props['address-line-height'] || '1.7',
+    addressMargin: props['address-margin'] || '0 0 22px 0',
+    // Phone typography
+    phoneSize: props['phone-size'] || '14px',
+    phoneWeight: props['phone-weight'] || '700',
+    phoneSpacing: props['phone-spacing'] || '1.2px',
+    phoneTransform: props['phone-transform'] || 'uppercase',
+    phoneMargin: props['phone-margin'] || '0 0 28px 0',
+    // Link typography
+    linkSize: props['link-size'] || '11px',
+    linkSpacing: props['link-spacing'] || '0.8px',
+    linkTransform: props['link-transform'] || 'uppercase',
+    // Social icon size
+    iconSize: props['icon-size'] || '18',
+    iconGap: props['icon-gap'] || '14px',
+    // Layout - Brand variant
+    brandPadding: props['brand-padding'] || '35px',
+    brandLogoOpacity: props['brand-logo-opacity'] || '0.85',
+    // Follow Us typography
+    followSize: props['follow-size'] || '10px',
+    followWeight: props['follow-weight'] || '500',
+    followSpacing: props['follow-spacing'] || '2px',
+    followTransform: props['follow-transform'] || 'uppercase',
+    brandIconSize: props['brand-icon-size'] || '20',
+    brandIconGap: props['brand-icon-gap'] || '16px',
+    // Brand link typography
+    brandLinkSize: props['brand-link-size'] || '10px',
+    brandLinkWeight: props['brand-link-weight'] || '400',
+    brandLinkSpacing: props['brand-link-spacing'] || '1.5px',
+    brandLinkTransform: props['brand-link-transform'] || 'uppercase',
+    brandLinkLineHeight: props['brand-link-line-height'] || '2.4',
+    // Copyright typography
+    copyrightSize: props['copyright-size'] || '10px',
+    copyrightWeight: props['copyright-weight'] || '400',
+    copyrightSpacing: props['copyright-spacing'] || '1px',
+    copyrightTransform: props['copyright-transform'] || 'uppercase',
+  };
+</script>
+
+<if condition="variant === 'dealer'">
+  <!-- DEALER FOOTER: Logo, name, address, phone, divider, links + social -->
+  <tr>
+    <td style="text-align: left; padding: {{ containerPadding }}; background-color: {{ bgColor }};">
+      <a href="{{custom_values.website_url}}" style="text-decoration: none;">
+        <img
+          src="{{ logoUrl }}"
+          alt="{{ dealerName }}"
+          width="{{ logoWidth }}"
+          style="display: inline-block; border: 0; height: auto;"
+        />
+      </a>
+
+      <p style="font-family: {{ font }}; font-size: {{ nameSize }}; font-weight: {{ nameWeight }}; text-transform: {{ nameTransform }}; letter-spacing: {{ nameSpacing }}; color: {{ dealerNameColor }}; margin: {{ nameMargin }};">
+        {{ dealerName }}
+      </p>
+
+      <p style="font-family: {{ font }}; font-size: {{ addressSize }}; font-weight: {{ addressWeight }}; color: {{ textColor }}; margin: {{ addressMargin }}; line-height: {{ addressLineHeight }};">
+        {{location.address}}<br />{{location.city}}, {{location.state}} {{location.postal_code}}
+      </p>
+
+      <p style="margin: {{ phoneMargin }};">
+        <a href="tel:{{location.phone}}" style="font-family: {{ font }}; font-size: {{ phoneSize }}; font-weight: {{ phoneWeight }}; text-transform: {{ phoneTransform }}; letter-spacing: {{ phoneSpacing }}; color: {{ phoneColor }}; text-decoration: none;">
+          {{location.phone}}
+        </a>
+      </p>
+
+      <div style="height: 1px; background-color: {{ dividerColor }}; line-height: 1px; font-size: 1px; margin: 0 0 18px 0;">&nbsp;</div>
+
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+          <td align="left" valign="middle" style="padding-top: 6px;">
+            <p style="font-family: {{ font }}; font-size: {{ linkSize }}; color: {{ linkColor }}; margin: 0; text-transform: {{ linkTransform }}; letter-spacing: {{ linkSpacing }};">
+              <a href="{{custom_values.website_url}}/privacy.htm" style="color: {{ linkColor }}; text-decoration: none;">Privacy Policy</a>
+              &nbsp;&nbsp;|&nbsp;&nbsp;
+              <a href="{{unsubscribe_link}}" style="color: {{ linkColor }}; text-decoration: none;">Unsubscribe</a>
+            </p>
+          </td>
+          <td align="right" valign="middle" style="padding-top: 6px;">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <if condition="facebookUrl">
+                  <td style="padding-left: {{ iconGap }};" valign="middle">
+                    <a href="{{ facebookUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://img.icons8.com/?size=100&id=8818&format=png&color={{ iconColor }}" width="{{ iconSize }}" height="{{ iconSize }}" alt="Facebook" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+                <if condition="instagramUrl">
+                  <td style="padding-left: {{ iconGap }};" valign="middle">
+                    <a href="{{ instagramUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://img.icons8.com/?size=100&id=RhYNENh5cxlS&format=png&color={{ iconColor }}" width="{{ iconSize }}" height="{{ iconSize }}" alt="Instagram" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+                <if condition="xUrl">
+                  <td style="padding-left: {{ iconGap }};" valign="middle">
+                    <a href="{{ xUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07e2335ff68e60a5.png" width="{{ iconSize }}" height="{{ iconSize }}" alt="X" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+                <if condition="youtubeUrl">
+                  <td style="padding-left: {{ iconGap }};" valign="middle">
+                    <a href="{{ youtubeUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://img.icons8.com/?size=100&id=37326&format=png&color={{ iconColor }}" width="{{ iconSize }}" height="{{ iconSize }}" alt="YouTube" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+                <if condition="linkedinUrl">
+                  <td style="padding-left: {{ iconGap }};" valign="middle">
+                    <a href="{{ linkedinUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07e1fd8272a21da63c9.png" width="{{ iconSize }}" height="{{ iconSize }}" alt="LinkedIn" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+                <if condition="tiktokUrl">
+                  <td style="padding-left: {{ iconGap }};" valign="middle">
+                    <a href="{{ tiktokUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07e2335ff4e5668e60b.png" width="{{ iconSize }}" height="{{ iconSize }}" alt="TikTok" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</if>
+
+<if condition="variant === 'brand'">
+  <!-- BRAND FOOTER: OEM logo, Follow Us + social, divider, links, copyright -->
+  <tr>
+    <td style="background-color: {{ bgColor }}; padding: {{ brandPadding }};">
+      <!-- Logo -->
+      <if condition="logoUrl">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+          <tr>
+            <td align="left" style="padding: 0 0 24px 0;">
+              <img
+                src="{{ logoUrl }}"
+                alt="{{ dealerName }}"
+                width="{{ logoWidth }}"
+                style="display: block; border: 0; height: auto; opacity: {{ brandLogoOpacity }};"
+              />
+            </td>
+          </tr>
+        </table>
+      </if>
+
+      <!-- Social Row -->
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+          <td style="padding-bottom: 24px;">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td style="padding-right: 24px;" valign="middle">
+                  <p style="font-family: {{ font }}; font-size: {{ followSize }}; font-weight: {{ followWeight }}; letter-spacing: {{ followSpacing }}; text-transform: {{ followTransform }}; color: {{ textColor }}; margin: 0;">
+                    Follow Us
+                  </p>
+                </td>
+                <if condition="facebookUrl">
+                  <td style="padding-right: {{ brandIconGap }};" valign="middle">
+                    <a href="{{ facebookUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07e1fd827cbaada63c8.png" width="{{ brandIconSize }}" height="{{ brandIconSize }}" alt="Facebook" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+                <if condition="instagramUrl">
+                  <td style="padding-right: {{ brandIconGap }};" valign="middle">
+                    <a href="{{ instagramUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07ef7a877fc9968b48c.png" width="{{ brandIconSize }}" height="{{ brandIconSize }}" alt="Instagram" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+                <if condition="xUrl">
+                  <td style="padding-right: {{ brandIconGap }};" valign="middle">
+                    <a href="{{ xUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07e2335ff68e60a5.png" width="{{ brandIconSize }}" height="{{ brandIconSize }}" alt="X" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+                <if condition="youtubeUrl">
+                  <td style="padding-right: {{ brandIconGap }};" valign="middle">
+                    <a href="{{ youtubeUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07ef7a87716c268b48d.png" width="{{ brandIconSize }}" height="{{ brandIconSize }}" alt="YouTube" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+                <if condition="linkedinUrl">
+                  <td style="padding-right: {{ brandIconGap }};" valign="middle">
+                    <a href="{{ linkedinUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07e1fd8272a21da63c9.png" width="{{ brandIconSize }}" height="{{ brandIconSize }}" alt="LinkedIn" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+                <if condition="tiktokUrl">
+                  <td valign="middle">
+                    <a href="{{ tiktokUrl }}" target="_blank" style="text-decoration: none;">
+                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07e2335ff4e5668e60b.png" width="{{ brandIconSize }}" height="{{ brandIconSize }}" alt="TikTok" style="display: block; border: 0;" />
+                    </a>
+                  </td>
+                </if>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Divider -->
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+          <td style="border-top: 1px solid {{ dividerColor }}; padding-top: 24px;"></td>
+        </tr>
+      </table>
+
+      <!-- Links Row -->
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+          <td style="padding-bottom: 16px;">
+            <p style="font-family: {{ font }}; font-size: {{ brandLinkSize }}; font-weight: {{ brandLinkWeight }}; letter-spacing: {{ brandLinkSpacing }}; text-transform: {{ brandLinkTransform }}; color: {{ linkColor }}; margin: 0; line-height: {{ brandLinkLineHeight }};">
+              <a href="{{custom_values.website_url}}" style="color: {{ linkColor }}; text-decoration: none;">Contact Us</a>
+              &nbsp;&nbsp;&nbsp;&nbsp;
+              <a href="{{custom_values.website_url}}/privacy.htm" style="color: {{ linkColor }}; text-decoration: none;">Privacy Policy</a>
+              &nbsp;&nbsp;&nbsp;&nbsp;
+              <a href="{{custom_values.website_url}}/terms.htm" style="color: {{ linkColor }}; text-decoration: none;">Terms of Use</a>
+              &nbsp;&nbsp;&nbsp;&nbsp;
+              <a href="{{unsubscribe_link}}" style="color: {{ linkColor }}; text-decoration: none;">Unsubscribe</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Copyright -->
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+          <td>
+            <p style="font-family: {{ font }}; font-size: {{ copyrightSize }}; font-weight: {{ copyrightWeight }}; letter-spacing: {{ copyrightSpacing }}; text-transform: {{ copyrightTransform }}; color: {{ copyrightColor }}; margin: 0;">
+              &copy; 2025 {{ dealerName }}. All Rights Reserved.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</if>

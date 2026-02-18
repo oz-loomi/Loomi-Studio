@@ -1,0 +1,10 @@
+<script props>
+  module.exports = {
+    size: props.size || '48',
+    bgColor: props['bg-color'] || '',
+  };
+</script>
+
+<tr>
+  <td style="font-size: 0; line-height: 0; height: {{ size }}px;{{ bgColor ? ' background-color: ' + bgColor + ';' : '' }}" height="{{ size }}">&nbsp;</td>
+</tr>

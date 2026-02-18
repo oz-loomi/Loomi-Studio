@@ -1,0 +1,43 @@
+<script props>
+  module.exports = {
+    rooftop: props.rooftop || '',
+    // Content
+    greeting: props.greeting || '',
+    body: props.body || props.copy || '',
+    // Layout
+    align: props.align || props['text-align'] || 'left',
+    padding: props.padding || '',
+    // Typography
+    font: props.font || "Helvetica Neue, Helvetica, Arial, sans-serif",
+    // Greeting
+    greetingSize: props['greeting-size'] || '14px',
+    greetingWeight: props['greeting-weight'] || '400',
+    greetingSpacing: props['greeting-spacing'] || 'normal',
+    greetingTransform: props['greeting-transform'] || 'none',
+    greetingMargin: props['greeting-margin'] || '0 0 16px 0',
+    greetingColor: props['greeting-color'] || '#000000',
+    // Body
+    bodySize: props['body-size'] || '16px',
+    bodyWeight: props['body-weight'] || '400',
+    bodyMargin: props['body-margin'] || '0',
+    bodyColor: props['body-color'] || '#222222',
+    lineHeight: props['line-height'] || '1.8',
+    // Border
+    borderColor: props['border-color'] || '',
+    borderWidth: props['border-width'] || '0px',
+    borderStyle: props['border-style'] || 'none',
+  };
+</script>
+
+<tr>
+  <td style="text-align: {{ align }};{{ padding ? ' padding: ' + padding + ';' : '' }}{{ borderColor ? ' border: ' + borderWidth + ' ' + borderStyle + ' ' + borderColor + ';' : '' }}">
+    <if condition="greeting">
+      <p style="font-family: {{ font }}; font-size: {{ greetingSize }}; font-weight: {{ greetingWeight }}; letter-spacing: {{ greetingSpacing }}; text-transform: {{ greetingTransform }}; color: {{ greetingColor }}; margin: {{ greetingMargin }};">
+        {{ greeting }}
+      </p>
+    </if>
+    <p style="font-family: {{ font }}; font-size: {{ bodySize }}; font-weight: {{ bodyWeight }}; color: {{ bodyColor }}; margin: {{ bodyMargin }}; line-height: {{ lineHeight }};">
+      {{{ body }}}
+    </p>
+  </td>
+</tr>

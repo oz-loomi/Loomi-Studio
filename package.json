@@ -1,0 +1,54 @@
+{
+  "name": "loomi-studio",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "db:seed": "npx tsx prisma/seed.ts",
+    "esp:audit": "node --import tsx scripts/esp-audit.ts",
+    "esp:webhook-fixtures": "node --import tsx scripts/esp-webhook-fixtures.ts",
+    "esp:oauth-state-fixtures": "node --import tsx scripts/esp-oauth-state-fixtures.ts",
+    "esp:reencrypt-credentials": "node --import tsx scripts/esp-reencrypt-credentials.ts",
+    "esp:secret-health": "node --import tsx scripts/esp-secret-health.ts",
+    "esp:migrate-env-secrets": "node --import tsx scripts/esp-migrate-env-secrets.ts",
+    "esp:verify": "npx tsc --noEmit && npx tsc --noEmit --noUnusedLocals --noUnusedParameters && npm run esp:oauth-state-fixtures && npm run esp:webhook-fixtures && npm run esp:audit -- --include-internal"
+  },
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "@monaco-editor/react": "^4.7.0",
+    "@prisma/adapter-better-sqlite3": "^7.4.0",
+    "@prisma/client": "^7.4.0",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.2.13",
+    "autoprefixer": "^10.4.24",
+    "bcryptjs": "^3.0.3",
+    "next": "^14.2.35",
+    "next-auth": "^4.24.13",
+    "nodemailer": "^8.0.1",
+    "postcss": "^8.5.6",
+    "puppeteer": "^24.37.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sharp": "^0.34.5",
+    "sonner": "^2.0.7",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/nodemailer": "^7.0.9",
+    "@types/react-dom": "^19.2.3",
+    "@types/sharp": "^0.31.1",
+    "dotenv": "^17.3.1",
+    "monaco-editor": "^0.55.1",
+    "prisma": "^7.4.0",
+    "tsx": "^4.21.0"
+  }
+}

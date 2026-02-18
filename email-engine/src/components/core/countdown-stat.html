@@ -1,0 +1,69 @@
+<script props>
+  module.exports = {
+    // Content
+    label: props.label || '',
+    value: props.value || '',
+    caption: props.caption || '',
+    // Layout
+    align: props.align || 'center',
+    padding: props.padding || '32px',
+    // Typography
+    font: props.font || "Helvetica Neue, Helvetica, Arial, sans-serif",
+    // Label
+    labelSize: props['label-size'] || '10px',
+    labelWeight: props['label-weight'] || '700',
+    labelSpacing: props['label-spacing'] || '2px',
+    labelTransform: props['label-transform'] || 'uppercase',
+    labelMargin: props['label-margin'] || '0 0 8px 0',
+    // Value
+    valueSize: props['value-size'] || '48px',
+    valueWeight: props['value-weight'] || '700',
+    valueLineHeight: props['value-line-height'] || '1',
+    valueMargin: props['value-margin'] || '0 0 4px 0',
+    // Caption
+    captionSize: props['caption-size'] || '13px',
+    captionWeight: props['caption-weight'] || '400',
+    captionMargin: props['caption-margin'] || '0',
+    // Colors
+    bgColor: props['bg-color'] || '#ebebeb',
+    radius: props.radius || '0',
+    labelColor: props['label-color'] || '#494949',
+    valueColor: props['value-color'] || '#cc0000',
+    captionColor: props['caption-color'] || '#494949',
+    // Border
+    borderColor: props['border-color'] || '',
+    borderWidth: props['border-width'] || '0px',
+    borderStyle: props['border-style'] || 'none',
+  };
+</script>
+
+<tr>
+  <td>
+    <table
+      role="presentation"
+      width="100%"
+      cellspacing="0"
+      cellpadding="0"
+      border="0"
+      style="background-color: {{ bgColor }}; border-radius: {{ radius }};{{ borderColor ? ' border: ' + borderWidth + ' ' + borderStyle + ' ' + borderColor + ';' : '' }}"
+    >
+      <tr>
+        <td style="padding: {{ padding }}; text-align: {{ align }};">
+          <if condition="label">
+            <p style="font-family: {{ font }}; font-size: {{ labelSize }}; font-weight: {{ labelWeight }}; letter-spacing: {{ labelSpacing }}; text-transform: {{ labelTransform }}; color: {{ labelColor }}; margin: {{ labelMargin }};">
+              {{ label }}
+            </p>
+          </if>
+          <p style="font-family: {{ font }}; font-size: {{ valueSize }}; font-weight: {{ valueWeight }}; line-height: {{ valueLineHeight }}; color: {{ valueColor }}; margin: {{ valueMargin }};">
+            {{ value }}
+          </p>
+          <if condition="caption">
+            <p style="font-family: {{ font }}; font-size: {{ captionSize }}; font-weight: {{ captionWeight }}; color: {{ captionColor }}; margin: {{ captionMargin }};">
+              {{ caption }}
+            </p>
+          </if>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
