@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import bcryptjs from 'bcryptjs';
@@ -9,11 +10,11 @@ const candidate =
 if (!/^postgres(ql)?:\/\//.test(candidate)) {
   throw new Error('DATABASE_URL must be a PostgreSQL URL (postgresql://...)');
 }
-const poolOpts: Record<string, unknown> = { connectionString: candidate };
-if (candidate.includes('sslmode=require')) {
-  poolOpts.ssl = { rejectUnauthorized: false };
-}
-const adapter = new PrismaPg(poolOpts);
+const ssl = candidate.includes('sslmode=require')
+  ? { rejectUnauthorized: false }
+  : undefined;
+const pool = new pg.Pool({ connectionString: candidate, ssl });
+const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function main() {

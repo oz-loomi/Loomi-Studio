@@ -47,6 +47,7 @@
     "@tailwindcss/postcss": "^4.1.18",
     "@types/bcryptjs": "^2.4.6",
     "@types/nodemailer": "^7.0.9",
+    "@types/pg": "^8.16.0",
     "@types/react-dom": "^19.2.3",
     "@types/sharp": "^0.31.1",
     "dotenv": "^17.3.1",

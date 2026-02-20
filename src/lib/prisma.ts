@@ -1,3 +1,4 @@
+import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
@@ -9,12 +10,11 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-function buildPoolOptions(connectionString: string) {
-  const opts: Record<string, unknown> = { connectionString };
-  if (connectionString.includes('sslmode=require')) {
-    opts.ssl = { rejectUnauthorized: false };
-  }
-  return opts;
+function createPool(connectionString: string) {
+  const ssl = connectionString.includes('sslmode=require')
+    ? { rejectUnauthorized: false }
+    : undefined;
+  return new pg.Pool({ connectionString, ssl });
 }
 
 function createPrismaClient() {
@@ -24,7 +24,8 @@ function createPrismaClient() {
   if (!/^postgres(ql)?:\/\//.test(candidate)) {
     throw new Error('DATABASE_URL must be a PostgreSQL URL (postgresql://...)');
   }
-  const adapter = new PrismaPg(buildPoolOptions(candidate));
+  const pool = createPool(candidate);
+  const adapter = new PrismaPg(pool);
   return new PrismaClient({ adapter });
 }
 

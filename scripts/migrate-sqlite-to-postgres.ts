@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
@@ -34,11 +35,11 @@ const candidate =
 if (!/^postgres(ql)?:\/\//.test(candidate)) {
   throw new Error('DATABASE_URL must be a PostgreSQL URL (postgresql://...)');
 }
-const poolOpts: Record<string, unknown> = { connectionString: candidate };
-if (candidate.includes('sslmode=require')) {
-  poolOpts.ssl = { rejectUnauthorized: false };
-}
-const adapter = new PrismaPg(poolOpts);
+const ssl = candidate.includes('sslmode=require')
+  ? { rejectUnauthorized: false }
+  : undefined;
+const pool = new pg.Pool({ connectionString: candidate, ssl });
+const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 const prismaAny = prisma as unknown as Record<
   string,
