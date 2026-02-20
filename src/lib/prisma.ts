@@ -1,20 +1,8 @@
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
-import { PrismaClient } from '@/generated/prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
 
 /**
  * Prisma client singleton.
- *
- * Currently uses SQLite via better-sqlite3 adapter for local development.
- *
- * For production (Railway with PostgreSQL):
- *   1. Change prisma/schema.prisma: provider = "postgresql"
- *   2. Set DATABASE_URL to the Postgres connection string
- *   3. Run: npx prisma generate && npx prisma db push
- *   4. Update this file to use PrismaClient without an adapter:
- *      ```
- *      const prisma = new PrismaClient();
- *      ```
- *   5. Remove @prisma/adapter-better-sqlite3 from dependencies
  */
 
 const globalForPrisma = globalThis as unknown as {
@@ -22,9 +10,13 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPrismaClient() {
-  const adapter = new PrismaBetterSqlite3({
-    url: process.env.DATABASE_URL ?? 'file:./prisma/dev.db',
-  });
+  const candidate =
+    process.env.DATABASE_URL ??
+    'postgresql://postgres:postgres@127.0.0.1:5432/loomi_studio?schema=public';
+  if (!/^postgres(ql)?:\/\//.test(candidate)) {
+    throw new Error('DATABASE_URL must be a PostgreSQL URL (postgresql://...)');
+  }
+  const adapter = new PrismaPg({ connectionString: candidate });
   return new PrismaClient({ adapter });
 }
 

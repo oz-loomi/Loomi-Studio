@@ -301,6 +301,16 @@ main[data-scrolled='true'] .page-sticky-header {
     inset 0 0.5px 0 rgba(255, 255, 255, 0.8);
 }
 
+/* Allow dropdown panels to escape clipping containers while open. */
+@supports selector(:has(*)) {
+  .glass-modal:has(.glass-dropdown),
+  .glass-table:has(.glass-dropdown),
+  .overflow-hidden:has(.glass-dropdown),
+  [class*='overflow-hidden']:has(.glass-dropdown) {
+    overflow: visible;
+  }
+}
+
 /* ── Glass card ── cards, stat tiles, list items */
 .glass-card {
   background: var(--card);

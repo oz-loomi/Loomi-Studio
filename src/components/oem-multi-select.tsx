@@ -1,5 +1,6 @@
 'use client';
 
+import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckIcon, ChevronDownIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { MAJOR_US_OEMS } from '@/lib/oems';
@@ -11,6 +12,11 @@ interface OemMultiSelectProps {
   placeholder?: string;
   maxSelections?: number;
 }
+
+type FloatingState = {
+  style: React.CSSProperties;
+  listMaxHeight: number;
+};
 
 function summarizeSelection(values: string[], placeholder: string): string {
   if (values.length === 0) return placeholder;
@@ -27,23 +33,90 @@ export function OemMultiSelect({
 }: OemMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [floating, setFloating] = useState<FloatingState | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  function updateFloatingPosition() {
+    const trigger = triggerRef.current;
+    if (!trigger || typeof window === 'undefined') return;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 8;
+    const gap = 8;
+    const minPanelHeight = 168;
+    const preferredPanelHeight = 360;
+
+    const width = Math.min(
+      Math.max(rect.width, 280),
+      Math.max(280, window.innerWidth - viewportPadding * 2),
+    );
+    const left = Math.min(
+      Math.max(rect.left, viewportPadding),
+      window.innerWidth - width - viewportPadding,
+    );
+
+    const spaceBelow = window.innerHeight - rect.bottom - gap - viewportPadding;
+    const spaceAbove = rect.top - gap - viewportPadding;
+    const placeAbove = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const availableSpace = Math.max(placeAbove ? spaceAbove : spaceBelow, minPanelHeight);
+    const panelHeight = Math.min(preferredPanelHeight, availableSpace);
+    const top = placeAbove
+      ? Math.max(viewportPadding, rect.top - gap - panelHeight)
+      : Math.min(window.innerHeight - viewportPadding - panelHeight, rect.bottom + gap);
+
+    setFloating({
+      style: {
+        position: 'fixed',
+        top,
+        left,
+        width,
+        zIndex: 240,
+      },
+      listMaxHeight: Math.max(96, panelHeight - 78),
+    });
+  }
 
   useEffect(() => {
     if (!open) return;
+
     function handleClickOutside(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      const clickedTrigger = rootRef.current?.contains(target);
+      const clickedMenu = menuRef.current?.contains(target);
+      if (!clickedTrigger && !clickedMenu) setOpen(false);
     }
+
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
     }
+
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setFloating(null);
+      return;
+    }
+
+    updateFloatingPosition();
+
+    function handleViewportChange() {
+      updateFloatingPosition();
+    }
+
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+    return () => {
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
     };
   }, [open]);
 
@@ -83,6 +156,7 @@ export function OemMultiSelect({
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         className="w-full min-h-[38px] px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)] flex items-center gap-2"
@@ -105,8 +179,8 @@ export function OemMultiSelect({
         )}
       </button>
 
-      {open && (
-        <div className="absolute top-full left-0 mt-2 z-50 w-full min-w-[280px] glass-dropdown shadow-lg animate-fade-in-up">
+      {open && floating && typeof document !== 'undefined' && createPortal(
+        <div ref={menuRef} className="glass-dropdown shadow-lg animate-fade-in-up" style={floating.style}>
           <div className="p-2 border-b border-[var(--border)]">
             <input
               type="text"
@@ -121,7 +195,7 @@ export function OemMultiSelect({
             </div>
           </div>
 
-          <div className="max-h-[260px] overflow-y-auto p-1.5">
+          <div className="overflow-y-auto p-1.5" style={{ maxHeight: floating.listMaxHeight }}>
             <button
               type="button"
               onClick={clearAll}
@@ -162,7 +236,8 @@ export function OemMultiSelect({
               })
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

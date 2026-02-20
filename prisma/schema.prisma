@@ -1,12 +1,10 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
+  engineType = "binary"
 }
 
 datasource db {
-  // For local development: "sqlite" with @prisma/adapter-better-sqlite3
-  // For production (Railway): Change to "postgresql" and set DATABASE_URL
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 // ─────────────────────────────────────────────────────

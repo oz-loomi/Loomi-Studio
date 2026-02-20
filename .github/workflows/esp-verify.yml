@@ -11,7 +11,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DATABASE_URL: file:./prisma/dev.db
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/loomi_test?schema=public
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: loomi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d loomi_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
 
     steps:
       - name: Checkout
@@ -29,12 +43,8 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Prepare SQLite schema
-        run: |
-          rm -f prisma/dev.db prisma/dev.db-wal prisma/dev.db-shm
-          for file in prisma/migrations/*/migration.sql; do
-            sqlite3 prisma/dev.db < "$file"
-          done
+      - name: Push Prisma schema
+        run: npx prisma db push --skip-generate
 
       - name: Run ESP verification gate
         run: npm run esp:verify
