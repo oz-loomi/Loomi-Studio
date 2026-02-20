@@ -5,17 +5,43 @@ import { getAdapter } from '@/lib/esp/registry';
 import type { EspProvider } from '@/lib/esp/types';
 import * as accountService from '@/lib/services/accounts';
 
+function resolveAppBaseUrl(req: NextRequest): string {
+  const fromEnv = (process.env.NEXTAUTH_URL || '').trim();
+  if (fromEnv) {
+    return fromEnv.replace(/\/+$/, '');
+  }
+
+  const forwardedHost = req.headers.get('x-forwarded-host')?.trim();
+  const forwardedProto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'https';
+  if (forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`.replace(/\/+$/, '');
+  }
+
+  const host = req.headers.get('host')?.trim();
+  if (host) {
+    const proto = req.nextUrl.protocol.replace(/:$/, '') || 'http';
+    return `${proto}://${host}`.replace(/\/+$/, '');
+  }
+
+  return req.nextUrl.origin.replace(/\/+$/, '');
+}
+
+function buildRedirectUrl(req: NextRequest, pathname: string): URL {
+  return new URL(pathname, `${resolveAppBaseUrl(req)}/`);
+}
+
 function redirectAccountsError(req: NextRequest, provider: EspProvider, message: string): NextResponse {
-  const url = new URL('/accounts', req.url);
+  const url = buildRedirectUrl(req, '/accounts');
   url.searchParams.set('esp_error', message);
   url.searchParams.set('esp_provider', provider);
   return NextResponse.redirect(url);
 }
 
 function redirectAccountConnected(req: NextRequest, accountKey: string, provider: EspProvider): NextResponse {
-  const url = new URL(`/accounts/${accountKey}`, req.url);
+  const url = buildRedirectUrl(req, `/accounts/${accountKey}`);
   url.searchParams.set('esp_connected', 'true');
   url.searchParams.set('esp_provider', provider);
+  url.searchParams.set('tab', 'integration');
   return NextResponse.redirect(url);
 }
 
@@ -25,9 +51,10 @@ function redirectAccountError(
   provider: EspProvider,
   message: string,
 ): NextResponse {
-  const url = new URL(`/accounts/${accountKey}`, req.url);
+  const url = buildRedirectUrl(req, `/accounts/${accountKey}`);
   url.searchParams.set('esp_error', message);
   url.searchParams.set('esp_provider', provider);
+  url.searchParams.set('tab', 'integration');
   return NextResponse.redirect(url);
 }
 
