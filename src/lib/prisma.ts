@@ -9,6 +9,14 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
+function buildPoolOptions(connectionString: string) {
+  const opts: Record<string, unknown> = { connectionString };
+  if (connectionString.includes('sslmode=require')) {
+    opts.ssl = { rejectUnauthorized: false };
+  }
+  return opts;
+}
+
 function createPrismaClient() {
   const candidate =
     process.env.DATABASE_URL ??
@@ -16,7 +24,7 @@ function createPrismaClient() {
   if (!/^postgres(ql)?:\/\//.test(candidate)) {
     throw new Error('DATABASE_URL must be a PostgreSQL URL (postgresql://...)');
   }
-  const adapter = new PrismaPg({ connectionString: candidate });
+  const adapter = new PrismaPg(buildPoolOptions(candidate));
   return new PrismaClient({ adapter });
 }
 

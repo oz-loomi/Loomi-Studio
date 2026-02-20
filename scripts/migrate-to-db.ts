@@ -33,7 +33,11 @@ const candidate =
 if (!/^postgres(ql)?:\/\//.test(candidate)) {
   throw new Error('DATABASE_URL must be a PostgreSQL URL (postgresql://...)');
 }
-const adapter = new PrismaPg({ connectionString: candidate });
+const poolOpts: Record<string, unknown> = { connectionString: candidate };
+if (candidate.includes('sslmode=require')) {
+  poolOpts.ssl = { rejectUnauthorized: false };
+}
+const adapter = new PrismaPg(poolOpts);
 const prisma = new PrismaClient({ adapter });
 const ENGINE_ROOT = path.join(STUDIO_ROOT, 'email-engine');
 const DATA_DIR = path.join(STUDIO_ROOT, 'src', 'data');
