@@ -34,10 +34,14 @@ const candidate =
 if (!/^postgres(ql)?:\/\//.test(candidate)) {
   throw new Error('DATABASE_URL must be a PostgreSQL URL (postgresql://...)');
 }
-const ssl = candidate.includes('sslmode=require')
-  ? { rejectUnauthorized: false }
-  : undefined;
-const pool = new pg.Pool({ connectionString: candidate, ssl });
+const needsSsl = /[?&]sslmode=require/.test(candidate);
+const cleanUrl = candidate.replace(/[?&]sslmode=require/, (m) =>
+  m.startsWith('?') ? '?' : '',
+).replace(/\?$/, '');
+const pool = new pg.Pool({
+  connectionString: cleanUrl,
+  ...(needsSsl && { ssl: { rejectUnauthorized: false } }),
+});
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 const ENGINE_ROOT = path.join(STUDIO_ROOT, 'email-engine');

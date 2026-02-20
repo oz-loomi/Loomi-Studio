@@ -11,10 +11,15 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPool(connectionString: string) {
-  const ssl = connectionString.includes('sslmode=require')
-    ? { rejectUnauthorized: false }
-    : undefined;
-  return new pg.Pool({ connectionString, ssl });
+  const needsSsl = /[?&]sslmode=require/.test(connectionString);
+  // Strip sslmode from URL so pg doesn't override our ssl config with verify-full
+  const cleanUrl = connectionString.replace(/[?&]sslmode=require/, (m) =>
+    m.startsWith('?') ? '?' : '',
+  ).replace(/\?$/, '');
+  return new pg.Pool({
+    connectionString: cleanUrl,
+    ...(needsSsl && { ssl: { rejectUnauthorized: false } }),
+  });
 }
 
 function createPrismaClient() {
