@@ -67,6 +67,12 @@ export async function PATCH(
       }
     }
 
+    // Account rep (nullable foreign key — not a simple string field)
+    if ('accountRepId' in body) {
+      (updatePayload as Record<string, string | null | undefined>).accountRepId =
+        body.accountRepId ? String(body.accountRepId) : null;
+    }
+
     // JSON-serialized fields — deep merge with existing
     if (body.logos && typeof body.logos === 'object') {
       const existingLogos = existing.logos ? JSON.parse(existing.logos) : {};

@@ -7,7 +7,7 @@ import { useTheme } from '@/contexts/theme-context';
 import {
   PlusIcon, SunIcon, MoonIcon, BuildingStorefrontIcon,
   UsersIcon, SwatchIcon, BookOpenIcon, SparklesIcon,
-  XMarkIcon, ArrowPathIcon,
+  XMarkIcon, ArrowPathIcon, MagnifyingGlassIcon,
   CheckCircleIcon, AdjustmentsHorizontalIcon,
   TrashIcon, ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
@@ -16,7 +16,7 @@ import { CodeEditor } from '@/components/code-editor';
 import { AccountsList } from '@/components/accounts-list';
 import { OemMultiSelect } from '@/components/oem-multi-select';
 import { UserAvatar } from '@/components/user-avatar';
-import { getAccountOems } from '@/lib/oems';
+import { getAccountOems, industryHasBrands, brandsForIndustry } from '@/lib/oems';
 import { resolveAccountLocationId } from '@/lib/account-resolvers';
 import { providerDisplayName, providerUnsupportedMessage } from '@/lib/esp/provider-display';
 import {
@@ -31,7 +31,7 @@ import {
 } from '@/lib/esp/provider-status';
 import { fetchRequiredScopesByCatalogUrl } from '@/lib/esp/provider-scopes';
 
-const CATEGORY_SUGGESTIONS = ['Automotive', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
+const CATEGORY_SUGGESTIONS = ['Automotive', 'Powersports', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
 
 type Tab = 'accounts' | 'account' | 'users' | 'custom-values' | 'knowledge' | 'appearance';
 
@@ -170,8 +170,8 @@ function AccountSettingsTab() {
     if (!accountKey) return;
     setSaving(true);
     try {
-      const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
-      const selectedOems = isAutomotiveIndustry ? oems : [];
+      const hasBrands = industryHasBrands(category);
+      const selectedOems = hasBrands ? oems : [];
       const payload: Record<string, unknown> = {
         dealer,
         category,
@@ -204,7 +204,7 @@ function AccountSettingsTab() {
 
   const inputClass = 'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
   const labelClass = 'block text-xs font-medium text-[var(--muted-foreground)] mb-1.5';
-  const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
+  const showBrandsSelector = industryHasBrands(category);
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -230,12 +230,13 @@ function AccountSettingsTab() {
         </select>
       </div>
 
-      {isAutomotiveIndustry && (
+      {showBrandsSelector && (
         <div>
           <label className={labelClass}>Brands</label>
           <OemMultiSelect
             value={oems}
             onChange={setOems}
+            options={brandsForIndustry(category)}
             placeholder="Select brands..."
             maxSelections={8}
           />
@@ -285,6 +286,7 @@ function UsersTab() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     fetch('/api/users')
@@ -306,19 +308,43 @@ function UsersTab() {
       .finally(() => setLoading(false));
   }, []);
 
+  const filteredUsers = search
+    ? users.filter((u) => {
+        const q = search.toLowerCase();
+        return (
+          u.name.toLowerCase().includes(q) ||
+          u.email.toLowerCase().includes(q) ||
+          u.role.toLowerCase().includes(q) ||
+          (u.title || '').toLowerCase().includes(q)
+        );
+      })
+    : users;
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-[var(--muted-foreground)]">
-          Manage team members and their access
+          {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''}{search ? ' found' : ''}
         </p>
-        <button
-          onClick={() => router.push('/settings/users/new')}
-          className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-opacity"
-        >
-          <PlusIcon className="w-4 h-4" />
-          Add User
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search users..."
+              className="w-48 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
+            />
+          </div>
+          <button
+            onClick={() => router.push('/settings/users/new')}
+            className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            <PlusIcon className="w-4 h-4" />
+            Add User
+          </button>
+        </div>
       </div>
 
       <div className="glass-table">
@@ -336,12 +362,14 @@ function UsersTab() {
               <tr>
                 <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">Loading...</td>
               </tr>
-            ) : users.length === 0 ? (
+            ) : filteredUsers.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">No users found</td>
+                <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">
+                  {search ? 'No users match your search' : 'No users found'}
+                </td>
               </tr>
             ) : (
-              users.map(user => (
+              filteredUsers.map(user => (
                 <tr
                   key={user.id}
                   onClick={() => router.push(`/settings/users/${user.id}`)}

@@ -17,11 +17,12 @@ import {
 import { toast } from 'sonner';
 import { AdminOnly } from '@/components/route-guard';
 import { OemMultiSelect } from '@/components/oem-multi-select';
+import { UserPicker, type UserPickerUser } from '@/components/user-picker';
 import { ContactsTable } from '@/components/contacts/contacts-table';
 import type { Contact } from '@/components/contacts/contacts-table';
 import type { AccountData } from '@/contexts/account-context';
 import { useAccount } from '@/contexts/account-context';
-import { getAccountOems } from '@/lib/oems';
+import { getAccountOems, industryHasBrands, brandsForIndustry } from '@/lib/oems';
 import type { EspCapabilities } from '@/lib/esp/types';
 import {
   createFallbackProviderEntry,
@@ -52,7 +53,7 @@ import {
 } from '@/lib/account-resolvers';
 import { providerCardTheme, providerDisplayName, providerUnsupportedMessage } from '@/lib/esp/provider-display';
 
-const CATEGORY_SUGGESTIONS = ['Automotive', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
+const CATEGORY_SUGGESTIONS = ['Automotive', 'Powersports', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
 
 const WEBSAFE_FONTS = [
   { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
@@ -153,6 +154,8 @@ export default function AccountDetailPage() {
   const [bizZip, setBizZip] = useState('');
   const [bizWebsite, setBizWebsite] = useState('');
   const [bizTimezone, setBizTimezone] = useState('');
+  const [accountRepId, setAccountRepId] = useState<string | null>(null);
+  const [allUsers, setAllUsers] = useState<UserPickerUser[]>([]);
 
   // ── Branding fields ──
   const [logoLight, setLogoLight] = useState('');
@@ -207,6 +210,7 @@ export default function AccountDetailPage() {
     setBizWebsite(resolveAccountWebsite(accountData));
     setBizTimezone(resolveAccountTimezone(accountData));
     setStorefrontImage(accountData.storefrontImage || accountData.customValues?.storefront_image?.value || '');
+    setAccountRepId(accountData.accountRepId ?? null);
     // Logos
     setLogoLight(accountData.logos?.light || '');
     setLogoDark(accountData.logos?.dark || '');
@@ -301,17 +305,19 @@ export default function AccountDetailPage() {
 
     (async () => {
       try {
-        const [accountData, cvDefaults] = await Promise.all([
+        const [accountData, cvDefaults, usersData] = await Promise.all([
           fetch(`/api/accounts/${key}`).then(r => {
             if (!r.ok) throw new Error('not found');
             return r.json();
           }),
           fetch('/api/custom-values').then(r => r.json()).catch(() => ({})),
+          fetch('/api/users').then(r => r.ok ? r.json() : []).catch(() => []),
         ]);
         if (cancelled) return;
 
         const resolvedAccount = accountData as AccountData;
         populateFromAccount(resolvedAccount);
+        setAllUsers(usersData as UserPickerUser[]);
         if (cvDefaults?.defaults && typeof cvDefaults.defaults === 'object') {
           setCustomValueDefaults(cvDefaults.defaults);
         }
@@ -422,12 +428,12 @@ export default function AccountDetailPage() {
     setSaving(true);
     try {
       const customValuesToSave = buildCustomValuesForSave();
-      const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
-      const selectedOems = isAutomotiveIndustry ? oems : [];
+      const hasBrands = industryHasBrands(category);
+      const selectedOems = hasBrands ? oems : [];
       const body: Record<string, unknown> = {
         dealer,
         category,
-        // Always send oems so PATCH can clear stale values when industry is non-automotive.
+        // Always send oems so PATCH can clear stale values when industry has no brands.
         oems: selectedOems,
         oem: selectedOems[0] || null,
         storefrontImage: storefrontImage.trim() || undefined,
@@ -462,6 +468,7 @@ export default function AccountDetailPage() {
           },
         },
         customValues: Object.keys(customValuesToSave).length > 0 ? customValuesToSave : undefined,
+        accountRepId: accountRepId || null,
         _deleteManaged: deleteManaged, // Tell backend to delete cleared Loomi-managed values in the connected ESP
       };
 
@@ -671,6 +678,7 @@ export default function AccountDetailPage() {
   const showContactsTab = !pathname.startsWith('/settings/accounts/');
   const visibleTabs = showContactsTab ? TABS : TABS.filter((tab) => tab.key !== 'contacts');
   const backHref = '/settings/accounts';
+  const showBrandsSelector = industryHasBrands(category);
   const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
   const isEcommerceIndustry = category.trim().toLowerCase() === 'ecommerce';
   const catalogProviders =
@@ -802,17 +810,27 @@ export default function AccountDetailPage() {
                     {CATEGORY_SUGGESTIONS.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-                {isAutomotiveIndustry && (
+                {showBrandsSelector && (
                   <div>
                     <label className={labelClass}>Brands</label>
                     <OemMultiSelect
                       value={oems}
                       onChange={setOems}
+                      options={brandsForIndustry(category)}
                       placeholder="Select brands..."
                       maxSelections={8}
                     />
                   </div>
                 )}
+                <div>
+                  <label className={labelClass}>Account Rep</label>
+                  <UserPicker
+                    value={accountRepId}
+                    onChange={setAccountRepId}
+                    users={allUsers}
+                    placeholder="Assign account rep..."
+                  />
+                </div>
               </div>
             </section>
 

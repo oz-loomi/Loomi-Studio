@@ -1,17 +1,32 @@
 import { prisma } from '@/lib/prisma';
 
+const ACCOUNT_REP_SELECT = {
+  id: true,
+  name: true,
+  title: true,
+  email: true,
+  avatarUrl: true,
+} as const;
+
 export async function getAccounts(userAccountKeys?: string[]) {
   if (userAccountKeys && userAccountKeys.length > 0) {
     return prisma.account.findMany({
       where: { key: { in: userAccountKeys } },
       orderBy: { dealer: 'asc' },
+      include: { accountRep: { select: ACCOUNT_REP_SELECT } },
     });
   }
-  return prisma.account.findMany({ orderBy: { dealer: 'asc' } });
+  return prisma.account.findMany({
+    orderBy: { dealer: 'asc' },
+    include: { accountRep: { select: ACCOUNT_REP_SELECT } },
+  });
 }
 
 export async function getAccount(key: string) {
-  return prisma.account.findUnique({ where: { key } });
+  return prisma.account.findUnique({
+    where: { key },
+    include: { accountRep: { select: ACCOUNT_REP_SELECT } },
+  });
 }
 
 export async function createAccount(data: {
@@ -35,6 +50,7 @@ export async function createAccount(data: {
   logos?: string;
   branding?: string;
   customValues?: string;
+  accountRepId?: string;
 }) {
   return prisma.account.create({ data });
 }
@@ -61,6 +77,7 @@ export async function updateAccount(
     logos: string;
     branding: string;
     customValues: string;
+    accountRepId: string | null;
   }>,
 ) {
   return prisma.account.update({ where: { key }, data });

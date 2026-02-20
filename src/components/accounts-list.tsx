@@ -9,11 +9,14 @@ import {
   TrashIcon,
   ShieldCheckIcon,
   ArrowLeftIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from 'sonner';
 import { AccountAvatar } from '@/components/account-avatar';
 import { OemMultiSelect } from '@/components/oem-multi-select';
+import { UserPicker, type UserPickerUser } from '@/components/user-picker';
 import { formatAccountCityState } from '@/lib/account-resolvers';
+import { industryHasBrands, brandsForIndustry } from '@/lib/oems';
 import type { AccountData } from '@/contexts/account-context';
 import { providerDisplayName, providerIcon } from '@/lib/esp/provider-display';
 
@@ -24,7 +27,7 @@ interface AccountsListProps {
   detailBasePath?: string;
 }
 
-const CATEGORY_SUGGESTIONS = ['Automotive', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
+const CATEGORY_SUGGESTIONS = ['Automotive', 'Powersports', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
 
 /** Convert a display name to camelCase slug, e.g. "Young Ford Ogden" → "youngFordOgden" */
 function toCamelCaseSlug(name: string): string {
@@ -61,6 +64,8 @@ export function AccountsList({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [accounts, setAccounts] = useState<Record<string, AccountData> | null>(null);
+  const [users, setUsers] = useState<UserPickerUser[]>([]);
+  const [search, setSearch] = useState('');
 
   // Create account state
   const [createMode, setCreateMode] = useState<CreateMode>(null);
@@ -75,6 +80,10 @@ export function AccountsList({
       .then(r => r.json())
       .then(data => setAccounts(data))
       .catch(err => console.error(err));
+    fetch('/api/users')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: UserPickerUser[]) => setUsers(data))
+      .catch(() => {});
   }, []);
 
   // Handle OAuth error from redirect.
@@ -102,8 +111,8 @@ export function AccountsList({
     if (!newKey.trim() || !newDealer.trim() || creating) return;
     setCreating(true);
     try {
-      const isAutomotiveIndustry = newCategory.trim().toLowerCase() === 'automotive';
-      const selectedOems = isAutomotiveIndustry ? newOems : [];
+      const hasBrands = industryHasBrands(newCategory);
+      const selectedOems = hasBrands ? newOems : [];
       const accountBody: Record<string, unknown> = {
         key: newKey.trim(),
         dealer: newDealer.trim(),
@@ -147,23 +156,66 @@ export function AccountsList({
     }
   };
 
+  const handleRepChange = async (key: string, userId: string | null) => {
+    try {
+      const res = await fetch(`/api/accounts/${encodeURIComponent(key)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountRepId: userId }),
+      });
+      if (!res.ok) { toast.error('Failed to update rep'); return; }
+      const updated = await res.json();
+      setAccounts(prev => {
+        if (!prev) return prev;
+        return { ...prev, [key]: { ...prev[key], accountRepId: updated.accountRepId, accountRep: updated.accountRep } };
+      });
+    } catch {
+      toast.error('Failed to update rep');
+    }
+  };
+
   if (!accounts) return <div className="text-[var(--muted-foreground)]">Loading...</div>;
 
-  const entries = Object.entries(accounts);
-  const showManualBrands = newCategory.trim().toLowerCase() === 'automotive';
+  const allEntries = Object.entries(accounts);
+  const entries = search
+    ? allEntries.filter(([key, account]) => {
+        const q = search.toLowerCase();
+        return (
+          (account.dealer || '').toLowerCase().includes(q) ||
+          key.toLowerCase().includes(q) ||
+          (account.category || '').toLowerCase().includes(q) ||
+          (account.city || '').toLowerCase().includes(q) ||
+          (account.state || '').toLowerCase().includes(q) ||
+          (account.accountRep?.name || '').toLowerCase().includes(q)
+        );
+      })
+    : allEntries;
+  const showManualBrands = industryHasBrands(newCategory);
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-[var(--muted-foreground)]">
-          {entries.length} account{entries.length !== 1 ? 's' : ''} configured
+          {entries.length} account{entries.length !== 1 ? 's' : ''}{search ? ' found' : ' configured'}
         </p>
-        <button
-          onClick={() => setCreateMode('choose')}
-          className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-        >
-          <PlusIcon className="w-4 h-4" /> New Account
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search accounts..."
+              className="w-52 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
+            />
+          </div>
+          <button
+            onClick={() => setCreateMode('choose')}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            <PlusIcon className="w-4 h-4" /> New Account
+          </button>
+        </div>
       </div>
 
       {/* ─── Add Account Modal ─── */}
@@ -261,6 +313,7 @@ export function AccountsList({
                       <OemMultiSelect
                         value={newOems}
                         onChange={setNewOems}
+                        options={brandsForIndustry(newCategory)}
                         placeholder="Select brands..."
                         maxSelections={8}
                       />
@@ -295,16 +348,17 @@ export function AccountsList({
           <p className="text-xs mt-1">Click &quot;New Account&quot; to get started.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto glass-table">
-          <table className="w-full min-w-[600px]">
-            <thead>
+        <div className="overflow-x-auto glass-table max-h-[600px] overflow-y-auto">
+          <table className="w-full min-w-[700px]">
+            <thead className="sticky top-0 z-10">
               <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
-                <th className="w-12 px-4 py-3"></th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Account Name</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Industry</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Location</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Integrations</th>
-                <th className="w-12 px-4 py-3"></th>
+                <th className="w-10 px-3 py-2"></th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Account Name</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Industry</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Location</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Account Rep</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Integrations</th>
+                <th className="w-10 px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -316,29 +370,37 @@ export function AccountsList({
                     onClick={() => router.push(`${detailBasePath}/${key}`)}
                     className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--muted)]/50 transition-colors cursor-pointer"
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <AccountAvatar
                         name={account.dealer}
                         accountKey={key}
                         storefrontImage={account.storefrontImage}
-                        size={32}
-                        className="w-8 h-8 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
+                        size={28}
+                        className="w-7 h-7 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
                       />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <span className="text-sm font-medium">{account.dealer}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <span className="text-xs text-[var(--muted-foreground)] bg-[var(--muted)] px-2 py-0.5 rounded-full">
                         {account.category || 'General'}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <span className="text-xs text-[var(--muted-foreground)]">
                         {cityState || '—'}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                      <UserPicker
+                        value={account.accountRepId ?? null}
+                        onChange={(userId) => handleRepChange(key, userId)}
+                        users={users}
+                        compact
+                      />
+                    </td>
+                    <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5">
                         {(() => {
                           const connectedProviders = normalizeConnectedProviders(account);
@@ -379,7 +441,7 @@ export function AccountsList({
                         })()}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(key); }}
                         className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"

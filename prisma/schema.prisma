@@ -23,7 +23,8 @@ model User {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  invites UserInvite[]
+  invites  UserInvite[]
+  accounts Account[]   // accounts where this user is the rep
 }
 
 model UserInvite {
@@ -66,6 +67,8 @@ model Account {
   branding       String? // JSON: { colors: { primary, secondary, ... }, fonts: { heading, body } }
   customValues   String? // JSON: Record<string, { name, value }>
   espProvider     String // active provider id (must match a registered adapter)
+  accountRepId   String?
+  accountRep     User?    @relation(fields: [accountRepId], references: [id], onDelete: SetNull)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -74,6 +77,8 @@ model Account {
   espOAuthConnections EspOAuthConnection[]
   audiences     Audience[]
   loomiFlows    LoomiFlow[]
+
+  @@index([accountRepId])
 }
 
 model CampaignEmailStats {

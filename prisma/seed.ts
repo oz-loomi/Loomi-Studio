@@ -28,6 +28,59 @@ async function main() {
   });
 
   console.log('Seeded developer user:', user.email);
+
+  // ── Seed test accounts ──
+  const accounts = [
+    {
+      key: 'youngHondaOgden',
+      dealer: 'Young Honda Ogden',
+      category: 'Automotive',
+      oem: 'Honda',
+      oems: JSON.stringify(['Honda']),
+      espProvider: 'ghl',
+      email: 'info@younghondaogden.com',
+      phone: '(801) 555-1001',
+      city: 'Ogden',
+      state: 'UT',
+      postalCode: '84401',
+      website: 'https://younghondaogden.com',
+      timezone: 'US/Mountain',
+    },
+    {
+      key: 'ridersEdgePowersports',
+      dealer: "Rider's Edge Powersports",
+      category: 'Powersports',
+      oem: 'Kawasaki',
+      oems: JSON.stringify(['Kawasaki', 'Yamaha', 'Can-Am']),
+      espProvider: 'ghl',
+      email: 'sales@ridersedgeps.com',
+      phone: '(385) 555-2020',
+      city: 'Draper',
+      state: 'UT',
+      postalCode: '84020',
+      website: 'https://ridersedgepowersports.com',
+      timezone: 'US/Mountain',
+    },
+    {
+      key: 'peakOutdoorGear',
+      dealer: 'Peak Outdoor Gear',
+      category: 'Ecommerce',
+      espProvider: 'klaviyo',
+      email: 'support@peakoutdoorgear.com',
+      phone: '(801) 555-3030',
+      website: 'https://peakoutdoorgear.com',
+      timezone: 'US/Mountain',
+    },
+  ];
+
+  for (const account of accounts) {
+    const result = await prisma.account.upsert({
+      where: { key: account.key },
+      update: {},
+      create: account,
+    });
+    console.log(`Seeded account: ${result.dealer} (${result.category})`);
+  }
 }
 
 main()

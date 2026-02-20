@@ -69,6 +69,14 @@ export interface AccountData {
   };
   customValues?: Record<string, { name: string; value: string }>;
   previewValues?: Record<string, string>;
+  accountRepId?: string | null;
+  accountRep?: {
+    id: string;
+    name: string;
+    title?: string | null;
+    email: string;
+    avatarUrl?: string | null;
+  } | null;
 }
 
 export type AccountType =
