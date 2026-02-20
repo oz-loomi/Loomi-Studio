@@ -44,7 +44,7 @@ jobs:
         run: npx prisma generate
 
       - name: Push Prisma schema
-        run: npx prisma db push --skip-generate
+        run: npx prisma db push
 
       - name: Run ESP verification gate
         run: npm run esp:verify
