@@ -45,8 +45,43 @@ export const MAJOR_US_OEMS = [
   'Volvo',
 ] as const;
 
+export const POWERSPORTS_BRANDS = [
+  'Arctic Cat',
+  'Can-Am',
+  'CFMoto',
+  'Ducati',
+  'Harley-Davidson',
+  'Honda Powersports',
+  'Husqvarna',
+  'Indian Motorcycle',
+  'Kawasaki',
+  'KTM',
+  'Polaris',
+  'Royal Enfield',
+  'Sea-Doo',
+  'Ski-Doo',
+  'Suzuki',
+  'Triumph',
+  'Yamaha',
+] as const;
+
+/** Industries that support brand (OEM) selection. */
+export function industryHasBrands(category: string): boolean {
+  const normalized = category.trim().toLowerCase();
+  return normalized === 'automotive' || normalized === 'powersports';
+}
+
+/** Return the brand list for a given industry. */
+export function brandsForIndustry(category: string): readonly string[] {
+  const normalized = category.trim().toLowerCase();
+  if (normalized === 'powersports') return POWERSPORTS_BRANDS;
+  return MAJOR_US_OEMS;
+}
+
+const ALL_KNOWN_BRANDS = [...MAJOR_US_OEMS, ...POWERSPORTS_BRANDS];
+
 const OEM_CANONICAL_BY_LOWER = new Map(
-  MAJOR_US_OEMS.map((oem) => [oem.toLowerCase(), oem]),
+  ALL_KNOWN_BRANDS.map((oem) => [oem.toLowerCase(), oem]),
 );
 
 function splitMaybeCsv(value: string): string[] {

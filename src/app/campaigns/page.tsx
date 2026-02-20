@@ -29,7 +29,7 @@ import {
   PlusIcon,
   ChevronDownIcon,
 } from '@heroicons/react/24/outline';
-import { getAccountOems } from '@/lib/oems';
+import { getAccountOems, industryHasBrands } from '@/lib/oems';
 import { FlowIcon } from '@/components/icon-map';
 
 // ── Types ──
@@ -304,7 +304,7 @@ function AdminCampaignsPage() {
     accessibleAccountKeys.forEach((key) => {
       upsertAccountOption(resolveAccountLabel(key, accountNames, accountMeta), key);
       const meta = accountMeta[key];
-      if (meta?.category?.trim().toLowerCase() === 'automotive') {
+      if (meta?.category && industryHasBrands(meta.category)) {
         getAccountOems(meta).forEach((brand) => oems.add(brand));
       }
       if (meta?.category) industries.add(meta.category);

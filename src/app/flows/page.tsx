@@ -15,7 +15,7 @@ import {
   FunnelIcon,
 } from '@heroicons/react/24/outline';
 import { FlowIcon } from '@/components/icon-map';
-import { getAccountOems } from '@/lib/oems';
+import { getAccountOems, industryHasBrands } from '@/lib/oems';
 import { resolveAccountLocationId, resolveAccountProvider } from '@/lib/account-resolvers';
 import { providerDisplayName } from '@/lib/esp/provider-display';
 import { getWorkflowHubUrl } from '@/lib/esp/provider-links';
@@ -193,7 +193,7 @@ function AdminFlowsPage() {
     accessibleAccountKeys.forEach((key) => {
       upsertAccountOption(resolveAccountLabel(key, accountNames, accountMeta), key);
       const meta = accountMeta[key];
-      if (meta?.category?.trim().toLowerCase() === 'automotive') {
+      if (meta?.category && industryHasBrands(meta.category)) {
         getAccountOems(meta).forEach((brand) => oems.add(brand));
       }
       if (meta?.category) industries.add(meta.category);
