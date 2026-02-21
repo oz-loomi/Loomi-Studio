@@ -520,6 +520,68 @@ export interface EspValidationAdapter {
   validate(input: EspValidationInput): Promise<EspValidationResult>;
 }
 
+// ── Media ──
+
+export interface EspMedia {
+  id: string;
+  name: string;
+  url: string;
+  /** MIME type or simplified category: 'image', 'video', 'document', etc. */
+  type: string;
+  /** File size in bytes (if available from provider) */
+  size?: number;
+  /** Thumbnail URL (may be same as url for images) */
+  thumbnailUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MediaListResult {
+  files: EspMedia[];
+  /** Total count if known */
+  total?: number;
+  /** Opaque cursor/offset for fetching the next page */
+  nextCursor?: string;
+}
+
+export interface MediaUploadInput {
+  file: Buffer | Uint8Array;
+  name: string;
+  mimeType: string;
+}
+
+export interface MediaCapabilities {
+  canUpload: boolean;
+  canDelete: boolean;
+  canRename: boolean;
+}
+
+export interface MediaAdapter {
+  readonly provider: EspProvider;
+  readonly mediaCapabilities: MediaCapabilities;
+  listMedia(
+    token: string,
+    locationId: string,
+    options?: { cursor?: string; limit?: number },
+  ): Promise<MediaListResult>;
+  uploadMedia(
+    token: string,
+    locationId: string,
+    input: MediaUploadInput,
+  ): Promise<EspMedia>;
+  deleteMedia?(
+    token: string,
+    locationId: string,
+    mediaId: string,
+  ): Promise<void>;
+  renameMedia?(
+    token: string,
+    locationId: string,
+    mediaId: string,
+    newName: string,
+  ): Promise<EspMedia>;
+}
+
 // ── Composite Adapter ──
 
 export interface EspCapabilities {
@@ -532,6 +594,7 @@ export interface EspCapabilities {
   webhooks: boolean;
   customValues: boolean;
   templates: boolean;
+  media: boolean;
 }
 
 export interface EspAdapter {
@@ -554,6 +617,7 @@ export interface EspAdapter {
   readonly webhook?: WebhookAdapter;
   readonly customValues?: CustomValuesAdapter;
   readonly templates?: TemplatesAdapter;
+  readonly media?: MediaAdapter;
 }
 
 // ── Account-level stored record (ESP-agnostic) ──

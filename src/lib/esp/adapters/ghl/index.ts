@@ -21,6 +21,11 @@ import type {
   WebhookVerifyInput,
   CustomValuesAdapter,
   TemplatesAdapter,
+  MediaAdapter,
+  MediaCapabilities,
+  EspMedia,
+  MediaListResult,
+  MediaUploadInput,
   EspCredentials,
   OAuthTokenSet,
   EspConnectionRecord,
@@ -100,6 +105,12 @@ import {
   updateTemplate,
   deleteTemplate,
 } from './templates';
+
+import {
+  listMedia as listGhlMedia,
+  uploadMedia as uploadGhlMedia,
+  deleteMedia as deleteGhlMedia,
+} from './media';
 import { generateGhlCampaignScreenshot } from './campaign-screenshot';
 
 import {
@@ -656,6 +667,42 @@ class GhlCustomValuesAdapter implements CustomValuesAdapter {
   }
 }
 
+// ── Media Sub-adapter ──
+
+class GhlMediaAdapter implements MediaAdapter {
+  readonly provider = 'ghl' as const;
+  readonly mediaCapabilities: MediaCapabilities = {
+    canUpload: true,
+    canDelete: true,
+    canRename: false,
+  };
+
+  async listMedia(
+    token: string,
+    locationId: string,
+    options?: { cursor?: string; limit?: number },
+  ): Promise<MediaListResult> {
+    return listGhlMedia(token, locationId, options);
+  }
+
+  async uploadMedia(
+    token: string,
+    locationId: string,
+    input: MediaUploadInput,
+  ): Promise<EspMedia> {
+    return uploadGhlMedia(token, locationId, input);
+  }
+
+  async deleteMedia(
+    token: string,
+    locationId: string,
+    mediaId: string,
+  ): Promise<void> {
+    return deleteGhlMedia(token, locationId, mediaId);
+  }
+  // renameMedia is intentionally undefined — GHL does not support it
+}
+
 // ── Composite GHL Adapter ──
 
 export class GhlAdapter implements EspAdapter {
@@ -671,6 +718,7 @@ export class GhlAdapter implements EspAdapter {
     webhooks: true,
     customValues: true,
     templates: true,
+    media: true,
   };
 
   async resolveCredentials(accountKey: string): Promise<EspCredentials | null> {
@@ -694,4 +742,5 @@ export class GhlAdapter implements EspAdapter {
   };
   readonly customValues = new GhlCustomValuesAdapter();
   readonly templates = new GhlTemplatesAdapter();
+  readonly media = new GhlMediaAdapter();
 }

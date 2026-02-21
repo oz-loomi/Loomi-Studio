@@ -13,6 +13,11 @@ import type {
   ContactsAdapter,
   CampaignsAdapter,
   TemplatesAdapter,
+  MediaAdapter,
+  MediaCapabilities,
+  EspMedia,
+  MediaListResult,
+  MediaUploadInput,
   WebhookAdapter,
   WebhookVerifyInput,
   EspCredentials,
@@ -61,6 +66,12 @@ import {
   updateTemplate,
   deleteTemplate,
 } from './templates';
+
+import {
+  listMedia as listKlaviyoMedia,
+  uploadMedia as uploadKlaviyoMedia,
+  renameMedia as renameKlaviyoMedia,
+} from './media';
 
 import { verifyWebhookSignature } from './webhook';
 import { klaviyoEmailStatsWebhookHandler } from '@/lib/esp/webhooks/providers/klaviyo-email-stats';
@@ -269,6 +280,43 @@ class KlaviyoWebhookAdapter implements WebhookAdapter {
   }
 }
 
+// ── Media Sub-adapter ──
+
+class KlaviyoMediaAdapter implements MediaAdapter {
+  readonly provider = 'klaviyo' as const;
+  readonly mediaCapabilities: MediaCapabilities = {
+    canUpload: true,
+    canDelete: false,
+    canRename: true,
+  };
+
+  async listMedia(
+    apiKey: string,
+    accountId: string,
+    options?: { cursor?: string; limit?: number },
+  ): Promise<MediaListResult> {
+    return listKlaviyoMedia(apiKey, accountId, options);
+  }
+
+  async uploadMedia(
+    apiKey: string,
+    accountId: string,
+    input: MediaUploadInput,
+  ): Promise<EspMedia> {
+    return uploadKlaviyoMedia(apiKey, accountId, input);
+  }
+
+  async renameMedia(
+    apiKey: string,
+    accountId: string,
+    imageId: string,
+    newName: string,
+  ): Promise<EspMedia> {
+    return renameKlaviyoMedia(apiKey, accountId, imageId, newName);
+  }
+  // deleteMedia is intentionally undefined — Klaviyo does not support it
+}
+
 // ── Composite Klaviyo Adapter ──
 
 export class KlaviyoAdapter implements EspAdapter {
@@ -284,6 +332,7 @@ export class KlaviyoAdapter implements EspAdapter {
     webhooks: true,      // Beta API
     customValues: false,  // Schema-less properties, no field definition CRUD
     templates: true,
+    media: true,
   };
 
   async resolveCredentials(accountKey: string): Promise<EspCredentials | null> {
@@ -297,6 +346,7 @@ export class KlaviyoAdapter implements EspAdapter {
     'email-stats': klaviyoEmailStatsWebhookHandler,
   };
   readonly templates = new KlaviyoTemplatesAdapter();
+  readonly media = new KlaviyoMediaAdapter();
   readonly connection = new KlaviyoConnectionAdapter();
   readonly validation = new KlaviyoValidationAdapter();
   // messages, users, customValues are intentionally undefined
