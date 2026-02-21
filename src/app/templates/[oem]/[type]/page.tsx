@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   ArrowLeftIcon,
   DevicePhoneMobileIcon,
@@ -31,7 +31,6 @@ import {
   ExclamationTriangleIcon,
   EnvelopeIcon,
   QuestionMarkCircleIcon,
-  ArrowDownTrayIcon,
   BookOpenIcon,
 } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
@@ -1416,7 +1415,6 @@ function serializeTemplateClient(template: ParsedTemplate): string {
 
 export default function TemplateEditorPage() {
   const params = useParams();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const design = params.oem as string;
   const templateName = params.type as string;
@@ -1432,7 +1430,6 @@ export default function TemplateEditorPage() {
   const [previewError, setPreviewError] = useState("");
   const previewKeyRef = useRef(0);
   const [saving, setSaving] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState("");
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copied, setCopied] = useState(false);
@@ -2475,50 +2472,6 @@ export default function TemplateEditorPage() {
     } finally {
       setSavingTemplate(false);
     }
-  };
-
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      // Save first if there are unsaved changes
-      if (hasChanges) {
-        await fetch("/api/templates", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ design, type: templateName, raw: code }),
-        });
-        setOriginalCode(code);
-      }
-
-      const res = await fetch("/api/templates/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ design: `${design}/${templateName}`, project: isAccount ? "client" : "core" }),
-      });
-      const data = await res.json();
-
-      if (!res.ok || !data.files?.length) {
-        toast.error(data.error || data.errors?.[0]?.error || "Export failed");
-        setExporting(false);
-        return;
-      }
-
-      // Download the compiled HTML file
-      const file = data.files[0];
-      const blob = new Blob([file.html], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = file.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success("Exported successfully!");
-    } catch {
-      toast.error("Export failed");
-    }
-    setExporting(false);
   };
 
   const handleRestoreVersion = async (versionId: string) => {
