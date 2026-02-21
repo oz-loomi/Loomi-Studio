@@ -294,6 +294,45 @@ export interface CustomValuesAdapter {
   syncCustomValues(token: string, locationId: string, desired: CustomValueInput[], managedNames?: string[]): Promise<SyncResult>;
 }
 
+// ── Templates ──
+
+export interface EspEmailTemplate {
+  id: string;
+  name: string;
+  subject?: string;
+  previewText?: string;
+  html: string;
+  status?: string;
+  editorType?: string;
+  thumbnailUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateEspTemplateInput {
+  name: string;
+  subject?: string;
+  previewText?: string;
+  html: string;
+  editorType?: string;
+}
+
+export interface UpdateEspTemplateInput {
+  name?: string;
+  subject?: string;
+  previewText?: string;
+  html?: string;
+}
+
+export interface TemplatesAdapter {
+  readonly provider: EspProvider;
+  fetchTemplates(token: string, locationId: string): Promise<EspEmailTemplate[]>;
+  fetchTemplateById(token: string, locationId: string, templateId: string): Promise<EspEmailTemplate | null>;
+  createTemplate(token: string, locationId: string, input: CreateEspTemplateInput): Promise<EspEmailTemplate>;
+  updateTemplate(token: string, locationId: string, templateId: string, input: UpdateEspTemplateInput): Promise<EspEmailTemplate>;
+  deleteTemplate(token: string, locationId: string, templateId: string): Promise<void>;
+}
+
 // ── Contact Detail + Messaging Extensions ──
 
 export interface EspContactCapabilities {
@@ -492,6 +531,7 @@ export interface EspCapabilities {
   users: boolean;
   webhooks: boolean;
   customValues: boolean;
+  templates: boolean;
 }
 
 export interface EspAdapter {
@@ -513,6 +553,7 @@ export interface EspAdapter {
   readonly users?: UsersAdapter;
   readonly webhook?: WebhookAdapter;
   readonly customValues?: CustomValuesAdapter;
+  readonly templates?: TemplatesAdapter;
 }
 
 // ── Account-level stored record (ESP-agnostic) ──

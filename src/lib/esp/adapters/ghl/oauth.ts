@@ -82,6 +82,8 @@ export const REQUIRED_SCOPES = [
   'campaigns.readonly',
   'workflows.readonly',
   'users.readonly',
+  'emails/builder.readonly',
+  'emails/builder.write',
 ];
 
 /**

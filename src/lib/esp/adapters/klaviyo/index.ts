@@ -12,6 +12,7 @@ import type {
   EspValidationResult,
   ContactsAdapter,
   CampaignsAdapter,
+  TemplatesAdapter,
   WebhookAdapter,
   WebhookVerifyInput,
   EspCredentials,
@@ -19,6 +20,9 @@ import type {
   EspCampaign,
   EspCampaignAnalytics,
   EspWorkflow,
+  EspEmailTemplate,
+  CreateEspTemplateInput,
+  UpdateEspTemplateInput,
   ScheduleEmailCampaignInput,
   ScheduledEmailCampaignResult,
 } from '../../types';
@@ -49,6 +53,14 @@ import {
   fetchCampaignPreviewHtml,
   scheduleEmailCampaign,
 } from './campaigns';
+
+import {
+  fetchTemplates,
+  fetchTemplateById,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
+} from './templates';
 
 import { verifyWebhookSignature } from './webhook';
 import { klaviyoEmailStatsWebhookHandler } from '@/lib/esp/webhooks/providers/klaviyo-email-stats';
@@ -196,6 +208,52 @@ class KlaviyoCampaignsAdapter implements CampaignsAdapter {
   }
 }
 
+// ── Templates Sub-adapter ──
+
+class KlaviyoTemplatesAdapter implements TemplatesAdapter {
+  readonly provider = 'klaviyo' as const;
+
+  async fetchTemplates(
+    token: string,
+    accountId: string,
+  ): Promise<EspEmailTemplate[]> {
+    return fetchTemplates(token, accountId);
+  }
+
+  async fetchTemplateById(
+    token: string,
+    accountId: string,
+    templateId: string,
+  ): Promise<EspEmailTemplate | null> {
+    return fetchTemplateById(token, accountId, templateId);
+  }
+
+  async createTemplate(
+    token: string,
+    accountId: string,
+    input: CreateEspTemplateInput,
+  ): Promise<EspEmailTemplate> {
+    return createTemplate(token, accountId, input);
+  }
+
+  async updateTemplate(
+    token: string,
+    accountId: string,
+    templateId: string,
+    input: UpdateEspTemplateInput,
+  ): Promise<EspEmailTemplate> {
+    return updateTemplate(token, accountId, templateId, input);
+  }
+
+  async deleteTemplate(
+    token: string,
+    accountId: string,
+    templateId: string,
+  ): Promise<void> {
+    return deleteTemplate(token, accountId, templateId);
+  }
+}
+
 // ── Webhook Sub-adapter ──
 
 class KlaviyoWebhookAdapter implements WebhookAdapter {
@@ -225,6 +283,7 @@ export class KlaviyoAdapter implements EspAdapter {
     users: false,        // Klaviyo has no team members API
     webhooks: true,      // Beta API
     customValues: false,  // Schema-less properties, no field definition CRUD
+    templates: true,
   };
 
   async resolveCredentials(accountKey: string): Promise<EspCredentials | null> {
@@ -237,6 +296,7 @@ export class KlaviyoAdapter implements EspAdapter {
   readonly webhookFamilies = {
     'email-stats': klaviyoEmailStatsWebhookHandler,
   };
+  readonly templates = new KlaviyoTemplatesAdapter();
   readonly connection = new KlaviyoConnectionAdapter();
   readonly validation = new KlaviyoValidationAdapter();
   // messages, users, customValues are intentionally undefined

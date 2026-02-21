@@ -20,6 +20,7 @@ import type {
   WebhookAdapter,
   WebhookVerifyInput,
   CustomValuesAdapter,
+  TemplatesAdapter,
   EspCredentials,
   OAuthTokenSet,
   EspConnectionRecord,
@@ -27,6 +28,9 @@ import type {
   EspCampaign,
   EspCampaignAnalytics,
   EspWorkflow,
+  EspEmailTemplate,
+  CreateEspTemplateInput,
+  UpdateEspTemplateInput,
   ScheduleEmailCampaignInput,
   ScheduledEmailCampaignResult,
   SentMessage,
@@ -88,6 +92,14 @@ import {
   fetchCampaignPreviewHtml,
   scheduleEmailCampaign,
 } from './campaigns';
+
+import {
+  fetchTemplates,
+  fetchTemplateById,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
+} from './templates';
 import { generateGhlCampaignScreenshot } from './campaign-screenshot';
 
 import {
@@ -551,6 +563,52 @@ class GhlWebhookAdapter implements WebhookAdapter {
   }
 }
 
+// ── Templates Sub-adapter ──
+
+class GhlTemplatesAdapter implements TemplatesAdapter {
+  readonly provider = 'ghl' as const;
+
+  async fetchTemplates(
+    token: string,
+    locationId: string,
+  ): Promise<EspEmailTemplate[]> {
+    return fetchTemplates(token, locationId);
+  }
+
+  async fetchTemplateById(
+    token: string,
+    locationId: string,
+    templateId: string,
+  ): Promise<EspEmailTemplate | null> {
+    return fetchTemplateById(token, locationId, templateId);
+  }
+
+  async createTemplate(
+    token: string,
+    locationId: string,
+    input: CreateEspTemplateInput,
+  ): Promise<EspEmailTemplate> {
+    return createTemplate(token, locationId, input);
+  }
+
+  async updateTemplate(
+    token: string,
+    locationId: string,
+    templateId: string,
+    input: UpdateEspTemplateInput,
+  ): Promise<EspEmailTemplate> {
+    return updateTemplate(token, locationId, templateId, input);
+  }
+
+  async deleteTemplate(
+    token: string,
+    locationId: string,
+    templateId: string,
+  ): Promise<void> {
+    return deleteTemplate(token, locationId, templateId);
+  }
+}
+
 // ── Custom Values Sub-adapter ──
 
 class GhlCustomValuesAdapter implements CustomValuesAdapter {
@@ -612,6 +670,7 @@ export class GhlAdapter implements EspAdapter {
     users: true,
     webhooks: true,
     customValues: true,
+    templates: true,
   };
 
   async resolveCredentials(accountKey: string): Promise<EspCredentials | null> {
@@ -634,4 +693,5 @@ export class GhlAdapter implements EspAdapter {
     'email-stats': ghlEmailStatsWebhookHandler,
   };
   readonly customValues = new GhlCustomValuesAdapter();
+  readonly templates = new GhlTemplatesAdapter();
 }

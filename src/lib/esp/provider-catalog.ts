@@ -37,6 +37,7 @@ export const EMPTY_PROVIDER_CAPABILITIES: EspCapabilities = {
   users: false,
   webhooks: false,
   customValues: false,
+  templates: false,
 };
 
 function normalizeWebhookEndpoints(value: unknown): ProviderCatalogEntry['webhookEndpoints'] | undefined {

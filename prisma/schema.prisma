@@ -77,6 +77,7 @@ model Account {
   espOAuthConnections EspOAuthConnection[]
   audiences     Audience[]
   loomiFlows    LoomiFlow[]
+  espTemplates  EspTemplate[]
 
   @@index([accountRepId])
 }
@@ -382,4 +383,30 @@ model EmailCampaignRecipient {
   @@unique([campaignId, contactId, accountKey])
   @@index([campaignId, status])
   @@index([accountKey, status])
+}
+
+// ─────────────────────────────────────────────────────
+// ESP Templates (synced from GHL / Klaviyo)
+// ─────────────────────────────────────────────────────
+
+model EspTemplate {
+  id           String    @id @default(cuid())
+  accountKey   String
+  account      Account   @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  provider     String    // 'ghl' | 'klaviyo'
+  remoteId     String?   // null = Loomi-only (not yet pushed to ESP)
+  name         String
+  subject      String?
+  previewText  String?
+  html         String    @default("")
+  status       String    @default("draft")
+  editorType   String?
+  thumbnailUrl String?
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([accountKey, provider, remoteId])
+  @@index([accountKey])
+  @@index([provider])
 }
