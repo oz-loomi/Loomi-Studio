@@ -218,6 +218,8 @@ body {
   padding: 0.75rem 1rem;
   border: 1px solid transparent;
   border-radius: 0.75rem;
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
@@ -503,6 +505,8 @@ main[data-scrolled='true'] .page-sticky-header {
 /* ── Modal Overlay Fade ── */
 .animate-overlay-in {
   animation: modal-overlay-in 0.2s ease both;
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
 }
 
 /* ── Page Content Entrance ── */
@@ -578,4 +582,46 @@ input, select, textarea {
   button:active:not(:disabled) {
     transform: none !important;
   }
+}
+
+/* ── Toast notification type colors ── */
+
+[data-theme='dark'] [data-sonner-toast][data-type='success'] {
+  background: rgba(6, 78, 59, 0.85) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+}
+
+[data-theme='dark'] [data-sonner-toast][data-type='error'] {
+  background: rgba(80, 15, 15, 0.85) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+}
+
+[data-theme='dark'] [data-sonner-toast][data-type='warning'] {
+  background: rgba(60, 50, 10, 0.85) !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+
+[data-theme='dark'] [data-sonner-toast][data-type='info'] {
+  background: rgba(15, 30, 60, 0.85) !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+
+[data-theme='light'] [data-sonner-toast][data-type='success'] {
+  background: #ecfdf5 !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+}
+
+[data-theme='light'] [data-sonner-toast][data-type='error'] {
+  background: #fef2f2 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+}
+
+[data-theme='light'] [data-sonner-toast][data-type='warning'] {
+  background: #fffbeb !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+
+[data-theme='light'] [data-sonner-toast][data-type='info'] {
+  background: #eff6ff !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
 }

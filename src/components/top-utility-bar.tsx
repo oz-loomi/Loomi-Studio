@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { useAccount } from '@/contexts/account-context';
 import { UserAvatar } from '@/components/user-avatar';
 import { AI_ASSIST_OPEN_EVENT } from '@/lib/ui-events';
+import { ChangelogPanel } from '@/components/changelog-panel';
 
 function UtilityIconButton({
   title,
@@ -44,6 +45,25 @@ export function TopUtilityBar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const userSecondaryLabel = userTitle || userEmail || 'No email';
+
+  // Changelog
+  const [showChangelog, setShowChangelog] = useState(false);
+  const [hasUnread, setHasUnread] = useState(false);
+
+  const checkUnread = useCallback(async () => {
+    try {
+      const res = await fetch('/api/changelog');
+      if (!res.ok) return;
+      const data = await res.json();
+      const entries = data.entries || [];
+      if (entries.length === 0) { setHasUnread(false); return; }
+      const latest = entries[0].publishedAt;
+      const seen = localStorage.getItem('loomi-changelog-seen');
+      setHasUnread(!seen || new Date(latest) > new Date(seen));
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { checkUnread(); }, [checkUnread]);
 
   useEffect(() => {
     if (!userMenuOpen) return;
@@ -80,12 +100,17 @@ export function TopUtilityBar() {
           <QuestionMarkCircleIcon className="w-5 h-5" />
         </UtilityIconButton>
 
-        <UtilityIconButton
-          title="Changelog"
-          onClick={() => toast.info('Changelog coming soon')}
-        >
-          <ClockIcon className="w-5 h-5" />
-        </UtilityIconButton>
+        <div className="relative">
+          <UtilityIconButton
+            title="Changelog"
+            onClick={() => { setShowChangelog(true); setHasUnread(false); }}
+          >
+            <ClockIcon className="w-5 h-5" />
+          </UtilityIconButton>
+          {hasUnread && (
+            <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-[var(--primary)] rounded-full pointer-events-none" />
+          )}
+        </div>
 
         <UtilityIconButton
           title="Report a Bug"
@@ -160,6 +185,10 @@ export function TopUtilityBar() {
           </button>
         </div>
       </div>
+
+      {showChangelog && (
+        <ChangelogPanel onClose={() => { setShowChangelog(false); checkUnread(); }} />
+      )}
     </header>
   );
 }
