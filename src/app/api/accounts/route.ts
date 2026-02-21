@@ -9,6 +9,7 @@ import { getDefaultEspProvider } from '@/lib/esp/registry';
 import { parseEspProvider, providerValidationMessage } from '@/lib/esp/provider-utils';
 import { listOAuthConnections } from '@/lib/esp/oauth-connections';
 import { listApiKeyConnections } from '@/lib/esp/api-key-connections';
+import { listAccountProviderLinks } from '@/lib/esp/account-provider-links';
 
 export async function GET() {
   try {
@@ -16,9 +17,10 @@ export async function GET() {
 
     // Fetch connection status in bulk (provider-agnostic OAuth + API-key rows)
     const allKeys = accounts.map(a => a.key);
-    const [oauthConnections, espConnections] = await Promise.all([
+    const [oauthConnections, espConnections, accountProviderLinks] = await Promise.all([
       listOAuthConnections({ accountKeys: allKeys }),
       listApiKeyConnections({ accountKeys: allKeys }),
+      listAccountProviderLinks({ accountKeys: allKeys }).catch(() => []),
     ]);
     const oauthByAccount = new Map<string, Array<{
       provider: string;
@@ -35,6 +37,22 @@ export async function GET() {
         installedAt: connection.installedAt,
       });
       oauthByAccount.set(connection.accountKey, list);
+    }
+    const linksByAccount = new Map<string, Array<{
+      provider: string;
+      locationId: string | null;
+      locationName: string | null;
+      installedAt: Date;
+    }>>();
+    for (const link of accountProviderLinks) {
+      const list = linksByAccount.get(link.accountKey) || [];
+      list.push({
+        provider: link.provider,
+        locationId: link.locationId,
+        locationName: link.locationName,
+        installedAt: link.linkedAt,
+      });
+      linksByAccount.set(link.accountKey, list);
     }
     const espByAccount = new Map<string, Array<{
       provider: string;
@@ -63,10 +81,17 @@ export async function GET() {
       normalizeAccountOutputPayload(data);
       // Include provider-agnostic connection flags
       const oauth = oauthByAccount.get(key) || [];
+      const links = linksByAccount.get(key) || [];
+      const mergedOauth = [...oauth];
+      const oauthProviders = new Set(oauth.map((entry) => entry.provider));
+      for (const link of links) {
+        if (oauthProviders.has(link.provider)) continue;
+        mergedOauth.push(link);
+      }
       const esp = espByAccount.get(key) || [];
       const metadata = buildAccountConnectionMetadata({
         accountProvider: account.espProvider,
-        oauthConnections: oauth,
+        oauthConnections: mergedOauth,
         espConnections: esp,
       });
       Object.assign(data, metadata);

@@ -41,7 +41,7 @@ export async function generateGhlCampaignScreenshot(params: {
   const connection = await getConnection(accountKey);
   if (connection) {
     const scopes = parseScopes(connection.scopes);
-    if (!scopes.includes('emails/schedule.readonly')) {
+    if (scopes.length > 0 && !scopes.includes('emails/schedule.readonly')) {
       throw new GhlCampaignScreenshotError(
         'Missing required GHL scope "emails/schedule.readonly".',
         403,

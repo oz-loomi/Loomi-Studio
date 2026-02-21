@@ -75,6 +75,7 @@ model Account {
   emails        AccountEmail[]
   espConnections EspConnection[]
   espOAuthConnections EspOAuthConnection[]
+  espAccountProviderLinks EspAccountProviderLink[]
   audiences     Audience[]
   loomiFlows    LoomiFlow[]
   espTemplates  EspTemplate[]
@@ -136,6 +137,35 @@ model EspOAuthConnection {
   scopes         String   @default("[]") // JSON array of granted scopes
   installedAt    DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  @@unique([accountKey, provider])
+  @@index([provider])
+  @@index([accountKey])
+}
+
+model EspProviderOAuthCredential {
+  id             String   @id @default(cuid())
+  provider       String   @unique // provider id
+  subjectType    String? // provider-specific credential scope (e.g. "agency")
+  subjectId      String? // provider-specific subject id (e.g. companyId)
+  accessToken    String // encrypted at rest (AES-256-GCM)
+  refreshToken   String // encrypted at rest (AES-256-GCM)
+  tokenExpiresAt DateTime
+  scopes         String   @default("[]") // JSON array of granted scopes
+  installedAt    DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model EspAccountProviderLink {
+  id           String   @id @default(cuid())
+  accountKey   String
+  account      Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  provider     String // provider id
+  locationId   String?
+  locationName String?
+  metadata     String? // provider-specific mapping metadata
+  linkedAt     DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([accountKey, provider])
   @@index([provider])

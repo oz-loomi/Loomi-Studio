@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
 import {
@@ -57,6 +57,7 @@ export default function SettingsPage() {
   const { isAdmin, isAccount, userRole } = useAccount();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   // Determine available tabs based on role/mode
   const tabs: { key: Tab; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }[] = [];
@@ -75,6 +76,24 @@ export default function SettingsPage() {
   const activeTab = tabs.some(t => t.key === routeTab)
     ? (routeTab as Tab)
     : defaultTab;
+
+  useEffect(() => {
+    const mode = searchParams.get('esp_auth_mode');
+    if (mode !== 'agency') return;
+
+    const connected = searchParams.get('esp_connected');
+    const errorMessage = searchParams.get('esp_error');
+    const provider = searchParams.get('esp_provider');
+    const label = providerDisplayName(provider);
+
+    if (connected === 'true') {
+      toast.success(`Successfully connected ${label} at agency level!`);
+    } else if (errorMessage) {
+      toast.error(`${label} connection failed: ${errorMessage}`);
+    }
+
+    router.replace(`/settings/${defaultTab}`, { scroll: false });
+  }, [searchParams, defaultTab, router]);
 
   // Enforce canonical route per tab so browser history/back works correctly.
   useEffect(() => {
@@ -696,12 +715,35 @@ interface CustomValueDef {
   value: string;
 }
 
+function shouldUseAgencyAuthorize(
+  provider: string,
+  oauthMode: 'legacy' | 'hybrid' | 'agency' | undefined,
+): boolean {
+  return normalizeProviderId(provider) === 'ghl' && oauthMode === 'agency';
+}
+
+function buildAuthorizeHrefForAccount(input: {
+  provider: string;
+  accountKey: string;
+  oauthMode: 'legacy' | 'hybrid' | 'agency' | undefined;
+}): string {
+  const provider = normalizeProviderId(input.provider);
+  const params = new URLSearchParams({ provider });
+  if (shouldUseAgencyAuthorize(provider, input.oauthMode)) {
+    params.set('mode', 'agency');
+  } else {
+    params.set('accountKey', input.accountKey);
+  }
+  return `/api/esp/connections/authorize?${params.toString()}`;
+}
+
 interface AccountSyncStatus {
   key: string;
   dealer: string;
   provider: string;
   connectionType: 'oauth' | 'api-key' | 'none';
   oauthConnected: boolean;
+  oauthMode?: 'legacy' | 'hybrid' | 'agency';
   locationId?: string;
   scopes: string[];
   requiredScopes: string[];
@@ -712,6 +754,33 @@ interface AccountSyncStatus {
   overrideCount: number;
   syncing: boolean;
   lastResult?: { created: number; updated: number; deleted: number; skipped: number; errors: number } | null;
+  error?: string;
+}
+
+interface GhlAgencyStatus {
+  connected: boolean;
+  source: 'oauth' | 'env' | 'none';
+  mode: 'legacy' | 'hybrid' | 'agency';
+  scopes: string[];
+  connectUrl?: string;
+  warning?: string;
+}
+
+interface GhlBulkLinkDraftRow {
+  line: number;
+  raw: string;
+  accountKey: string;
+  locationId: string;
+  locationName?: string;
+  error?: string;
+}
+
+interface GhlBulkLinkResult {
+  line: number;
+  accountKey: string;
+  locationId: string;
+  locationName?: string | null;
+  success: boolean;
   error?: string;
 }
 
@@ -737,6 +806,21 @@ function CustomValuesTab() {
   const [bulkSyncing, setBulkSyncing] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const [requiredScopesByProvider, setRequiredScopesByProvider] = useState<Record<string, string[]>>({});
+  const [accountStatusRefreshNonce, setAccountStatusRefreshNonce] = useState(0);
+  const [ghlAgencyStatus, setGhlAgencyStatus] = useState<GhlAgencyStatus | null>(null);
+  const [ghlAgencyLoading, setGhlAgencyLoading] = useState(false);
+  const [ghlAgencyDisconnecting, setGhlAgencyDisconnecting] = useState(false);
+  const [ghlAgencyError, setGhlAgencyError] = useState<string | null>(null);
+  const [showBulkLinkAssistant, setShowBulkLinkAssistant] = useState(false);
+  const [bulkLinkInput, setBulkLinkInput] = useState('');
+  const [bulkLinkPreview, setBulkLinkPreview] = useState<GhlBulkLinkDraftRow[]>([]);
+  const [bulkLinkApplying, setBulkLinkApplying] = useState(false);
+  const [bulkLinkResult, setBulkLinkResult] = useState<{
+    total: number;
+    linked: number;
+    failed: number;
+    results: GhlBulkLinkResult[];
+  } | null>(null);
 
   const hasDefaultChanges = JSON.stringify(defaults) !== JSON.stringify(savedDefaults);
 
@@ -776,6 +860,200 @@ function CustomValuesTab() {
     };
   }, []);
 
+  const hasGhlAgencyAccounts = accountStatuses.some(
+    (status) => status.provider === 'ghl' && status.oauthMode === 'agency',
+  );
+
+  function parseBulkLinkInputValue(value: string): GhlBulkLinkDraftRow[] {
+    const knownAccountKeys = new Set(Object.keys(accounts || {}));
+    const rows: GhlBulkLinkDraftRow[] = [];
+    const seenAccountKeys = new Set<string>();
+    const lines = value.split(/\r?\n/);
+
+    lines.forEach((rawLine, index) => {
+      const line = index + 1;
+      const trimmed = rawLine.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+
+      const hasTabs = rawLine.includes('\t');
+      const parts = (hasTabs ? rawLine.split('\t') : rawLine.split(','))
+        .map((part) => part.trim());
+      const accountKey = (parts[0] || '').trim();
+      const locationId = (parts[1] || '').trim();
+      const locationNameJoined = parts.slice(2).join(',').trim();
+      const locationName = locationNameJoined || undefined;
+      const firstToken = accountKey.toLowerCase();
+      const secondToken = locationId.toLowerCase();
+      const isHeaderRow = (
+        (firstToken === 'accountkey' || firstToken === 'account_key' || firstToken === 'account')
+        && (secondToken === 'locationid' || secondToken === 'location_id' || secondToken === 'location')
+      );
+      if (isHeaderRow) return;
+
+      let error: string | undefined;
+      if (!accountKey || !locationId) {
+        error = 'Expected "accountKey,locationId[,locationName]"';
+      } else if (!knownAccountKeys.has(accountKey)) {
+        error = `Unknown account key "${accountKey}"`;
+      } else if (seenAccountKeys.has(accountKey)) {
+        error = `Duplicate account key "${accountKey}" in this batch`;
+      } else {
+        seenAccountKeys.add(accountKey);
+      }
+
+      rows.push({
+        line,
+        raw: rawLine,
+        accountKey,
+        locationId,
+        ...(locationName ? { locationName } : {}),
+        ...(error ? { error } : {}),
+      });
+    });
+
+    return rows;
+  }
+
+  function handlePreviewBulkLinks() {
+    const parsed = parseBulkLinkInputValue(bulkLinkInput);
+    setBulkLinkPreview(parsed);
+    setBulkLinkResult(null);
+    if (parsed.length === 0) {
+      toast.error('No mapping rows found. Paste one mapping per line.');
+      return;
+    }
+    const validCount = parsed.filter((row) => !row.error).length;
+    if (validCount === 0) {
+      toast.error('No valid rows found. Fix validation errors and try again.');
+      return;
+    }
+    toast.success(`Preview ready: ${validCount} valid row${validCount === 1 ? '' : 's'}`);
+  }
+
+  async function handleApplyBulkLinks() {
+    const parsed = bulkLinkPreview.length > 0
+      ? bulkLinkPreview
+      : parseBulkLinkInputValue(bulkLinkInput);
+    setBulkLinkPreview(parsed);
+    setBulkLinkResult(null);
+
+    const validRows = parsed.filter((row) => !row.error);
+    if (validRows.length === 0) {
+      toast.error('No valid rows to apply');
+      return;
+    }
+
+    setBulkLinkApplying(true);
+    try {
+      const res = await fetch('/api/esp/connections/ghl/location-link/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mappings: validRows.map((row) => ({
+            line: row.line,
+            accountKey: row.accountKey,
+            locationId: row.locationId,
+            locationName: row.locationName,
+          })),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === 'string' ? data.error : 'Failed to apply bulk location links',
+        );
+      }
+
+      const result = {
+        total: Number(data.total) || 0,
+        linked: Number(data.linked) || 0,
+        failed: Number(data.failed) || 0,
+        results: Array.isArray(data.results) ? data.results as GhlBulkLinkResult[] : [],
+      };
+      setBulkLinkResult(result);
+      setAccountStatusRefreshNonce((prev) => prev + 1);
+
+      if (result.failed > 0) {
+        toast.warning(`Linked ${result.linked}/${result.total} accounts (${result.failed} failed)`);
+      } else {
+        toast.success(`Linked ${result.linked} account${result.linked === 1 ? '' : 's'} successfully`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to apply bulk location links');
+    } finally {
+      setBulkLinkApplying(false);
+    }
+  }
+
+  async function loadGhlAgencyStatus() {
+    setGhlAgencyLoading(true);
+    setGhlAgencyError(null);
+    try {
+      const res = await fetch('/api/esp/connections/ghl/agency');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to load GHL agency status');
+      }
+
+      setGhlAgencyStatus({
+        connected: data.connected === true,
+        source: data.source === 'oauth' || data.source === 'env' ? data.source : 'none',
+        mode:
+          data.mode === 'legacy' || data.mode === 'hybrid' || data.mode === 'agency'
+            ? data.mode
+            : 'legacy',
+        scopes: Array.isArray(data.scopes) ? data.scopes.map(String) : [],
+        connectUrl: typeof data.connectUrl === 'string' ? data.connectUrl : undefined,
+        warning: typeof data.warning === 'string' ? data.warning : undefined,
+      });
+    } catch (err) {
+      setGhlAgencyStatus(null);
+      setGhlAgencyError(err instanceof Error ? err.message : 'Failed to load GHL agency status');
+    } finally {
+      setGhlAgencyLoading(false);
+    }
+  }
+
+  async function handleDisconnectGhlAgency() {
+    if (!confirm('Disconnect GHL agency OAuth? Accounts linked via agency will stop syncing until reconnected.')) {
+      return;
+    }
+
+    setGhlAgencyDisconnecting(true);
+    setGhlAgencyError(null);
+    try {
+      const res = await fetch('/api/esp/connections/ghl/agency', { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to disconnect GHL agency OAuth');
+      }
+
+      if (typeof data.warning === 'string' && data.warning.trim()) {
+        toast.warning(data.warning);
+      } else {
+        toast.success('Disconnected GHL agency OAuth');
+      }
+      await loadGhlAgencyStatus();
+      setAccountStatusRefreshNonce((prev) => prev + 1);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to disconnect GHL agency OAuth';
+      setGhlAgencyError(message);
+      toast.error(message);
+    } finally {
+      setGhlAgencyDisconnecting(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!hasGhlAgencyAccounts) {
+      setGhlAgencyStatus(null);
+      setGhlAgencyError(null);
+      return;
+    }
+
+    void loadGhlAgencyStatus();
+  }, [hasGhlAgencyAccounts]);
+
   // ── Load account statuses ──
   useEffect(() => {
     if (!accounts || Object.keys(accounts).length === 0) {
@@ -783,6 +1061,7 @@ function CustomValuesTab() {
       return;
     }
 
+    setLoadingAccounts(true);
     const keys = Object.keys(accounts);
     Promise.all(
       keys.map(key =>
@@ -824,6 +1103,7 @@ function CustomValuesTab() {
             provider,
             connectionType: resolvedProviderStatus.connectionType,
             oauthConnected: resolvedProviderStatus.oauthConnected,
+            oauthMode: providerStatus?.oauthMode,
             locationId: resolvedProviderStatus.locationId
               || resolvedProviderStatus.accountId
               || resolveAccountLocationId(accounts[key]),
@@ -844,7 +1124,7 @@ function CustomValuesTab() {
       setAccountStatuses(statuses);
       setLoadingAccounts(false);
     });
-  }, [accounts, requiredScopesByProvider]);
+  }, [accounts, requiredScopesByProvider, accountStatusRefreshNonce]);
 
   // ── Save global defaults ──
   async function handleSaveDefaults() {
@@ -1006,6 +1286,18 @@ function CustomValuesTab() {
   }
 
   const connectedAccounts = accountStatuses.filter(a => a.readyForSync);
+  const ghlAgencyUnlinkedAccounts = accountStatuses.filter((status) => (
+    status.provider === 'ghl'
+    && status.oauthMode === 'agency'
+    && !status.locationId
+  ));
+  const ghlAgencyLinkedAccounts = accountStatuses.filter((status) => (
+    status.provider === 'ghl'
+    && status.oauthMode === 'agency'
+    && Boolean(status.locationId)
+  ));
+  const bulkPreviewValidRows = bulkLinkPreview.filter((row) => !row.error);
+  const bulkPreviewInvalidRows = bulkLinkPreview.filter((row) => row.error);
   const allSelected = connectedAccounts.length > 0 && connectedAccounts.every(a => selectedKeys.has(a.key));
   const inputClass = 'w-full px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
 
@@ -1190,6 +1482,179 @@ function CustomValuesTab() {
           </div>
         </div>
 
+        {hasGhlAgencyAccounts && (
+          <div className="glass-card rounded-lg p-3 mb-4 border border-[var(--border)] bg-[var(--muted)]/40 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-[var(--foreground)]">GHL Agency OAuth</p>
+                <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                  Agency mode is active for {ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length} account{ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length !== 1 ? 's' : ''}. Link each account to a location in Account Integrations.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-0.5 text-[10px] rounded-full border ${
+                  ghlAgencyStatus?.connected
+                    ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                    : 'text-[var(--muted-foreground)] border-[var(--border)] bg-[var(--card)]'
+                }`}>
+                  {ghlAgencyLoading
+                    ? 'Checking...'
+                    : ghlAgencyStatus?.connected
+                      ? `Connected (${ghlAgencyStatus.source})`
+                      : 'Not connected'}
+                </span>
+                <button
+                  onClick={() => void loadGhlAgencyStatus()}
+                  disabled={ghlAgencyLoading}
+                  className="px-2.5 py-1.5 text-[11px] rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+                >
+                  Refresh
+                </button>
+                {ghlAgencyStatus?.connected ? (
+                  <button
+                    onClick={() => void handleDisconnectGhlAgency()}
+                    disabled={ghlAgencyDisconnecting}
+                    className="px-2.5 py-1.5 text-[11px] rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                  >
+                    {ghlAgencyDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                  </button>
+                ) : (
+                  <a
+                    href={ghlAgencyStatus?.connectUrl || '/api/esp/connections/authorize?provider=ghl&mode=agency'}
+                    className="px-2.5 py-1.5 text-[11px] rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
+                  >
+                    Connect
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {ghlAgencyError && (
+              <p className="text-[11px] text-amber-400">{ghlAgencyError}</p>
+            )}
+
+            {ghlAgencyStatus?.connected && ghlAgencyUnlinkedAccounts.length > 0 && (
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                <p className="text-[11px] text-amber-400">
+                  {ghlAgencyUnlinkedAccounts.length} account{ghlAgencyUnlinkedAccounts.length !== 1 ? 's' : ''} still need a location link.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {ghlAgencyUnlinkedAccounts.slice(0, 8).map((accountStatus) => (
+                    <a
+                      key={accountStatus.key}
+                      href={`/settings/accounts/${encodeURIComponent(accountStatus.key)}?tab=integration`}
+                      className="text-[10px] px-2 py-1 rounded-full border border-amber-500/30 text-amber-300 hover:bg-amber-500/10 transition-colors"
+                    >
+                      {accountStatus.dealer}
+                    </a>
+                  ))}
+                  {ghlAgencyUnlinkedAccounts.length > 8 && (
+                    <span className="text-[10px] px-2 py-1 rounded-full border border-[var(--border)] text-[var(--muted-foreground)]">
+                      +{ghlAgencyUnlinkedAccounts.length - 8} more
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-[var(--foreground)]">Bulk Location Link Assistant</p>
+                  <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                    Paste one mapping per line: <span className="font-mono">accountKey,locationId[,locationName]</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowBulkLinkAssistant((prev) => !prev)}
+                  className="px-2.5 py-1.5 text-[11px] rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                >
+                  {showBulkLinkAssistant ? 'Hide' : 'Show'}
+                </button>
+              </div>
+
+              {showBulkLinkAssistant && (
+                <div className="space-y-3">
+                  {!ghlAgencyStatus?.connected && (
+                    <p className="text-[11px] text-amber-400">
+                      Connect GHL agency OAuth before applying bulk location links.
+                    </p>
+                  )}
+
+                  <textarea
+                    value={bulkLinkInput}
+                    onChange={(event) => setBulkLinkInput(event.target.value)}
+                    placeholder={'accountKey,locationId,locationName\nacme-motors,abc123,Acme Motors Main'}
+                    className="w-full h-36 resize-y rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-mono focus:outline-none focus:border-[var(--primary)]"
+                  />
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handlePreviewBulkLinks}
+                      className="px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                    >
+                      Preview
+                    </button>
+                    <button
+                      onClick={() => void handleApplyBulkLinks()}
+                      disabled={!ghlAgencyStatus?.connected || bulkLinkApplying}
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                    >
+                      {bulkLinkApplying ? 'Applying...' : 'Apply Links'}
+                    </button>
+                  </div>
+
+                  {bulkLinkPreview.length > 0 && (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 px-3 py-2 space-y-2">
+                      <p className="text-[11px] text-[var(--muted-foreground)]">
+                        Preview: {bulkPreviewValidRows.length} valid, {bulkPreviewInvalidRows.length} invalid
+                      </p>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {bulkLinkPreview.slice(0, 20).map((row) => (
+                          <div key={`${row.line}-${row.accountKey}-${row.locationId}`} className="text-[11px] font-mono">
+                            <span className="text-[var(--muted-foreground)]">L{row.line}</span>{' '}
+                            <span>{row.accountKey || '(missing account)'}</span>
+                            <span className="text-[var(--muted-foreground)]">{' -> '}</span>
+                            <span>{row.locationId || '(missing location)'}</span>{' '}
+                            {row.error ? (
+                              <span className="text-red-400">({row.error})</span>
+                            ) : (
+                              <span className="text-emerald-400">(ok)</span>
+                            )}
+                          </div>
+                        ))}
+                        {bulkLinkPreview.length > 20 && (
+                          <p className="text-[10px] text-[var(--muted-foreground)]">
+                            +{bulkLinkPreview.length - 20} additional row{bulkLinkPreview.length - 20 === 1 ? '' : 's'}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {bulkLinkResult && (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 px-3 py-2 space-y-2">
+                      <p className="text-[11px] text-[var(--muted-foreground)]">
+                        Result: {bulkLinkResult.linked}/{bulkLinkResult.total} linked
+                        {bulkLinkResult.failed > 0 ? `, ${bulkLinkResult.failed} failed` : ''}
+                      </p>
+                      {bulkLinkResult.failed > 0 && (
+                        <div className="max-h-32 overflow-y-auto space-y-1">
+                          {bulkLinkResult.results.filter((row) => !row.success).slice(0, 20).map((row) => (
+                            <p key={`result-${row.line}-${row.accountKey}`} className="text-[11px] font-mono text-red-400">
+                              L{row.line} {row.accountKey} {' -> '} {row.locationId}: {row.error || 'Failed'}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {accountStatuses.some((accountStatus) => accountStatus.needsReauthorization) && (
           <div className="glass-card rounded-lg p-3 mb-4 border border-amber-500/20 bg-amber-500/5">
             <p className="text-[11px] text-amber-400">
@@ -1285,11 +1750,28 @@ function CustomValuesTab() {
                         </span>
                       ) : acct.needsReauthorization ? (
                         <a
-                          href={`/api/esp/connections/authorize?provider=${encodeURIComponent(acct.provider)}&accountKey=${encodeURIComponent(acct.key)}`}
+                          href={buildAuthorizeHrefForAccount({
+                            provider: acct.provider,
+                            accountKey: acct.key,
+                            oauthMode: acct.oauthMode,
+                          })}
                           className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition-colors"
                           title={`Re-authorize ${providerDisplayName(acct.provider)} to grant required scopes`}
                         >
                           <ExclamationTriangleIcon className="w-2.5 h-2.5" /> Re-auth needed
+                        </a>
+                      ) : (
+                        acct.provider === 'ghl'
+                        && acct.oauthMode === 'agency'
+                        && ghlAgencyStatus?.connected
+                        && !acct.locationId
+                      ) ? (
+                        <a
+                          href={`/settings/accounts/${encodeURIComponent(acct.key)}?tab=integration`}
+                          className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition-colors"
+                          title="Link this account to a GHL location"
+                        >
+                          <ExclamationTriangleIcon className="w-2.5 h-2.5" /> Link location
                         </a>
                       ) : (
                         <span className="text-xs text-[var(--muted-foreground)]">Not connected</span>
@@ -1337,6 +1819,8 @@ function CustomValuesTab() {
                             : !acct.readyForSync
                               ? acct.needsReauthorization
                                 ? `Re-authorize ${providerDisplayName(acct.provider)} to enable custom values`
+                                : acct.provider === 'ghl' && acct.oauthMode === 'agency' && ghlAgencyStatus?.connected && !acct.locationId
+                                  ? 'Link this account to a GHL location in Integrations'
                                 : `Connect ${providerDisplayName(acct.provider)} first`
                               : `Push custom values to ${providerDisplayName(acct.provider)}`
                         }

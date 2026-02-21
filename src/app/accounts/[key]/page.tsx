@@ -90,6 +90,23 @@ function providerSecretPlaceholder(auth: EspCapabilities['auth']): string {
 
 type DetailTab = 'company' | 'branding' | 'integration' | 'custom-values' | 'contacts';
 type AccountImageVariant = 'light' | 'dark' | 'white' | 'black' | 'storefront';
+type GhlAgencyStatus = {
+  connected: boolean;
+  source: 'oauth' | 'env' | 'none';
+  mode: 'legacy' | 'hybrid' | 'agency';
+  scopes: string[];
+  connectUrl?: string;
+};
+type GhlLocationSummary = {
+  id: string;
+  name: string;
+  email?: string;
+};
+type GhlLocationLink = {
+  locationId: string;
+  locationName: string | null;
+  linkedAt?: string;
+};
 
 function deriveProviderCatalogFromAccount(accountData: AccountData | null | undefined): ProviderCatalogEntry[] {
   if (!accountData) return [];
@@ -107,6 +124,28 @@ function deriveProviderCatalogFromAccount(accountData: AccountData | null | unde
   (accountData.espConnections || []).forEach((connection) => addProvider(connection.provider));
 
   return Array.from(providers).sort().map((provider) => createFallbackProviderEntry(provider));
+}
+
+function shouldUseAgencyAuthorize(
+  provider: string,
+  oauthMode: ProviderCatalogEntry['oauthMode'] | undefined,
+): boolean {
+  return normalizeProviderId(provider) === 'ghl' && oauthMode === 'agency';
+}
+
+function buildAuthorizeHref(input: {
+  provider: string;
+  accountKey: string;
+  oauthMode: ProviderCatalogEntry['oauthMode'] | undefined;
+}): string {
+  const provider = normalizeProviderId(input.provider);
+  const params = new URLSearchParams({ provider });
+  if (shouldUseAgencyAuthorize(provider, input.oauthMode)) {
+    params.set('mode', 'agency');
+  } else {
+    params.set('accountKey', input.accountKey);
+  }
+  return `/api/esp/connections/authorize?${params.toString()}`;
 }
 
 const TABS: { key: DetailTab; label: string }[] = [
@@ -172,6 +211,17 @@ export default function AccountDetailPage() {
 
   // ── Integration fields ──
   const [providerReimporting, setProviderReimporting] = useState<Record<string, boolean>>({});
+  const [ghlAgencyStatus, setGhlAgencyStatus] = useState<GhlAgencyStatus | null>(null);
+  const [ghlAgencyLoading, setGhlAgencyLoading] = useState(false);
+  const [ghlAgencyError, setGhlAgencyError] = useState<string | null>(null);
+  const [ghlLocations, setGhlLocations] = useState<GhlLocationSummary[]>([]);
+  const [ghlLocationsLoading, setGhlLocationsLoading] = useState(false);
+  const [ghlLocationsError, setGhlLocationsError] = useState<string | null>(null);
+  const [ghlLocationSearch, setGhlLocationSearch] = useState('');
+  const [ghlLocationLink, setGhlLocationLink] = useState<GhlLocationLink | null>(null);
+  const [ghlLinking, setGhlLinking] = useState(false);
+  const [ghlUnlinking, setGhlUnlinking] = useState(false);
+  const [ghlSelectedLocationId, setGhlSelectedLocationId] = useState('');
 
   // ── Custom Values ──
   type CustomValueDef = { name: string; value: string };
@@ -190,6 +240,13 @@ export default function AccountDetailPage() {
     return !val || val.trim() === '';
   }).length;
   const hasEmptyCustomValues = customValuesEmptyCount > 0 && customValuesAllKeys.size > 0;
+  const integrationProviderId = normalizeProviderId(integrationModal);
+  const integrationProviderEntry = integrationProviderId
+    ? providerCatalog.find((entry) => normalizeProviderId(entry.provider) === integrationProviderId)
+    : null;
+  const isGhlAgencyIntegrationModal =
+    integrationProviderId === 'ghl'
+    && integrationProviderEntry?.oauthMode === 'agency';
 
   // ── Populate from fetched data ──
   function populateFromAccount(accountData: AccountData) {
@@ -275,6 +332,199 @@ export default function AccountDetailPage() {
       applyProviderCatalog(catalog);
     } catch {
       // Non-blocking UI metadata refresh.
+    }
+  }
+
+  async function refreshGhlAgencyStatus(): Promise<GhlAgencyStatus | null> {
+    setGhlAgencyLoading(true);
+    setGhlAgencyError(null);
+    try {
+      const res = await fetch('/api/esp/connections/ghl/agency');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === 'string' ? data.error : 'Failed to load agency OAuth status',
+        );
+      }
+
+      const status: GhlAgencyStatus = {
+        connected: data.connected === true,
+        source: data.source === 'oauth' || data.source === 'env' ? data.source : 'none',
+        mode:
+          data.mode === 'legacy' || data.mode === 'hybrid' || data.mode === 'agency'
+            ? data.mode
+            : 'legacy',
+        scopes: Array.isArray(data.scopes) ? data.scopes.map(String) : [],
+        connectUrl: typeof data.connectUrl === 'string' ? data.connectUrl : undefined,
+      };
+      setGhlAgencyStatus(status);
+      return status;
+    } catch (err) {
+      setGhlAgencyStatus(null);
+      setGhlAgencyError(err instanceof Error ? err.message : 'Failed to load agency OAuth status');
+      return null;
+    } finally {
+      setGhlAgencyLoading(false);
+    }
+  }
+
+  async function refreshGhlLocationLink(): Promise<GhlLocationLink | null> {
+    setGhlLocationsError(null);
+    try {
+      const res = await fetch(
+        `/api/esp/connections/ghl/location-link?accountKey=${encodeURIComponent(key)}`,
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === 'string' ? data.error : 'Failed to load linked location',
+        );
+      }
+      const link = data.link && typeof data.link === 'object'
+        ? {
+          locationId: String(data.link.locationId || ''),
+          locationName: data.link.locationName ? String(data.link.locationName) : null,
+          linkedAt: typeof data.link.linkedAt === 'string' ? data.link.linkedAt : undefined,
+        }
+        : null;
+      setGhlLocationLink(link?.locationId ? link : null);
+      if (link?.locationId) {
+        setGhlSelectedLocationId(link.locationId);
+      }
+      return link?.locationId ? link : null;
+    } catch (err) {
+      setGhlLocationLink(null);
+      setGhlLocationsError(err instanceof Error ? err.message : 'Failed to load linked location');
+      return null;
+    }
+  }
+
+  async function refreshGhlLocations(
+    searchRaw = ghlLocationSearch,
+    preferredLocationId?: string,
+  ): Promise<void> {
+    const search = searchRaw.trim();
+    setGhlLocationsLoading(true);
+    setGhlLocationsError(null);
+    try {
+      const query = new URLSearchParams({ limit: '100' });
+      if (search) query.set('search', search);
+      const res = await fetch(`/api/esp/connections/ghl/locations?${query.toString()}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === 'string' ? data.error : 'Failed to load agency locations',
+        );
+      }
+
+      const locations: GhlLocationSummary[] = Array.isArray(data.locations)
+        ? data.locations
+          .map((row: unknown): GhlLocationSummary => {
+            const record = row && typeof row === 'object'
+              ? (row as Record<string, unknown>)
+              : {};
+            return {
+              id: String(record.id || ''),
+              name: String(record.name || ''),
+              email: typeof record.email === 'string' ? record.email : undefined,
+            };
+          })
+          .filter((location: GhlLocationSummary) => Boolean(location.id))
+        : [];
+      setGhlLocations(locations);
+      setGhlSelectedLocationId((prev) => {
+        if (prev && locations.some((location) => location.id === prev)) return prev;
+        if (
+          preferredLocationId
+          && locations.some((location) => location.id === preferredLocationId)
+        ) {
+          return preferredLocationId;
+        }
+        if (
+          ghlLocationLink?.locationId
+          && locations.some((location) => location.id === ghlLocationLink.locationId)
+        ) {
+          return ghlLocationLink.locationId;
+        }
+        return locations[0]?.id || '';
+      });
+    } catch (err) {
+      setGhlLocations([]);
+      setGhlLocationsError(err instanceof Error ? err.message : 'Failed to load agency locations');
+    } finally {
+      setGhlLocationsLoading(false);
+    }
+  }
+
+  async function handleGhlLocationLink(): Promise<void> {
+    const locationId = ghlSelectedLocationId.trim();
+    if (!locationId) {
+      toast.error('Select a location before linking');
+      return;
+    }
+
+    setGhlLinking(true);
+    try {
+      const selectedLocation = ghlLocations.find((location) => location.id === locationId);
+      const res = await fetch('/api/esp/connections/ghl/location-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountKey: key,
+          locationId,
+          locationName: selectedLocation?.name || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to link location');
+      }
+
+      await Promise.all([
+        refreshProviderCatalog(),
+        refreshAccountData(),
+        refreshAccountList(),
+        refreshGhlLocationLink(),
+      ]);
+      toast.success(
+        `Linked to ${selectedLocation?.name || locationId}`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to link location');
+    } finally {
+      setGhlLinking(false);
+    }
+  }
+
+  async function handleGhlLocationUnlink(): Promise<void> {
+    const linkedId = ghlLocationLink?.locationId || '';
+    if (!linkedId) return;
+    if (!confirm('Unlink this account from its GHL location?')) return;
+
+    setGhlUnlinking(true);
+    try {
+      const res = await fetch('/api/esp/connections/ghl/location-link', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountKey: key }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to unlink location');
+      }
+
+      setGhlLocationLink(null);
+      await Promise.all([
+        refreshProviderCatalog(),
+        refreshAccountData(),
+        refreshAccountList(),
+        refreshGhlLocations(ghlLocationSearch),
+      ]);
+      toast.success('Location unlinked');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to unlink location');
+    } finally {
+      setGhlUnlinking(false);
     }
   }
 
@@ -365,6 +615,39 @@ export default function AccountDetailPage() {
       router.replace(`/accounts/${key}`, { scroll: false });
     }
   }, [searchParams, key, router]);
+
+  useEffect(() => {
+    if (!isGhlAgencyIntegrationModal) {
+      setGhlAgencyStatus(null);
+      setGhlAgencyError(null);
+      setGhlLocations([]);
+      setGhlLocationsError(null);
+      setGhlLocationSearch('');
+      setGhlLocationLink(null);
+      setGhlSelectedLocationId('');
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const status = await refreshGhlAgencyStatus();
+      if (cancelled) return;
+
+      const link = await refreshGhlLocationLink();
+      if (cancelled) return;
+
+      if (status?.connected) {
+        await refreshGhlLocations('', link?.locationId);
+      } else {
+        setGhlLocations([]);
+        setGhlSelectedLocationId('');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isGhlAgencyIntegrationModal, key]);
 
   // ── Save ──
   function buildCustomValuesForSave(): Record<string, CustomValueDef> {
@@ -1096,7 +1379,11 @@ export default function AccountDetailPage() {
                           </button>
                           {provider.oauthSupported ? (
                             <a
-                              href={`/api/esp/connections/authorize?provider=${encodeURIComponent(providerId)}&accountKey=${encodeURIComponent(key)}`}
+                              href={buildAuthorizeHref({
+                                provider: providerId,
+                                accountKey: key,
+                                oauthMode: provider.oauthMode,
+                              })}
                               className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${providerTheme.connectButtonClassName || 'bg-[var(--primary)] text-white hover:opacity-90'}`}
                             >
                               Connect {providerLabel}
@@ -1166,6 +1453,11 @@ export default function AccountDetailPage() {
                         connected && provider.businessDetailsRefreshSupported === true;
                       const webhookEndpointEntries = Object.entries(provider.webhookEndpoints || {})
                         .filter(([family, endpoint]) => Boolean(family.trim()) && Boolean((endpoint || '').trim()));
+                      const isGhlAgencyMode = providerId === 'ghl' && provider.oauthMode === 'agency';
+                      const agencyConnected = isGhlAgencyMode && ghlAgencyStatus?.connected === true;
+                      const agencyConnectHref =
+                        ghlAgencyStatus?.connectUrl
+                        || '/api/esp/connections/authorize?provider=ghl&mode=agency';
 
                       return (
                         <>
@@ -1272,12 +1564,124 @@ export default function AccountDetailPage() {
                             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400">
                               Missing required OAuth scopes for this provider.{' '}
                               <a
-                                href={`/api/esp/connections/authorize?provider=${encodeURIComponent(providerId)}&accountKey=${encodeURIComponent(key)}`}
+                                href={buildAuthorizeHref({
+                                  provider: providerId,
+                                  accountKey: key,
+                                  oauthMode: provider.oauthMode,
+                                })}
                                 className="underline font-medium hover:text-amber-300"
                               >
                                 Re-authorize
                               </a>
                               {' '}to grant required scopes.
+                            </div>
+                          )}
+
+                          {isGhlAgencyMode && (
+                            <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-xs font-medium text-[var(--foreground)]">Agency OAuth</p>
+                                  <p className="text-[11px] text-[var(--muted-foreground)]">
+                                    Use one agency authorization, then link this account to a location.
+                                  </p>
+                                </div>
+                                <span className={`px-2 py-0.5 text-[10px] rounded-full border ${
+                                  agencyConnected
+                                    ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                                    : 'text-[var(--muted-foreground)] border-[var(--border)] bg-[var(--card)]'
+                                }`}>
+                                  {ghlAgencyLoading
+                                    ? 'Checking...'
+                                    : agencyConnected
+                                      ? `Connected (${ghlAgencyStatus?.source || 'oauth'})`
+                                      : 'Not connected'}
+                                </span>
+                              </div>
+
+                              {ghlAgencyError && (
+                                <p className="text-[11px] text-amber-400">{ghlAgencyError}</p>
+                              )}
+
+                              {!agencyConnected ? (
+                                <a
+                                  href={agencyConnectHref}
+                                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors"
+                                >
+                                  Connect Agency OAuth
+                                </a>
+                              ) : (
+                                <div className="space-y-3">
+                                  <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2">
+                                    <p className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wide">
+                                      Linked Location
+                                    </p>
+                                    <p className="text-xs text-[var(--foreground)] mt-1 truncate">
+                                      {ghlLocationLink?.locationName || resolvedStatus.locationName || 'Not linked yet'}
+                                    </p>
+                                    <p className="text-[11px] font-mono text-[var(--muted-foreground)] mt-1 truncate">
+                                      {ghlLocationLink?.locationId || resolvedStatus.locationId || '—'}
+                                    </p>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      value={ghlLocationSearch}
+                                      onChange={(event) => setGhlLocationSearch(event.target.value)}
+                                      placeholder="Search locations..."
+                                      className={`${inputClass} text-xs`}
+                                    />
+                                    <button
+                                      onClick={() => refreshGhlLocations(ghlLocationSearch, ghlLocationLink?.locationId)}
+                                      disabled={ghlLocationsLoading}
+                                      className="px-3 py-2 border border-[var(--border)] rounded-lg text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+                                    >
+                                      {ghlLocationsLoading ? 'Searching...' : 'Search'}
+                                    </button>
+                                  </div>
+
+                                  <div>
+                                    <label className={labelClass}>Available Locations</label>
+                                    <select
+                                      value={ghlSelectedLocationId}
+                                      onChange={(event) => setGhlSelectedLocationId(event.target.value)}
+                                      className={inputClass}
+                                    >
+                                      <option value="">Select a location...</option>
+                                      {ghlLocations.map((location) => (
+                                        <option key={location.id} value={location.id}>
+                                          {location.name || location.id}
+                                          {location.email ? ` (${location.email})` : ''}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  {ghlLocationsError && (
+                                    <p className="text-[11px] text-amber-400">{ghlLocationsError}</p>
+                                  )}
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => handleGhlLocationLink()}
+                                      disabled={!ghlSelectedLocationId || ghlLinking}
+                                      className="px-3 py-2 bg-[var(--primary)] text-white rounded-lg text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                                    >
+                                      {ghlLinking ? 'Linking...' : 'Link Selected Location'}
+                                    </button>
+                                    {ghlLocationLink?.locationId && (
+                                      <button
+                                        onClick={() => handleGhlLocationUnlink()}
+                                        disabled={ghlUnlinking}
+                                        className="px-3 py-2 border border-red-500/30 rounded-lg text-xs text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                                      >
+                                        {ghlUnlinking ? 'Unlinking...' : 'Unlink Location'}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -1334,14 +1738,20 @@ export default function AccountDetailPage() {
                                 className="flex items-center gap-1.5 px-3 py-2 border border-red-500/30 rounded-lg text-xs text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                               >
                                 <XMarkIcon className="w-3.5 h-3.5" />
-                                {disconnecting ? 'Disconnecting...' : 'Disconnect'}
+                                {disconnecting
+                                  ? (isGhlAgencyMode ? 'Unlinking...' : 'Disconnecting...')
+                                  : (isGhlAgencyMode ? 'Unlink Location' : 'Disconnect')}
                               </button>
                             </div>
                           ) : (
                             <div className="space-y-3">
-                              {provider.oauthSupported && (
+                              {provider.oauthSupported && !isGhlAgencyMode && (
                                 <a
-                                  href={`/api/esp/connections/authorize?provider=${encodeURIComponent(providerId)}&accountKey=${encodeURIComponent(key)}`}
+                                  href={buildAuthorizeHref({
+                                    provider: providerId,
+                                    accountKey: key,
+                                    oauthMode: provider.oauthMode,
+                                  })}
                                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors"
                                 >
                                   Connect with OAuth
@@ -1470,7 +1880,11 @@ export default function AccountDetailPage() {
                     {providerDisplayName(activeProvider)} is not connected. Custom values can be saved locally but won&apos;t sync until you{' '}
                     {activeProviderEntry?.oauthSupported ? (
                       <a
-                        href={`/api/esp/connections/authorize?provider=${encodeURIComponent(activeProvider)}&accountKey=${encodeURIComponent(key)}`}
+                        href={buildAuthorizeHref({
+                          provider: activeProvider,
+                          accountKey: key,
+                          oauthMode: activeProviderEntry.oauthMode,
+                        })}
                         className="underline font-medium hover:text-amber-300"
                       >
                         connect {providerDisplayName(activeProvider)}
@@ -1488,7 +1902,11 @@ export default function AccountDetailPage() {
                   <p className="text-[11px] text-amber-400">
                     <strong>Re-authorization required:</strong> This account&apos;s OAuth token is missing one or more required scopes for custom value sync in {providerDisplayName(activeProvider)}.{' '}
                     <a
-                      href={`/api/esp/connections/authorize?provider=${encodeURIComponent(activeProvider)}&accountKey=${encodeURIComponent(key)}`}
+                      href={buildAuthorizeHref({
+                        provider: activeProvider,
+                        accountKey: key,
+                        oauthMode: activeProviderEntry?.oauthMode,
+                      })}
                       className="underline font-medium hover:text-amber-300"
                     >
                       Re-authorize OAuth

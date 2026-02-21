@@ -4,6 +4,7 @@ export type ProviderCatalogEntry = {
   provider: string;
   capabilities: EspCapabilities;
   oauthSupported: boolean;
+  oauthMode?: 'legacy' | 'hybrid' | 'agency';
   credentialConnectSupported?: boolean;
   validationSupported?: boolean;
   businessDetailsRefreshSupported?: boolean;
@@ -92,6 +93,10 @@ export function extractProviderCatalog(
       businessDetailsRefreshSupported: entry?.businessDetailsRefreshSupported === true,
       businessDetailsSyncSupported: entry?.businessDetailsSyncSupported === true,
       connected: entry?.connected === true,
+      oauthMode:
+        entry?.oauthMode === 'legacy' || entry?.oauthMode === 'hybrid' || entry?.oauthMode === 'agency'
+          ? entry.oauthMode
+          : undefined,
       connectionType:
         entry?.connectionType === 'oauth' || entry?.connectionType === 'api-key'
           ? entry.connectionType

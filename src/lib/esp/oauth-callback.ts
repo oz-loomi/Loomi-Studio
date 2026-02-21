@@ -5,6 +5,8 @@ import { getAdapter } from '@/lib/esp/registry';
 import type { EspProvider } from '@/lib/esp/types';
 import * as accountService from '@/lib/services/accounts';
 
+const GHL_AGENCY_ACCOUNT_KEY = '__ghl_agency__';
+
 function resolveAppBaseUrl(req: NextRequest): string {
   const fromEnv = (process.env.NEXTAUTH_URL || '').trim();
   if (fromEnv) {
@@ -34,6 +36,24 @@ function redirectAccountsError(req: NextRequest, provider: EspProvider, message:
   const url = buildRedirectUrl(req, '/accounts');
   url.searchParams.set('esp_error', message);
   url.searchParams.set('esp_provider', provider);
+  return NextResponse.redirect(url);
+}
+
+function redirectSettingsConnected(req: NextRequest, provider: EspProvider): NextResponse {
+  const url = buildRedirectUrl(req, '/settings');
+  url.searchParams.set('esp_connected', 'true');
+  url.searchParams.set('esp_provider', provider);
+  url.searchParams.set('esp_auth_mode', 'agency');
+  url.searchParams.set('tab', 'custom-values');
+  return NextResponse.redirect(url);
+}
+
+function redirectSettingsError(req: NextRequest, provider: EspProvider, message: string): NextResponse {
+  const url = buildRedirectUrl(req, '/settings');
+  url.searchParams.set('esp_error', message);
+  url.searchParams.set('esp_provider', provider);
+  url.searchParams.set('esp_auth_mode', 'agency');
+  url.searchParams.set('tab', 'custom-values');
   return NextResponse.redirect(url);
 }
 
@@ -81,22 +101,26 @@ export async function completeEspOAuthCallback(
   const code = req.nextUrl.searchParams.get('code');
   const state = req.nextUrl.searchParams.get('state');
   const errorParam = req.nextUrl.searchParams.get('error');
+  const statePayload = state ? adapter.oauth.verifyState(state) : null;
+  const accountKey = statePayload?.accountKey || '';
+  const isAgencyFlow = provider === 'ghl' && accountKey === GHL_AGENCY_ACCOUNT_KEY;
 
   if (errorParam) {
     const desc = req.nextUrl.searchParams.get('error_description') || errorParam;
-    return redirectAccountsError(req, provider, desc);
+    return isAgencyFlow
+      ? redirectSettingsError(req, provider, desc)
+      : redirectAccountsError(req, provider, desc);
   }
 
   if (!code || !state) {
-    return redirectAccountsError(req, provider, 'Missing authorization code');
+    return isAgencyFlow
+      ? redirectSettingsError(req, provider, 'Missing authorization code')
+      : redirectAccountsError(req, provider, 'Missing authorization code');
   }
 
-  const statePayload = adapter.oauth.verifyState(state);
   if (!statePayload) {
     return redirectAccountsError(req, provider, 'Invalid or expired state parameter');
   }
-
-  const accountKey = statePayload.accountKey;
 
   try {
     const tokens = await adapter.oauth.exchangeCodeForTokens(code);
@@ -119,6 +143,10 @@ export async function completeEspOAuthCallback(
       tokens,
     });
 
+    if (isAgencyFlow) {
+      return redirectSettingsConnected(req, provider);
+    }
+
     try {
       await updateAccountAfterOauth(accountKey, provider);
     } catch (err) {
@@ -129,7 +157,9 @@ export async function completeEspOAuthCallback(
   } catch (err) {
     console.error(`${provider} OAuth callback error:`, err);
     const message = err instanceof Error ? err.message : 'OAuth flow failed';
-    return redirectAccountError(req, accountKey, provider, message);
+    return isAgencyFlow
+      ? redirectSettingsError(req, provider, message)
+      : redirectAccountError(req, accountKey, provider, message);
   }
 }
 

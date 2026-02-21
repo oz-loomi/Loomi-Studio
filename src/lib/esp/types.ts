@@ -22,7 +22,8 @@ export interface OAuthTokenSet {
   expires_in: number;
   token_type: string;
   scope: string;
-  locationId: string;
+  locationId?: string;
+  companyId?: string;
   userId?: string;
 }
 

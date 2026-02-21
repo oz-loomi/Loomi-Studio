@@ -70,7 +70,7 @@ export function getDefaultEspProvider(): EspProvider {
 
 async function resolveMostRecentConnectedProvider(accountKey: string): Promise<EspProvider | null> {
   try {
-    const [oauthConnection, apiKeyConnection] = await Promise.all([
+    const [oauthConnection, apiKeyConnection, linkedProvider] = await Promise.all([
       prisma.espOAuthConnection.findFirst({
         where: { accountKey },
         select: { provider: true, installedAt: true },
@@ -81,9 +81,24 @@ async function resolveMostRecentConnectedProvider(accountKey: string): Promise<E
         select: { provider: true, installedAt: true },
         orderBy: { installedAt: 'desc' },
       }),
+      prisma.espAccountProviderLink.findFirst({
+        where: { accountKey },
+        select: { provider: true, linkedAt: true },
+        orderBy: { linkedAt: 'desc' },
+      }),
     ]);
 
-    const candidates = [oauthConnection, apiKeyConnection]
+    const candidates = [
+      oauthConnection
+        ? { provider: oauthConnection.provider, installedAt: oauthConnection.installedAt }
+        : null,
+      apiKeyConnection
+        ? { provider: apiKeyConnection.provider, installedAt: apiKeyConnection.installedAt }
+        : null,
+      linkedProvider
+        ? { provider: linkedProvider.provider, installedAt: linkedProvider.linkedAt }
+        : null,
+    ]
       .filter((candidate): candidate is { provider: string; installedAt: Date } => Boolean(candidate))
       .map((candidate) => ({
         provider: candidate.provider.trim().toLowerCase() as EspProvider,

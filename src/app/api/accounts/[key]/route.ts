@@ -10,19 +10,43 @@ import { normalizeAccountInputAliases } from '@/lib/account-field-aliases';
 import { normalizeAccountOutputPayload } from '@/lib/account-output';
 import { listOAuthConnections } from '@/lib/esp/oauth-connections';
 import { listApiKeyConnections } from '@/lib/esp/api-key-connections';
+import { listAccountProviderLinks } from '@/lib/esp/account-provider-links';
 
 async function resolveAccountConnectionMetadata(account: {
   key: string;
   espProvider?: string | null;
 }) {
-  const [oauthConnections, espConnections] = await Promise.all([
+  const [oauthConnections, espConnections, accountProviderLinks] = await Promise.all([
     listOAuthConnections({ accountKeys: [account.key] }),
     listApiKeyConnections({ accountKeys: [account.key] }),
+    listAccountProviderLinks({ accountKeys: [account.key] }).catch(() => []),
   ]);
+
+  const mergedOauthConnections: Array<{
+    provider: string;
+    locationId: string | null;
+    locationName: string | null;
+    installedAt: Date;
+  }> = oauthConnections.map((connection) => ({
+    provider: connection.provider,
+    locationId: connection.locationId,
+    locationName: connection.locationName,
+    installedAt: connection.installedAt,
+  }));
+  const oauthProviders = new Set(mergedOauthConnections.map((connection) => connection.provider));
+  for (const link of accountProviderLinks) {
+    if (oauthProviders.has(link.provider)) continue;
+    mergedOauthConnections.push({
+      provider: link.provider,
+      locationId: link.locationId,
+      locationName: link.locationName,
+      installedAt: link.linkedAt,
+    });
+  }
 
   return buildAccountConnectionMetadata({
     accountProvider: account.espProvider,
-    oauthConnections,
+    oauthConnections: mergedOauthConnections,
     espConnections,
   });
 }

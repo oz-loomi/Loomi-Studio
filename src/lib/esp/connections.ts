@@ -4,6 +4,8 @@ import '@/lib/esp/init';
 import { getAdapter, getDefaultEspProvider, getRegisteredProviders } from '@/lib/esp/registry';
 import { listOAuthConnections } from '@/lib/esp/oauth-connections';
 import { listApiKeyConnections } from '@/lib/esp/api-key-connections';
+import { listAccountProviderLinks } from '@/lib/esp/account-provider-links';
+import { listProviderOAuthCredentials } from '@/lib/esp/provider-oauth-credentials';
 
 type ProviderWithAny = EspProvider | 'any';
 
@@ -195,7 +197,7 @@ function deriveConnectionErrorStatus(message: string): number {
 }
 
 export async function getEspConnectionsStatus(accountKey: string): Promise<EspConnectionsStatus> {
-  const [account, oauthConnections, espConnections] = await Promise.all([
+  const [account, oauthConnections, espConnections, accountProviderLinks, providerOAuthCredentials] = await Promise.all([
     prisma.account.findUnique({
       where: { key: accountKey },
       select: {
@@ -204,29 +206,48 @@ export async function getEspConnectionsStatus(accountKey: string): Promise<EspCo
     }),
     listOAuthConnections({ accountKeys: [accountKey] }),
     listApiKeyConnections({ accountKeys: [accountKey] }),
+    listAccountProviderLinks({ accountKeys: [accountKey] }).catch(() => []),
+    listProviderOAuthCredentials().catch(() => []),
   ]);
 
   const oauthByProvider = new Map(
     oauthConnections.map((connection) => [connection.provider, connection]),
+  );
+  const linkByProvider = new Map(
+    accountProviderLinks.map((link) => [link.provider, link]),
+  );
+  const credentialByProvider = new Map(
+    providerOAuthCredentials.map((credential) => [credential.provider, credential]),
   );
 
   const providers: Record<string, GenericConnectionStatus> = {};
   for (const provider of getRegisteredProviders()) {
     const adapter = getAdapter(provider);
     const oauthConnection = oauthByProvider.get(provider);
+    const accountProviderLink = linkByProvider.get(provider);
+    const providerCredential = credentialByProvider.get(provider);
     const supportsOAuth = adapter.capabilities.auth === 'oauth' || adapter.capabilities.auth === 'both';
-    const oauthConnected = supportsOAuth && Boolean(oauthConnection);
+    const hasLinkedLocation = Boolean(accountProviderLink?.locationId);
+    const hasProviderCredential = Boolean(providerCredential)
+      || (provider === 'ghl' && Boolean(process.env.GHL_AGENCY_TOKEN?.trim()));
+    const oauthConnected = supportsOAuth && Boolean(
+      oauthConnection || (hasLinkedLocation && hasProviderCredential),
+    );
 
     providers[provider] = {
       provider,
       connected: oauthConnected,
       connectionType: oauthConnected ? 'oauth' : 'none',
       oauthConnected,
-      locationId: oauthConnection?.locationId || undefined,
-      locationName: oauthConnection?.locationName || undefined,
-      scopes: parseScopes(oauthConnection?.scopes),
-      installedAt: oauthConnection?.installedAt?.toISOString(),
-      tokenExpiresAt: oauthConnection?.tokenExpiresAt?.toISOString(),
+      locationId: oauthConnection?.locationId || accountProviderLink?.locationId || undefined,
+      locationName: oauthConnection?.locationName || accountProviderLink?.locationName || undefined,
+      scopes: parseScopes(oauthConnection?.scopes || providerCredential?.scopes),
+      installedAt:
+        oauthConnection?.installedAt?.toISOString()
+        || accountProviderLink?.linkedAt?.toISOString(),
+      tokenExpiresAt:
+        oauthConnection?.tokenExpiresAt?.toISOString()
+        || providerCredential?.tokenExpiresAt?.toISOString(),
       capabilities: adapter.capabilities,
     };
   }
@@ -284,7 +305,20 @@ export async function getEspConnectionsStatus(accountKey: string): Promise<EspCo
       ? explicitProvider
       : null;
 
-  const mostRecentConnectedProvider = [...oauthConnections, ...espConnections]
+  const mostRecentConnectedProvider = [
+    ...oauthConnections.map((connection) => ({
+      provider: connection.provider,
+      installedAt: connection.installedAt,
+    })),
+    ...espConnections.map((connection) => ({
+      provider: connection.provider,
+      installedAt: connection.installedAt,
+    })),
+    ...accountProviderLinks.map((link) => ({
+      provider: link.provider,
+      installedAt: link.linkedAt,
+    })),
+  ]
     .flatMap((connection) => {
       const provider = normalizeProvider(connection.provider);
       if (!provider || !registeredProviders.has(provider)) return [];

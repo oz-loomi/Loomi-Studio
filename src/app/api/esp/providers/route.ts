@@ -4,6 +4,7 @@ import '@/lib/esp/init';
 import { getAdapter, getRegisteredProviders } from '@/lib/esp/registry';
 import { getEspConnectionsStatus } from '@/lib/esp/connections';
 import { listWebhookEndpointsForProvider } from '@/lib/esp/webhooks/families';
+import { getGhlOAuthMode } from '@/lib/esp/adapters/ghl/oauth';
 
 /**
  * GET /api/esp/providers
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
         provider,
         capabilities: adapter.capabilities,
         oauthSupported: Boolean(adapter.oauth),
+        oauthMode: provider === 'ghl' ? getGhlOAuthMode() : undefined,
         credentialConnectSupported: Boolean(adapter.connection && adapter.capabilities.auth !== 'oauth'),
         validationSupported: Boolean(adapter.validation),
         businessDetailsRefreshSupported: Boolean(adapter.validation && adapter.capabilities.auth === 'oauth'),

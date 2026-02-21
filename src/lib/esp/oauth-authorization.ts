@@ -3,6 +3,14 @@ import '@/lib/esp/init';
 import { getAdapter, getAdapterForAccount } from '@/lib/esp/registry';
 import type { EspProvider } from '@/lib/esp/types';
 
+const GHL_AGENCY_ACCOUNT_KEY = '__ghl_agency__';
+
+export type EspAuthorizationMode = 'account' | 'agency';
+
+function normalizeAuthorizationMode(mode: string | null | undefined): EspAuthorizationMode {
+  return (mode || '').trim().toLowerCase() === 'agency' ? 'agency' : 'account';
+}
+
 export class EspAuthorizationError extends Error {
   readonly status: number;
   readonly provider?: EspProvider;
@@ -18,9 +26,16 @@ export class EspAuthorizationError extends Error {
 export async function resolveEspAuthorizationUrl(input: {
   accountKey?: string;
   provider?: EspProvider;
-}): Promise<{ provider: EspProvider; url: string }> {
-  const accountKey = (input.accountKey || '').trim();
-  if (!accountKey) {
+  mode?: EspAuthorizationMode | string;
+}): Promise<{ provider: EspProvider; url: string; mode: EspAuthorizationMode }> {
+  const mode = normalizeAuthorizationMode(input.mode);
+  let accountKey = (input.accountKey || '').trim();
+
+  if (mode === 'agency' && !input.provider) {
+    throw new EspAuthorizationError('provider query parameter is required for agency OAuth', 400);
+  }
+
+  if (mode === 'account' && !accountKey) {
     throw new EspAuthorizationError('accountKey query parameter is required', 400);
   }
 
@@ -42,9 +57,20 @@ export async function resolveEspAuthorizationUrl(input: {
     );
   }
 
+  if (mode === 'agency') {
+    if (adapter.provider !== 'ghl') {
+      throw new EspAuthorizationError(
+        `${adapter.provider} does not support agency OAuth authorization`,
+        501,
+        adapter.provider,
+      );
+    }
+    accountKey = GHL_AGENCY_ACCOUNT_KEY;
+  }
+
   try {
     const url = adapter.oauth.getAuthorizationUrl(accountKey);
-    return { provider: adapter.provider, url };
+    return { provider: adapter.provider, url, mode };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to build OAuth authorization URL';
     throw new EspAuthorizationError(message, 500, adapter.provider);

@@ -14,6 +14,13 @@ type OAuthRow = {
   refreshToken: string;
 };
 
+type ProviderOAuthRow = {
+  id: string;
+  provider: string;
+  accessToken: string;
+  refreshToken: string;
+};
+
 type ApiKeyRow = {
   id: string;
   accountKey: string;
@@ -24,6 +31,8 @@ type ApiKeyRow = {
 type MigrationStats = {
   oauthUpdated: number;
   oauthFailed: number;
+  providerOauthUpdated: number;
+  providerOauthFailed: number;
   apiUpdated: number;
   apiFailed: number;
 };
@@ -35,9 +44,10 @@ function parseArgs() {
   };
 }
 
-function logFailure(kind: 'oauth' | 'api', row: OAuthRow | ApiKeyRow, err: unknown): void {
+function logFailure(kind: 'oauth' | 'provider-oauth' | 'api', row: OAuthRow | ProviderOAuthRow | ApiKeyRow, err: unknown): void {
   const message = err instanceof Error ? err.message : 'Unknown error';
-  const context = `${kind}:${row.provider}:${row.accountKey}`;
+  const accountKey = 'accountKey' in row ? row.accountKey : '__provider__';
+  const context = `${kind}:${row.provider}:${accountKey}`;
   console.error(`[reencrypt] Failed ${context}: ${message}`);
 }
 
@@ -72,6 +82,40 @@ async function migrateOAuthRows(rows: OAuthRow[], dryRun: boolean): Promise<Pick
   return { oauthUpdated, oauthFailed };
 }
 
+async function migrateProviderOAuthRows(
+  rows: ProviderOAuthRow[],
+  dryRun: boolean,
+): Promise<Pick<MigrationStats, 'providerOauthUpdated' | 'providerOauthFailed'>> {
+  let providerOauthUpdated = 0;
+  let providerOauthFailed = 0;
+
+  for (const row of rows) {
+    try {
+      const plainAccessToken = decryptToken(row.accessToken);
+      const plainRefreshToken = decryptToken(row.refreshToken);
+      const encryptedAccessToken = encryptToken(plainAccessToken);
+      const encryptedRefreshToken = encryptToken(plainRefreshToken);
+
+      if (!dryRun) {
+        await prisma.espProviderOAuthCredential.update({
+          where: { id: row.id },
+          data: {
+            accessToken: encryptedAccessToken,
+            refreshToken: encryptedRefreshToken,
+          },
+        });
+      }
+
+      providerOauthUpdated += 1;
+    } catch (err) {
+      providerOauthFailed += 1;
+      logFailure('provider-oauth', row, err);
+    }
+  }
+
+  return { providerOauthUpdated, providerOauthFailed };
+}
+
 async function migrateApiKeyRows(rows: ApiKeyRow[], dryRun: boolean): Promise<Pick<MigrationStats, 'apiUpdated' | 'apiFailed'>> {
   let apiUpdated = 0;
   let apiFailed = 0;
@@ -104,7 +148,7 @@ async function main() {
   const { dryRun } = parseArgs();
   requireEspTokenSecrets();
 
-  const [oauthRows, apiRows] = await Promise.all([
+  const [oauthRows, providerOauthRows, apiRows] = await Promise.all([
     prisma.espOAuthConnection.findMany({
       select: {
         id: true,
@@ -115,6 +159,15 @@ async function main() {
       },
       orderBy: [{ provider: 'asc' }, { accountKey: 'asc' }],
     }),
+    prisma.espProviderOAuthCredential.findMany({
+      select: {
+        id: true,
+        provider: true,
+        accessToken: true,
+        refreshToken: true,
+      },
+      orderBy: [{ provider: 'asc' }],
+    }).catch(() => []),
     prisma.espConnection.findMany({
       select: {
         id: true,
@@ -128,15 +181,18 @@ async function main() {
 
   console.log(`[reencrypt] Mode: ${dryRun ? 'dry-run' : 'apply'}`);
   console.log(`[reencrypt] OAuth rows: ${oauthRows.length}`);
+  console.log(`[reencrypt] Provider OAuth rows: ${providerOauthRows.length}`);
   console.log(`[reencrypt] API-key rows: ${apiRows.length}`);
 
-  const [oauthStats, apiStats] = await Promise.all([
+  const [oauthStats, providerOauthStats, apiStats] = await Promise.all([
     migrateOAuthRows(oauthRows, dryRun),
+    migrateProviderOAuthRows(providerOauthRows, dryRun),
     migrateApiKeyRows(apiRows, dryRun),
   ]);
 
   const stats: MigrationStats = {
     ...oauthStats,
+    ...providerOauthStats,
     ...apiStats,
   };
 
@@ -144,10 +200,12 @@ async function main() {
   console.log('[reencrypt] Summary');
   console.log(`- oauth updated: ${stats.oauthUpdated}`);
   console.log(`- oauth failed: ${stats.oauthFailed}`);
+  console.log(`- provider oauth updated: ${stats.providerOauthUpdated}`);
+  console.log(`- provider oauth failed: ${stats.providerOauthFailed}`);
   console.log(`- api updated: ${stats.apiUpdated}`);
   console.log(`- api failed: ${stats.apiFailed}`);
 
-  if (stats.oauthFailed > 0 || stats.apiFailed > 0) {
+  if (stats.oauthFailed > 0 || stats.providerOauthFailed > 0 || stats.apiFailed > 0) {
     process.exitCode = 1;
   }
 }
