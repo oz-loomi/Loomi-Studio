@@ -393,14 +393,16 @@ model EspTemplate {
   id           String    @id @default(cuid())
   accountKey   String
   account      Account   @relation(fields: [accountKey], references: [key], onDelete: Cascade)
-  provider     String    // 'ghl' | 'klaviyo'
-  remoteId     String?   // null = Loomi-only (not yet pushed to ESP)
+  provider     String    // primary provider at creation time
+  remoteId     String?   // legacy — use publishedTo for multi-ESP
+  publishedTo  String?   // JSON: {"ghl":"remote-id","klaviyo":"remote-id"}
   name         String
   subject      String?
   previewText  String?
   html         String    @default("")
+  source       String?   // Maizzle markup for visual/D&D templates (null = HTML-only)
   status       String    @default("draft")
-  editorType   String?
+  editorType   String?   // 'visual' | 'code'
   thumbnailUrl String?
   lastSyncedAt DateTime?
   createdAt    DateTime  @default(now())
@@ -409,4 +411,21 @@ model EspTemplate {
   @@unique([accountKey, provider, remoteId])
   @@index([accountKey])
   @@index([provider])
+}
+
+// ─────────────────────────────────────────────────────
+// Changelog
+// ─────────────────────────────────────────────────────
+
+model ChangelogEntry {
+  id          String   @id @default(cuid())
+  title       String
+  content     String   // Plain text body describing the change
+  type        String   @default("improvement") // feature | improvement | fix
+  publishedAt DateTime @default(now())
+  createdBy   String?  // user name or "Claude"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([publishedAt])
 }

@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import Link from 'next/link';
+import { useRouter, usePathname } from 'next/navigation';
 import {
   PlusIcon,
   XMarkIcon,
@@ -15,9 +17,17 @@ import {
   EllipsisVerticalIcon,
   ArrowUpTrayIcon,
   ExclamationTriangleIcon,
+  BuildingStorefrontIcon,
+  ArrowLeftIcon,
+  ChevronDownIcon,
+  CheckIcon,
+  CursorArrowRaysIcon,
+  BookOpenIcon,
+  EyeIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from 'sonner';
 import { useAccount } from '@/contexts/account-context';
+import { AccountAvatar } from '@/components/account-avatar';
 
 // ── Types ──
 
@@ -102,31 +112,37 @@ function providerIcon(provider: string): string | undefined {
 // ── Page ──
 
 export default function TemplatesPage() {
-  const { isAccount, accountKey, accountData } = useAccount();
+  const { isAdmin, isAccount, accountKey, accountData, accounts } = useAccount();
+  const router = useRouter();
+  const pathname = usePathname();
 
   // State
-  const [templates, setTemplates] = useState<EspTemplateRecord[]>([]);
+  const [allTemplates, setAllTemplates] = useState<EspTemplateRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [search, setSearch] = useState('');
   const [providerFilter, setProviderFilter] = useState<string>('all');
+  const [accountFilter, setAccountFilter] = useState<string>('all');
 
-  // CRUD modals
-  const [showCreate, setShowCreate] = useState(false);
-  const [editTemplate, setEditTemplate] = useState<EspTemplateRecord | null>(null);
+  // Modals
+  const [showCreateChoice, setShowCreateChoice] = useState(false);
   const [deleteTemplate, setDeleteTemplate] = useState<EspTemplateRecord | null>(null);
+  const [previewTemplate, setPreviewTemplate] = useState<EspTemplateRecord | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
 
-  // Create form state
-  const [formName, setFormName] = useState('');
-  const [formSubject, setFormSubject] = useState('');
-  const [formPreviewText, setFormPreviewText] = useState('');
-  const [formHtml, setFormHtml] = useState('');
-  const [formSyncToRemote, setFormSyncToRemote] = useState(false);
-  const [saving, setSaving] = useState(false);
+  // Library picker (inside create modal)
+  const [libraryPickerMode, setLibraryPickerMode] = useState(false);
+  const [libraryTemplates, setLibraryTemplates] = useState<{ design: string; name: string }[]>([]);
+  const [loadingLibrary, setLoadingLibrary] = useState(false);
+  const [createAccountKey, setCreateAccountKey] = useState<string | null>(null);
 
-  useEffect(() => { setViewMode(loadView()); }, []);
+  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
+  const accountDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setViewMode(loadView());
+  }, []);
 
   // Close menus on outside click
   useEffect(() => {
@@ -135,22 +151,32 @@ export default function TemplatesPage() {
     return () => document.removeEventListener('click', handler);
   }, []);
 
-  // Derive the effective account key
-  const effectiveAccountKey = isAccount ? accountKey : accountKey;
+  // Close account dropdown on outside click
+  useEffect(() => {
+    if (!accountDropdownOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (accountDropdownRef.current && !accountDropdownRef.current.contains(e.target as Node)) {
+        setAccountDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [accountDropdownOpen]);
+
+  // Derive the effective account key for single-account mode
+  const effectiveAccountKey = isAccount ? accountKey : null;
 
   // ── Data Loading ──
 
   const loadTemplates = useCallback(async () => {
-    if (!effectiveAccountKey) {
-      setTemplates([]);
-      setLoading(false);
-      return;
-    }
     try {
-      const res = await fetch(`/api/esp/templates?accountKey=${encodeURIComponent(effectiveAccountKey)}`);
+      const url = effectiveAccountKey
+        ? `/api/esp/templates?accountKey=${encodeURIComponent(effectiveAccountKey)}`
+        : '/api/esp/templates';
+      const res = await fetch(url);
       const data = await res.json();
       if (res.ok) {
-        setTemplates(data.templates || []);
+        setAllTemplates(data.templates || []);
       } else {
         console.error('Failed to load templates:', data.error);
       }
@@ -168,10 +194,11 @@ export default function TemplatesPage() {
   // ── Sync from ESP ──
 
   const handleSync = async () => {
-    if (!effectiveAccountKey || syncing) return;
+    const syncKey = accountFilter !== 'all' ? accountFilter : effectiveAccountKey;
+    if (!syncKey || syncing) return;
     setSyncing(true);
     try {
-      const res = await fetch(`/api/esp/templates/sync?accountKey=${encodeURIComponent(effectiveAccountKey)}`, {
+      const res = await fetch(`/api/esp/templates/sync?accountKey=${encodeURIComponent(syncKey)}`, {
         method: 'POST',
       });
       const data = await res.json();
@@ -187,113 +214,109 @@ export default function TemplatesPage() {
     setSyncing(false);
   };
 
-  // ── Filtering ──
+  // ── Grouped data for admin overview ──
+
+  const accountGroups = useMemo(() => {
+    const groups: Record<string, { templates: EspTemplateRecord[]; providers: Set<string> }> = {};
+    for (const t of allTemplates) {
+      if (!groups[t.accountKey]) {
+        groups[t.accountKey] = { templates: [], providers: new Set() };
+      }
+      groups[t.accountKey].templates.push(t);
+      groups[t.accountKey].providers.add(t.provider);
+    }
+    return groups;
+  }, [allTemplates]);
+
+  // All account keys that have templates OR are accessible
+  const allAccountKeys = useMemo(() => {
+    const keys = new Set(Object.keys(accounts));
+    Object.keys(accountGroups).forEach(k => keys.add(k));
+    return Array.from(keys).sort((a, b) => {
+      const nameA = accounts[a]?.dealer || a;
+      const nameB = accounts[b]?.dealer || b;
+      return nameA.localeCompare(nameB);
+    });
+  }, [accounts, accountGroups]);
+
+  // Account filter label
+  const selectedAccountData = accountFilter !== 'all' ? accounts[accountFilter] : null;
+  const accountFilterLabel = accountFilter === 'all'
+    ? 'All Accounts'
+    : selectedAccountData?.dealer || accountFilter;
+
+  // ── Filtering (for flat list view and account-level view) ──
 
   const filtered = useMemo(() => {
-    let result = templates;
+    let result = allTemplates;
+
+    // Account filter
+    if (accountFilter !== 'all') {
+      result = result.filter(t => t.accountKey === accountFilter);
+    }
+
+    // Provider filter
     if (providerFilter !== 'all') {
       result = result.filter(t => t.provider === providerFilter);
     }
+
+    // Search
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(t =>
         t.name.toLowerCase().includes(q) ||
-        (t.subject && t.subject.toLowerCase().includes(q))
+        (t.subject && t.subject.toLowerCase().includes(q)) ||
+        (isAdmin && (accounts[t.accountKey]?.dealer || '').toLowerCase().includes(q))
       );
     }
+
     return result;
-  }, [templates, providerFilter, search]);
+  }, [allTemplates, providerFilter, search, accountFilter, isAdmin, accounts]);
 
   const uniqueProviders = useMemo(() => {
-    const set = new Set(templates.map(t => t.provider));
+    const set = new Set(allTemplates.map(t => t.provider));
     return Array.from(set).sort();
-  }, [templates]);
+  }, [allTemplates]);
 
   const toggleView = (mode: 'card' | 'list') => { setViewMode(mode); saveView(mode); };
 
-  // ── Create ──
+  // ── Handlers ──
 
-  const resetForm = () => {
-    setFormName('');
-    setFormSubject('');
-    setFormPreviewText('');
-    setFormHtml('');
-    setFormSyncToRemote(false);
+  const navigateToEditor = (templateId: string) => {
+    router.push(`/templates/editor?id=${templateId}`);
   };
 
-  const handleCreate = async () => {
-    if (!formName.trim() || !effectiveAccountKey || saving) return;
-    setSaving(true);
+  const handleCreateChoice = (mode: 'visual' | 'code') => {
+    const createKey = createAccountKey || (accountFilter !== 'all' ? accountFilter : null) || effectiveAccountKey;
+    if (!createKey) return;
+    setShowCreateChoice(false);
+    setLibraryPickerMode(false);
+    setCreateAccountKey(null);
+    router.push(`/templates/editor?mode=${mode}&accountKey=${encodeURIComponent(createKey)}`);
+  };
+
+  const openLibraryPicker = async () => {
+    setLibraryPickerMode(true);
+    if (libraryTemplates.length > 0) return;
+    setLoadingLibrary(true);
     try {
-      const res = await fetch('/api/esp/templates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountKey: effectiveAccountKey,
-          name: formName.trim(),
-          subject: formSubject.trim() || undefined,
-          previewText: formPreviewText.trim() || undefined,
-          html: formHtml,
-          syncToRemote: formSyncToRemote,
-        }),
-      });
-      const data = await res.json();
+      const res = await fetch('/api/templates');
       if (res.ok) {
-        toast.success(data.synced ? 'Template created and synced to ESP' : 'Template created locally');
-        setShowCreate(false);
-        resetForm();
-        await loadTemplates();
-      } else {
-        toast.error(data.error || 'Failed to create template');
+        const data = await res.json();
+        setLibraryTemplates(data.map((t: { design: string; name: string }) => ({ design: t.design, name: t.name })));
       }
-    } catch {
-      toast.error('Failed to create template');
-    }
-    setSaving(false);
+    } catch { /* ignore */ }
+    setLoadingLibrary(false);
   };
 
-  // ── Edit ──
-
-  const openEdit = (t: EspTemplateRecord) => {
-    setEditTemplate(t);
-    setFormName(t.name);
-    setFormSubject(t.subject || '');
-    setFormPreviewText(t.previewText || '');
-    setFormHtml(t.html);
-    setFormSyncToRemote(false);
+  const selectLibraryTemplate = (slug: string) => {
+    const createKey = createAccountKey || (accountFilter !== 'all' ? accountFilter : null) || effectiveAccountKey;
+    if (!createKey) return;
+    setShowCreateChoice(false);
+    setLibraryPickerMode(false);
+    setCreateAccountKey(null);
+    router.push(`/templates/editor?mode=visual&accountKey=${encodeURIComponent(createKey)}&libraryTemplate=${encodeURIComponent(slug)}`);
   };
-
-  const handleUpdate = async () => {
-    if (!editTemplate || saving) return;
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/esp/templates/${editTemplate.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formName.trim(),
-          subject: formSubject.trim() || undefined,
-          previewText: formPreviewText.trim() || undefined,
-          html: formHtml,
-          syncToRemote: formSyncToRemote,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(data.synced ? 'Template updated and synced to ESP' : 'Template updated locally');
-        setEditTemplate(null);
-        resetForm();
-        await loadTemplates();
-      } else {
-        toast.error(data.error || 'Failed to update template');
-      }
-    } catch {
-      toast.error('Failed to update template');
-    }
-    setSaving(false);
-  };
-
-  // ── Delete ──
 
   const handleDelete = async (deleteFromRemote: boolean) => {
     if (!deleteTemplate) return;
@@ -302,7 +325,7 @@ export default function TemplatesPage() {
       const res = await fetch(url, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok) {
-        toast.success(data.remoteDeleted ? 'Template deleted from Loomi and ESP' : 'Template deleted locally');
+        toast.success(data.remoteDeleted ? 'Template deleted from Loomi and connected platform' : 'Template deleted locally');
         setDeleteTemplate(null);
         await loadTemplates();
       } else {
@@ -313,7 +336,7 @@ export default function TemplatesPage() {
     }
   };
 
-  // ── Provider Pill ──
+  // ── Shared Sub-components ──
 
   const ProviderPill = ({ provider }: { provider: string }) => {
     const icon = providerIcon(provider);
@@ -327,27 +350,82 @@ export default function TemplatesPage() {
     );
   };
 
-  // ── Template Card ──
+  const AccountPill = ({ acctKey }: { acctKey: string }) => {
+    const name = accounts[acctKey]?.dealer || acctKey;
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[10px] font-medium text-[var(--primary)]">
+        <BuildingStorefrontIcon className="w-3 h-3" />
+        {name}
+      </span>
+    );
+  };
 
-  const TemplateCard = ({ t }: { t: EspTemplateRecord }) => {
+  const EspHtmlPreview = ({ html, height = 160 }: { html: string; height?: number }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [containerWidth, setContainerWidth] = useState(0);
+
+    useEffect(() => {
+      const el = containerRef.current;
+      if (!el) return;
+      const resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) setContainerWidth(entry.contentRect.width);
+      });
+      resizeObserver.observe(el);
+      setContainerWidth(el.clientWidth);
+      return () => resizeObserver.disconnect();
+    }, []);
+
+    const iframeWidth = 600;
+    const scale = containerWidth > 0 ? containerWidth / iframeWidth : 0.4;
+
+    return (
+      <div ref={containerRef} className="relative overflow-hidden bg-[var(--muted)]" style={{ height }}>
+        {html && containerWidth > 0 && (
+          <iframe
+            srcDoc={html}
+            className="border-0 pointer-events-none absolute top-0 left-0"
+            style={{
+              width: `${iframeWidth}px`,
+              height: `${Math.round(height / scale)}px`,
+              transform: `scale(${scale})`,
+              transformOrigin: 'top left',
+            }}
+            title="Template preview"
+            sandbox="allow-same-origin"
+            tabIndex={-1}
+          />
+        )}
+        {!html && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <EnvelopeIcon className="w-10 h-10 text-[var(--muted-foreground)] opacity-30" />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const TemplateCard = ({ t, showAccount = false }: { t: EspTemplateRecord; showAccount?: boolean }) => {
     const sc = statusColors[t.status] || statusColors.draft;
     const isMenuOpen = openMenu === t.id;
 
     return (
-      <div className="glass-card rounded-xl group animate-fade-in-up">
-        {/* Thumbnail area */}
-        <div className="h-32 rounded-t-xl bg-[var(--muted)] flex items-center justify-center overflow-hidden">
+      <div className="glass-card rounded-xl group animate-fade-in-up overflow-hidden">
+        <div className="rounded-t-xl cursor-pointer" onClick={() => setPreviewTemplate(t)}>
           {t.thumbnailUrl ? (
-            <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
+            <div className="h-[160px] bg-[var(--muted)] overflow-hidden">
+              <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
+            </div>
           ) : (
-            <EnvelopeIcon className="w-10 h-10 text-[var(--muted-foreground)] opacity-30" />
+            <EspHtmlPreview html={t.html} height={160} />
           )}
         </div>
-
         <div className="p-4">
           <div className="flex items-center justify-between gap-2 mb-2">
-            <ProviderPill provider={t.provider} />
-            <div className="relative">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <ProviderPill provider={t.provider} />
+              {showAccount && <AccountPill acctKey={t.accountKey} />}
+            </div>
+            <div className="relative flex-shrink-0">
               <button
                 onClick={(e) => { e.stopPropagation(); setOpenMenu(isMenuOpen ? null : t.id); }}
                 className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors opacity-0 group-hover:opacity-100"
@@ -357,7 +435,13 @@ export default function TemplatesPage() {
               {isMenuOpen && (
                 <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onClick={(e) => e.stopPropagation()}>
                   <button
-                    onClick={() => { setOpenMenu(null); openEdit(t); }}
+                    onClick={() => { setOpenMenu(null); setPreviewTemplate(t); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <EyeIcon className="w-4 h-4" /> View
+                  </button>
+                  <button
+                    onClick={() => { setOpenMenu(null); navigateToEditor(t.id); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                   >
                     <PencilSquareIcon className="w-4 h-4" /> Edit
@@ -374,7 +458,7 @@ export default function TemplatesPage() {
           </div>
           <h3
             className="text-sm font-semibold cursor-pointer hover:text-[var(--primary)] transition-colors truncate"
-            onClick={() => openEdit(t)}
+            onClick={() => navigateToEditor(t.id)}
           >
             {t.name}
           </h3>
@@ -389,7 +473,7 @@ export default function TemplatesPage() {
               {t.status}
             </span>
             {t.remoteId && (
-              <ArrowUpTrayIcon className="w-3 h-3 text-[var(--muted-foreground)]" title="Synced to ESP" />
+              <ArrowUpTrayIcon className="w-3 h-3 text-[var(--muted-foreground)]" title="Published" />
             )}
             <span className="text-[10px] text-[var(--muted-foreground)] ml-auto">{timeAgo(t.updatedAt)}</span>
           </div>
@@ -398,9 +482,7 @@ export default function TemplatesPage() {
     );
   };
 
-  // ── Template Row (list view) ──
-
-  const TemplateRow = ({ t }: { t: EspTemplateRecord }) => {
+  const TemplateRow = ({ t, showAccount = false }: { t: EspTemplateRecord; showAccount?: boolean }) => {
     const sc = statusColors[t.status] || statusColors.draft;
     const isMenuOpen = openMenu === t.id;
 
@@ -413,12 +495,13 @@ export default function TemplatesPage() {
             <EnvelopeIcon className="w-5 h-5 text-[var(--muted-foreground)] opacity-40" />
           )}
         </div>
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openEdit(t)}>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigateToEditor(t.id)}>
           <h3 className="font-semibold text-sm truncate">{t.name}</h3>
           <p className="text-[10px] text-[var(--muted-foreground)] truncate">
             {t.subject || 'No subject'}
           </p>
         </div>
+        {showAccount && <AccountPill acctKey={t.accountKey} />}
         <ProviderPill provider={t.provider} />
         <span
           className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0"
@@ -427,7 +510,7 @@ export default function TemplatesPage() {
           {t.status}
         </span>
         {t.remoteId && (
-          <ArrowUpTrayIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" title="Synced to ESP" />
+          <ArrowUpTrayIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" title="Published" />
         )}
         <span className="text-[10px] text-[var(--muted-foreground)] flex-shrink-0 w-14 text-right">
           {timeAgo(t.updatedAt)}
@@ -442,7 +525,13 @@ export default function TemplatesPage() {
           {isMenuOpen && (
             <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onClick={(e) => e.stopPropagation()}>
               <button
-                onClick={() => { setOpenMenu(null); openEdit(t); }}
+                onClick={() => { setOpenMenu(null); setPreviewTemplate(t); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+              >
+                <EyeIcon className="w-4 h-4" /> View
+              </button>
+              <button
+                onClick={() => { setOpenMenu(null); navigateToEditor(t.id); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
               >
                 <PencilSquareIcon className="w-4 h-4" /> Edit
@@ -460,85 +549,244 @@ export default function TemplatesPage() {
     );
   };
 
-  // ── Template Form (shared between create and edit) ──
+  // ── Toolbar (shared between account view and admin flat list) ──
 
-  const TemplateForm = ({ mode }: { mode: 'create' | 'edit' }) => {
-    const isEdit = mode === 'edit';
-    const hasRemoteId = isEdit && editTemplate?.remoteId;
-
-    return (
-      <div className="space-y-4">
-        <div>
-          <label className="text-xs font-medium text-[var(--muted-foreground)] block mb-1">Template Name *</label>
+  const Toolbar = ({ showAccountFilter = false }: { showAccountFilter?: boolean }) => (
+    <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        {/* Search */}
+        <div className="relative flex-1 max-w-xs">
+          <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
           <input
             type="text"
-            value={formName}
-            onChange={(e) => setFormName(e.target.value)}
-            className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
-            placeholder="e.g. Welcome Email"
-            autoFocus
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
+            placeholder={isAdmin ? 'Search templates or accounts...' : 'Search templates...'}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs font-medium text-[var(--muted-foreground)] block mb-1">Subject</label>
-            <input
-              type="text"
-              value={formSubject}
-              onChange={(e) => setFormSubject(e.target.value)}
-              className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
-              placeholder="Email subject line"
-            />
+
+        {/* Account filter dropdown (admin flat list only) */}
+        {showAccountFilter && allAccountKeys.length > 1 && (
+          <div ref={accountDropdownRef} className="relative">
+            <button
+              onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
+              className={`inline-flex items-center gap-1.5 h-[38px] px-3 text-sm rounded-lg border transition-colors ${
+                accountDropdownOpen
+                  ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5'
+                  : accountFilter !== 'all'
+                    ? 'border-[var(--primary)]/50 text-[var(--primary)] bg-[var(--primary)]/5'
+                    : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              {accountFilter !== 'all' ? (
+                <AccountAvatar
+                  name={accountFilterLabel}
+                  accountKey={accountFilter}
+                  storefrontImage={selectedAccountData?.storefrontImage}
+                  size={16}
+                  className="w-4 h-4 rounded-[3px] object-cover flex-shrink-0 border border-[var(--border)]"
+                />
+              ) : (
+                <BuildingStorefrontIcon className="w-3.5 h-3.5" />
+              )}
+              <span className="max-w-[140px] truncate">{accountFilterLabel}</span>
+              {accountFilter !== 'all' ? (
+                <XMarkIcon
+                  className="w-3 h-3 hover:text-[var(--foreground)]"
+                  onClick={(e) => { e.stopPropagation(); setAccountFilter('all'); setAccountDropdownOpen(false); }}
+                />
+              ) : (
+                <ChevronDownIcon className={`w-3 h-3 transition-transform ${accountDropdownOpen ? 'rotate-180' : ''}`} />
+              )}
+            </button>
+
+            {accountDropdownOpen && (
+              <div className="absolute top-full left-0 mt-2 z-50 glass-dropdown shadow-lg animate-fade-in-up" style={{ minWidth: '260px' }}>
+                <div className="p-1.5">
+                  <p className="px-2 py-1 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+                    Filter by Account
+                  </p>
+                  <button
+                    onClick={() => { setAccountFilter('all'); setAccountDropdownOpen(false); }}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors ${
+                      accountFilter === 'all'
+                        ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
+                        : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
+                    }`}
+                  >
+                    All Accounts
+                    {accountFilter === 'all' && <CheckIcon className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <div className="border-t border-[var(--border)] max-h-[280px] overflow-y-auto p-1.5">
+                  {allAccountKeys.map(k => {
+                    const acct = accounts[k];
+                    const isSelected = accountFilter === k;
+                    const location = [acct?.city, acct?.state].filter(Boolean).join(', ');
+                    return (
+                      <button
+                        key={k}
+                        onClick={() => { setAccountFilter(k); setAccountDropdownOpen(false); }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition-colors ${
+                          isSelected
+                            ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
+                            : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
+                        }`}
+                      >
+                        <AccountAvatar
+                          name={acct?.dealer || k}
+                          accountKey={k}
+                          storefrontImage={acct?.storefrontImage}
+                          size={20}
+                          className="w-5 h-5 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
+                        />
+                        <span className="flex-1 min-w-0 text-left">
+                          <span className="block truncate">{acct?.dealer || k}</span>
+                          {location && (
+                            <span className="block text-[10px] text-[var(--muted-foreground)] truncate">{location}</span>
+                          )}
+                        </span>
+                        {isSelected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-          <div>
-            <label className="text-xs font-medium text-[var(--muted-foreground)] block mb-1">Preview Text</label>
-            <input
-              type="text"
-              value={formPreviewText}
-              onChange={(e) => setFormPreviewText(e.target.value)}
-              className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
-              placeholder="Preview text"
-            />
+        )}
+
+        {/* Provider filter */}
+        {uniqueProviders.length > 1 && (
+          <div className="flex items-center gap-1 bg-[var(--muted)] rounded-lg p-0.5">
+            <button
+              onClick={() => setProviderFilter('all')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${providerFilter === 'all' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
+            >
+              All
+            </button>
+            {uniqueProviders.map(p => (
+              <button
+                key={p}
+                onClick={() => setProviderFilter(p)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${providerFilter === p ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
+              >
+                {providerIcon(p) && (
+                  <img src={providerIcon(p)} alt="" className="w-3.5 h-3.5 rounded-full object-cover" />
+                )}
+                {providerLabel(p)}
+              </button>
+            ))}
           </div>
-        </div>
-        <div>
-          <label className="text-xs font-medium text-[var(--muted-foreground)] block mb-1">
-            <CodeBracketIcon className="w-3.5 h-3.5 inline mr-1" />
-            HTML Content
-          </label>
-          <textarea
-            value={formHtml}
-            onChange={(e) => setFormHtml(e.target.value)}
-            className="w-full text-xs font-mono bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] resize-y"
-            rows={12}
-            placeholder="Paste your HTML email template here..."
-          />
-        </div>
-        <div className="flex items-center gap-3 pt-1">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={formSyncToRemote}
-              onChange={(e) => setFormSyncToRemote(e.target.checked)}
-              className="rounded border-[var(--border)]"
-            />
-            <span className="text-sm text-[var(--foreground)]">
-              {isEdit
-                ? hasRemoteId
-                  ? 'Also update on ESP'
-                  : 'Also create on ESP'
-                : 'Also create on ESP'}
-            </span>
-          </label>
-        </div>
+        )}
       </div>
-    );
-  };
 
-  // ── No connection state ──
+      <div className="flex items-center gap-2">
+        {/* View toggle */}
+        <div className="flex items-center bg-[var(--muted)] rounded-lg p-0.5">
+          <button
+            onClick={() => toggleView('card')}
+            className={`p-1.5 rounded-md transition-colors ${viewMode === 'card' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
+            title="Card view"
+          >
+            <Squares2X2Icon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => toggleView('list')}
+            className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
+            title="List view"
+          >
+            <ListBulletIcon className="w-4 h-4" />
+          </button>
+        </div>
 
+        {/* Sync */}
+        {(effectiveAccountKey || accountFilter !== 'all') && (
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+          >
+            <ArrowPathIcon className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing...' : 'Sync'}
+          </button>
+        )}
+
+        {/* Create */}
+        {(isAdmin || effectiveAccountKey) && (
+          <button
+            onClick={() => {
+              setCreateAccountKey(accountFilter !== 'all' ? accountFilter : null);
+              setShowCreateChoice(true);
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            <PlusIcon className="w-4 h-4" /> Create Template
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── Template Grid/List Renderer ──
+
+  const TemplateListView = ({ templates: items, showAccount = false }: { templates: EspTemplateRecord[]; showAccount?: boolean }) => (
+    <>
+      <p className="text-xs text-[var(--muted-foreground)] mb-4">
+        {loading ? 'Loading...' : `${items.length} template${items.length !== 1 ? 's' : ''}`}
+        {providerFilter !== 'all' && ` from ${providerLabel(providerFilter)}`}
+        {search && ` matching "${search}"`}
+      </p>
+
+      {loading && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="glass-card rounded-xl animate-pulse">
+              <div className="h-32 rounded-t-xl bg-[var(--muted)]" />
+              <div className="p-4 space-y-2">
+                <div className="h-3 bg-[var(--muted)] rounded w-16" />
+                <div className="h-4 bg-[var(--muted)] rounded w-3/4" />
+                <div className="h-3 bg-[var(--muted)] rounded w-1/2" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && items.length === 0 && (
+        <div className="text-center py-16 text-[var(--muted-foreground)]">
+          <EnvelopeIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
+          {allTemplates.length === 0 ? (
+            <>
+              <p className="text-sm font-medium mb-1">No templates yet</p>
+              <p className="text-xs mb-4">Click &quot;Sync&quot; to pull templates from your connected platform, or create a new one.</p>
+            </>
+          ) : (
+            <p className="text-sm">No templates match your filters.</p>
+          )}
+        </div>
+      )}
+
+      {!loading && items.length > 0 && (
+        viewMode === 'card' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {items.map(t => <TemplateCard key={t.id} t={t} showAccount={showAccount} />)}
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {items.map(t => <TemplateRow key={t.id} t={t} showAccount={showAccount} />)}
+          </div>
+        )
+      )}
+    </>
+  );
+
+  // ── No connection state (account-level) ──
   const connectedProviders = accountData?.connectedProviders;
   const hasConnection = effectiveAccountKey && connectedProviders && connectedProviders.length > 0;
+
+  // ── Render ──
 
   return (
     <div>
@@ -550,241 +798,251 @@ export default function TemplatesPage() {
             <div>
               <h2 className="text-2xl font-bold">Templates</h2>
               <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
-                {isAccount && accountData
-                  ? `Email templates for ${accountData.dealer}`
-                  : 'Manage email templates from your connected ESPs'}
+                {isAdmin
+                  ? 'Manage email templates across all accounts'
+                  : isAccount && accountData
+                    ? `Email templates for ${accountData.dealer}`
+                    : 'Manage your email templates'}
               </p>
             </div>
           </div>
+
         </div>
       </div>
 
-      {/* No account selected */}
-      {!effectiveAccountKey && (
-        <div className="text-center py-16 text-[var(--muted-foreground)]">
-          <EnvelopeIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="text-sm">Select an account to view its email templates.</p>
-        </div>
-      )}
+      {/* Route-based tab bar */}
+      <div className="flex items-center gap-1 mb-6 border-b border-[var(--border)]">
+        <Link
+          href="/templates"
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            pathname === '/templates'
+              ? 'border-[var(--primary)] text-[var(--primary)]'
+              : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          Account Templates
+        </Link>
+        <Link
+          href="/templates/library"
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            pathname === '/templates/library'
+              ? 'border-[var(--primary)] text-[var(--primary)]'
+              : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          Template Library
+        </Link>
+      </div>
 
-      {/* No ESP connection */}
-      {effectiveAccountKey && !hasConnection && !loading && (
-        <div className="text-center py-16 text-[var(--muted-foreground)]">
-          <ExclamationTriangleIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="text-sm font-medium mb-1">No ESP Connected</p>
-          <p className="text-xs">Connect GoHighLevel or Klaviyo in your account integrations to manage email templates.</p>
-        </div>
-      )}
-
-      {/* Main content */}
-      {effectiveAccountKey && (hasConnection || loading) && (
+      {/* ── Admin Mode — flat list with account filter ── */}
+      {isAdmin && (
         <>
-          {/* Toolbar */}
-          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              {/* Search */}
-              <div className="relative flex-1 max-w-xs">
-                <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
-                  placeholder="Search templates..."
-                />
-              </div>
+          <Toolbar showAccountFilter />
+          <TemplateListView templates={filtered} showAccount />
+        </>
+      )}
 
-              {/* Provider filter */}
-              {uniqueProviders.length > 1 && (
-                <div className="flex items-center gap-1 bg-[var(--muted)] rounded-lg p-0.5">
-                  <button
-                    onClick={() => setProviderFilter('all')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${providerFilter === 'all' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
-                  >
-                    All
-                  </button>
-                  {uniqueProviders.map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setProviderFilter(p)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${providerFilter === p ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
-                    >
-                      {providerIcon(p) && (
-                        <img src={providerIcon(p)} alt="" className="w-3.5 h-3.5 rounded-full object-cover" />
-                      )}
-                      {providerLabel(p)}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              {/* View toggle */}
-              <div className="flex items-center bg-[var(--muted)] rounded-lg p-0.5">
-                <button
-                  onClick={() => toggleView('card')}
-                  className={`p-1.5 rounded-md transition-colors ${viewMode === 'card' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
-                  title="Card view"
-                >
-                  <Squares2X2Icon className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => toggleView('list')}
-                  className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
-                  title="List view"
-                >
-                  <ListBulletIcon className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Sync */}
-              <button
-                onClick={handleSync}
-                disabled={syncing}
-                className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
-              >
-                <ArrowPathIcon className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Syncing...' : 'Sync'}
-              </button>
-
-              {/* Create */}
-              <button
-                onClick={() => { resetForm(); setShowCreate(true); }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-              >
-                <PlusIcon className="w-4 h-4" /> New Template
-              </button>
-            </div>
-          </div>
-
-          {/* Summary */}
-          <p className="text-xs text-[var(--muted-foreground)] mb-4">
-            {loading ? 'Loading...' : `${filtered.length} template${filtered.length !== 1 ? 's' : ''}`}
-            {providerFilter !== 'all' && ` from ${providerLabel(providerFilter)}`}
-            {search && ` matching "${search}"`}
-          </p>
-
-          {/* Loading */}
-          {loading && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {[1, 2, 3, 4].map(i => (
-                <div key={i} className="glass-card rounded-xl animate-pulse">
-                  <div className="h-32 rounded-t-xl bg-[var(--muted)]" />
-                  <div className="p-4 space-y-2">
-                    <div className="h-3 bg-[var(--muted)] rounded w-16" />
-                    <div className="h-4 bg-[var(--muted)] rounded w-3/4" />
-                    <div className="h-3 bg-[var(--muted)] rounded w-1/2" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Empty state */}
-          {!loading && filtered.length === 0 && (
+      {/* ── Account Mode ── */}
+      {!isAdmin && (
+        <>
+          {/* No account selected */}
+          {!effectiveAccountKey && (
             <div className="text-center py-16 text-[var(--muted-foreground)]">
               <EnvelopeIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              {templates.length === 0 ? (
-                <>
-                  <p className="text-sm font-medium mb-1">No templates yet</p>
-                  <p className="text-xs mb-4">Click "Sync" to pull templates from your connected ESP, or create a new one.</p>
-                  <button
-                    onClick={handleSync}
-                    disabled={syncing}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-                  >
-                    <ArrowPathIcon className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                    Sync from ESP
-                  </button>
-                </>
-              ) : (
-                <p className="text-sm">No templates match your filters.</p>
-              )}
+              <p className="text-sm">Select an account to view its email templates.</p>
             </div>
           )}
 
-          {/* Template grid/list */}
-          {!loading && filtered.length > 0 && (
-            viewMode === 'card' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {filtered.map(t => <TemplateCard key={t.id} t={t} />)}
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {filtered.map(t => <TemplateRow key={t.id} t={t} />)}
-              </div>
-            )
+          {/* No integration connection */}
+          {effectiveAccountKey && !hasConnection && !loading && (
+            <div className="text-center py-16 text-[var(--muted-foreground)]">
+              <ExclamationTriangleIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm font-medium mb-1">No Integration Connected</p>
+              <p className="text-xs">Connect an integration in your account settings to manage email templates.</p>
+            </div>
+          )}
+
+          {/* Account-level template view */}
+          {effectiveAccountKey && (hasConnection || loading) && (
+            <>
+              <Toolbar />
+              <TemplateListView templates={filtered} />
+            </>
           )}
         </>
       )}
 
-      {/* ── Create Modal ── */}
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => setShowCreate(false)}>
-          <div className="glass-modal w-[640px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
-              <h3 className="text-base font-semibold">New Template</h3>
-              <button onClick={() => setShowCreate(false)} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
-                <XMarkIcon className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-5">
-              <TemplateForm mode="create" />
-            </div>
-            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
-              <button
-                onClick={() => setShowCreate(false)}
-                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={!formName.trim() || saving}
-                className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-              >
-                {saving ? 'Creating...' : 'Create Template'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Create Choice Modal ── */}
+      {showCreateChoice && (() => {
+        const modalAccountKey = createAccountKey || (accountFilter !== 'all' ? accountFilter : null) || effectiveAccountKey;
+        const needsAccountPicker = isAdmin && !modalAccountKey;
+        const selectedAccountName = modalAccountKey ? (accounts[modalAccountKey]?.dealer || modalAccountKey) : null;
 
-      {/* ── Edit Modal ── */}
-      {editTemplate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => { setEditTemplate(null); resetForm(); }}>
-          <div className="glass-modal w-[640px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => { setShowCreateChoice(false); setLibraryPickerMode(false); setCreateAccountKey(null); }}>
+          <div className="glass-modal w-[640px]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-semibold">Edit Template</h3>
-                <ProviderPill provider={editTemplate.provider} />
+                {(libraryPickerMode || (!needsAccountPicker && isAdmin && !effectiveAccountKey)) && (
+                  <button
+                    onClick={() => {
+                      if (libraryPickerMode) {
+                        setLibraryPickerMode(false);
+                      } else {
+                        setCreateAccountKey(null);
+                      }
+                    }}
+                    className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  >
+                    <ArrowLeftIcon className="w-4 h-4" />
+                  </button>
+                )}
+                <h3 className="text-base font-semibold">
+                  {needsAccountPicker
+                    ? 'Select Account'
+                    : libraryPickerMode
+                      ? 'Select from Library'
+                      : 'Create New Template'}
+                </h3>
               </div>
-              <button onClick={() => { setEditTemplate(null); resetForm(); }} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+              <button onClick={() => { setShowCreateChoice(false); setLibraryPickerMode(false); setCreateAccountKey(null); }} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
             <div className="p-5">
-              <TemplateForm mode="edit" />
-            </div>
-            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
-              <button
-                onClick={() => { setEditTemplate(null); resetForm(); }}
-                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleUpdate}
-                disabled={!formName.trim() || saving}
-                className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-              >
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
+              {/* Account picker step for admins */}
+              {needsAccountPicker ? (
+                <>
+                  <p className="text-sm text-[var(--muted-foreground)] mb-4">Which account should this template be created for?</p>
+                  <div className="max-h-[360px] overflow-y-auto space-y-1">
+                    {allAccountKeys.map(k => {
+                      const acct = accounts[k];
+                      const location = [acct?.city, acct?.state].filter(Boolean).join(', ');
+                      return (
+                        <button
+                          key={k}
+                          onClick={() => setCreateAccountKey(k)}
+                          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-left"
+                        >
+                          <AccountAvatar
+                            name={acct?.dealer || k}
+                            accountKey={k}
+                            storefrontImage={acct?.storefrontImage}
+                            size={32}
+                            className="w-8 h-8 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
+                          />
+                          <div className="min-w-0">
+                            <span className="block text-sm font-medium truncate">{acct?.dealer || k}</span>
+                            {location && (
+                              <span className="block text-[11px] text-[var(--muted-foreground)] truncate">{location}</span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : !libraryPickerMode ? (
+                <>
+                  {isAdmin && selectedAccountName && (
+                    <p className="text-xs text-[var(--muted-foreground)] mb-3">
+                      Creating for: <span className="font-medium text-[var(--foreground)]">{selectedAccountName}</span>
+                    </p>
+                  )}
+                  <p className="text-sm text-[var(--muted-foreground)] mb-4">Choose how you&apos;d like to build your template:</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* From Library */}
+                    <button
+                      onClick={openLibraryPicker}
+                      className="group flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-center"
+                    >
+                      <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center group-hover:bg-[var(--primary)]/20 transition-colors">
+                        <BookOpenIcon className="w-6 h-6 text-[var(--primary)]" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold mb-1">From Library</h4>
+                        <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
+                          Start from a library template
+                        </p>
+                      </div>
+                    </button>
+
+                    {/* Drag & Drop */}
+                    <button
+                      onClick={() => handleCreateChoice('visual')}
+                      className="group flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-center"
+                    >
+                      <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center group-hover:bg-[var(--primary)]/20 transition-colors">
+                        <CursorArrowRaysIcon className="w-6 h-6 text-[var(--primary)]" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold mb-1">Drag & Drop</h4>
+                        <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
+                          Visual builder with sections
+                        </p>
+                      </div>
+                    </button>
+
+                    {/* HTML Editor */}
+                    <button
+                      onClick={() => handleCreateChoice('code')}
+                      className="group flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-center"
+                    >
+                      <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center group-hover:bg-[var(--primary)]/20 transition-colors">
+                        <CodeBracketIcon className="w-6 h-6 text-[var(--primary)]" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold mb-1">HTML Editor</h4>
+                        <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
+                          Write or paste raw HTML
+                        </p>
+                      </div>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-[var(--muted-foreground)] mb-4">Select a template to start from:</p>
+                  {loadingLibrary && (
+                    <div className="grid grid-cols-3 gap-3">
+                      {[1, 2, 3].map(i => (
+                        <div key={i} className="glass-card rounded-xl p-4 animate-pulse">
+                          <div className="h-3 bg-[var(--muted)] rounded w-3/4 mb-2" />
+                          <div className="h-2 bg-[var(--muted)] rounded w-1/2" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!loadingLibrary && libraryTemplates.length === 0 && (
+                    <div className="text-center py-8 text-[var(--muted-foreground)]">
+                      <BookOpenIcon className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">No library templates available.</p>
+                      <p className="text-xs mt-1">Create templates in the Template Library first.</p>
+                    </div>
+                  )}
+                  {!loadingLibrary && libraryTemplates.length > 0 && (
+                    <div className="grid grid-cols-3 gap-3 max-h-[400px] overflow-y-auto">
+                      {libraryTemplates.map(t => (
+                        <button
+                          key={t.design}
+                          onClick={() => selectLibraryTemplate(t.design)}
+                          className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-center"
+                        >
+                          <div className="w-10 h-10 rounded-lg bg-[var(--muted)] flex items-center justify-center">
+                            <EnvelopeIcon className="w-5 h-5 text-[var(--muted-foreground)] opacity-40" />
+                          </div>
+                          <span className="text-xs font-medium truncate w-full">{t.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Delete Confirmation Modal ── */}
       {deleteTemplate && (
@@ -797,9 +1055,14 @@ export default function TemplatesPage() {
               <p className="text-sm text-[var(--foreground)] mb-1">
                 Are you sure you want to delete <strong>{deleteTemplate.name}</strong>?
               </p>
+              {isAdmin && (
+                <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                  Account: {accounts[deleteTemplate.accountKey]?.dealer || deleteTemplate.accountKey}
+                </p>
+              )}
               {deleteTemplate.remoteId && (
                 <p className="text-xs text-[var(--muted-foreground)] mt-3">
-                  This template is synced with {providerLabel(deleteTemplate.provider)}. You can delete it locally only, or also remove it from the ESP.
+                  This template is synced with {providerLabel(deleteTemplate.provider)}. You can delete it locally only, or also remove it from the connected platform.
                 </p>
               )}
             </div>
@@ -823,6 +1086,58 @@ export default function TemplatesPage() {
                 >
                   Delete Everywhere
                 </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Preview Modal ── */}
+      {previewTemplate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => setPreviewTemplate(null)}>
+          <div className="glass-modal w-[720px] h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold truncate">{previewTemplate.name}</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <ProviderPill provider={previewTemplate.provider} />
+                  {isAdmin && <AccountPill acctKey={previewTemplate.accountKey} />}
+                  {previewTemplate.subject && (
+                    <span className="text-[10px] text-[var(--muted-foreground)] truncate">
+                      Subject: {previewTemplate.subject}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => { setPreviewTemplate(null); navigateToEditor(previewTemplate.id); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--primary)] border border-[var(--primary)]/30 rounded-lg hover:bg-[var(--primary)]/5 transition-colors"
+                >
+                  <PencilSquareIcon className="w-3.5 h-3.5" /> Edit
+                </button>
+                <button onClick={() => setPreviewTemplate(null)} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0 bg-[var(--muted)]">
+              {previewTemplate.html ? (
+                <iframe
+                  srcDoc={previewTemplate.html}
+                  className="w-full h-full border-0"
+                  style={{ minHeight: '500px' }}
+                  title={`Preview: ${previewTemplate.name}`}
+                  sandbox="allow-same-origin"
+                />
+              ) : (
+                <div className="flex items-center justify-center h-64 text-[var(--muted-foreground)]">
+                  <div className="text-center">
+                    <EnvelopeIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">No preview available</p>
+                    <p className="text-xs mt-1">This template has no HTML content yet.</p>
+                  </div>
+                </div>
               )}
             </div>
           </div>

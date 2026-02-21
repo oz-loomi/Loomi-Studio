@@ -40,9 +40,11 @@ interface TemplatePreviewProps {
   height?: number;
   className?: string;
   onClick?: () => void;
+  /** When true, renders a full-size scrollable iframe instead of a scaled thumbnail */
+  interactive?: boolean;
 }
 
-export function TemplatePreview({ design, height = 280, className = '', onClick }: TemplatePreviewProps) {
+export function TemplatePreview({ design, height = 280, className = '', onClick, interactive = false }: TemplatePreviewProps) {
   const [html, setHtml] = useState<string | null>(previewCache.get(design) || null);
   const [loading, setLoading] = useState(!previewCache.has(design));
   const [error, setError] = useState(false);
@@ -149,12 +151,12 @@ export function TemplatePreview({ design, height = 280, className = '', onClick 
   return (
     <div
       ref={containerRef}
-      className={`relative overflow-hidden bg-[var(--muted)] ${onClick ? 'cursor-pointer' : ''} ${className}`}
-      style={{ height }}
+      className={`relative ${interactive ? 'h-full' : 'overflow-hidden'} bg-[var(--muted)] ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      style={interactive ? undefined : { height }}
       onClick={onClick}
     >
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center z-10">
+        <div className={`${interactive ? '' : 'absolute'} inset-0 flex items-center justify-center z-10 ${interactive ? 'h-full' : ''}`}>
           <div className="flex flex-col items-center gap-2">
             <div className="w-6 h-6 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin" />
             <span className="text-[10px] text-[var(--muted-foreground)]">Loading preview...</span>
@@ -163,12 +165,19 @@ export function TemplatePreview({ design, height = 280, className = '', onClick 
       )}
 
       {error && !loading && (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className={`${interactive ? '' : 'absolute'} inset-0 flex items-center justify-center ${interactive ? 'h-full' : ''}`}>
           <span className="text-xs text-[var(--muted-foreground)]">Preview unavailable</span>
         </div>
       )}
 
-      {html && !loading && containerWidth > 0 && (
+      {html && !loading && (interactive ? (
+        <iframe
+          srcDoc={html}
+          className="w-full h-full border-0"
+          title={`${design} preview`}
+          sandbox="allow-same-origin"
+        />
+      ) : containerWidth > 0 ? (
         <iframe
           srcDoc={html}
           className="border-0 pointer-events-none absolute top-0 left-0"
@@ -182,7 +191,7 @@ export function TemplatePreview({ design, height = 280, className = '', onClick 
           sandbox="allow-same-origin"
           tabIndex={-1}
         />
-      )}
+      ) : null)}
     </div>
   );
 }

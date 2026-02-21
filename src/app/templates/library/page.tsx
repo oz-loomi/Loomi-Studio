@@ -14,6 +14,12 @@ import {
   PencilIcon,
   ArrowPathIcon,
   AdjustmentsHorizontalIcon,
+  CursorArrowRaysIcon,
+  CodeBracketIcon,
+  ArrowLeftIcon,
+  MagnifyingGlassIcon,
+  EyeIcon,
+  PencilSquareIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from 'sonner';
 import { useAccount } from '@/contexts/account-context';
@@ -80,8 +86,13 @@ export default function TemplateLibraryPage() {
       {/* Sticky header */}
       <div className="page-sticky-header mb-6">
         <div className="flex items-center gap-3">
-          <BookOpenIcon className="w-6 h-6 text-[var(--primary)]" />
-          <h1 className="text-2xl font-bold">Templates</h1>
+          <BookOpenIcon className="w-7 h-7 text-[var(--primary)]" />
+          <div>
+            <h1 className="text-2xl font-bold">Templates</h1>
+            <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
+              Shared template library for all accounts
+            </p>
+          </div>
         </div>
       </div>
 
@@ -124,7 +135,8 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const router = useRouter();
   const [templates, setTemplates] = useState<TemplateEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [showCreateChoice, setShowCreateChoice] = useState(false);
+  const [createStep, setCreateStep] = useState<'choice' | 'name'>('choice');
   const [newName, setNewName] = useState('');
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
@@ -133,6 +145,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const [showTagModal, setShowTagModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [previewDesign, setPreviewDesign] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const loadTemplates = async () => {
@@ -203,9 +216,12 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to create'); setSaving(false); return; }
       toast.success('Template created');
-      setCreating(false);
+      setShowCreateChoice(false);
+      setCreateStep('choice');
       setNewName('');
       await loadTemplates();
+      // Navigate to editor
+      router.push(editorHref(data.design));
     } catch { toast.error('Failed to create'); }
     setSaving(false);
   };
@@ -258,14 +274,17 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
     <div>
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search templates..."
-            className="w-full max-w-xs text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
-          />
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="relative flex-1 max-w-xs">
+            <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search templates..."
+              className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
+            />
+          </div>
           {tagData.tags.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <button
@@ -298,55 +317,102 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => setShowTagModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
             title="Manage Tags"
           >
-            <TagIcon className="w-3.5 h-3.5" />
+            <TagIcon className="w-4 h-4" />
             Tags
           </button>
           <button
             onClick={() => setShowBulkModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
             title="Bulk Edit"
           >
-            <AdjustmentsHorizontalIcon className="w-3.5 h-3.5" />
+            <AdjustmentsHorizontalIcon className="w-4 h-4" />
             Bulk Edit
           </button>
           <button
-            onClick={() => { setCreating(true); setNewName(''); }}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
+            onClick={() => { setShowCreateChoice(true); setCreateStep('choice'); setNewName(''); }}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
           >
-            <PlusIcon className="w-3.5 h-3.5" />
-            New Template
+            <PlusIcon className="w-4 h-4" />
+            Create Template
           </button>
         </div>
       </div>
 
-      {/* Create template input */}
-      {creating && (
-        <div className="flex items-center gap-2 mb-4 p-3 glass-card rounded-xl">
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && createTemplate()}
-            placeholder="Template name (e.g. spring-sale)"
-            className="flex-1 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
-            autoFocus
-          />
-          <button
-            onClick={createTemplate}
-            disabled={saving || !newName.trim()}
-            className="px-3 py-2 bg-[var(--primary)] text-white rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-50"
-          >
-            {saving ? 'Creating...' : 'Create'}
-          </button>
-          <button
-            onClick={() => setCreating(false)}
-            className="px-3 py-2 text-xs font-medium rounded-lg bg-[var(--muted)] hover:bg-[var(--accent)] transition-colors"
-          >
-            Cancel
-          </button>
+      {/* Create choice modal */}
+      {showCreateChoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => { setShowCreateChoice(false); setCreateStep('choice'); }}>
+          <div className="glass-modal w-[480px]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <div className="flex items-center gap-2">
+                {createStep === 'name' && (
+                  <button onClick={() => setCreateStep('choice')} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                    <ArrowLeftIcon className="w-4 h-4" />
+                  </button>
+                )}
+                <h3 className="text-base font-semibold">
+                  {createStep === 'choice' ? 'Create New Template' : 'Name Your Template'}
+                </h3>
+              </div>
+              <button onClick={() => { setShowCreateChoice(false); setCreateStep('choice'); }} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5">
+              {createStep === 'choice' ? (
+                <>
+                  <p className="text-sm text-[var(--muted-foreground)] mb-4">Choose how you&apos;d like to build your template:</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button
+                      onClick={() => setCreateStep('name')}
+                      className="group flex flex-col items-center gap-3 p-6 rounded-xl border-2 border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-center"
+                    >
+                      <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center group-hover:bg-[var(--primary)]/20 transition-colors">
+                        <CursorArrowRaysIcon className="w-6 h-6 text-[var(--primary)]" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold mb-1">Drag & Drop</h4>
+                        <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">Visual builder with sections</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setCreateStep('name')}
+                      className="group flex flex-col items-center gap-3 p-6 rounded-xl border-2 border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-center"
+                    >
+                      <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center group-hover:bg-[var(--primary)]/20 transition-colors">
+                        <CodeBracketIcon className="w-6 h-6 text-[var(--primary)]" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold mb-1">HTML Editor</h4>
+                        <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">Write or paste raw HTML</p>
+                      </div>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && createTemplate()}
+                    placeholder="Template name (e.g. spring-sale)"
+                    className="flex-1 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
+                    autoFocus
+                  />
+                  <button
+                    onClick={createTemplate}
+                    disabled={saving || !newName.trim()}
+                    className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                  >
+                    {saving ? 'Creating...' : 'Create'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -369,19 +435,19 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                 className="group relative glass-card rounded-xl overflow-hidden"
               >
                 {/* Preview area */}
-                <Link href={editorHref(t.design)} className="block">
+                <div className="cursor-pointer" onClick={() => setPreviewDesign(t.design)}>
                   <TemplatePreview design={t.design} height={220} />
-                </Link>
+                </div>
 
                 {/* Info */}
                 <div className="p-3">
                   <div className="flex items-center justify-between gap-1">
-                    <Link
-                      href={editorHref(t.design)}
-                      className="text-sm font-medium truncate hover:text-[var(--primary)] transition-colors"
+                    <span
+                      className="text-sm font-medium truncate hover:text-[var(--primary)] transition-colors cursor-pointer"
+                      onClick={() => setPreviewDesign(t.design)}
                     >
                       {t.name || formatDesign(t.design)}
-                    </Link>
+                    </span>
 
                     {/* Menu */}
                     <div className="relative" ref={isOpen ? menuRef : undefined}>
@@ -394,24 +460,31 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                       {isOpen && (
                         <div className="absolute right-0 top-full mt-1 z-50 w-40 glass-dropdown">
                           <button
-                            onClick={() => { router.push(editorHref(t.design)); setMenuOpen(null); }}
-                            className="w-full text-left px-3 py-2 text-xs text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                            onClick={() => { setMenuOpen(null); setPreviewDesign(t.design); }}
+                            className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
                           >
-                            <PencilIcon className="w-3.5 h-3.5" />
+                            <EyeIcon className="w-4 h-4" />
+                            View
+                          </button>
+                          <button
+                            onClick={() => { router.push(editorHref(t.design)); setMenuOpen(null); }}
+                            className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                          >
+                            <PencilIcon className="w-4 h-4" />
                             Edit
                           </button>
                           <button
                             onClick={() => { cloneTemplate(t.design); setMenuOpen(null); }}
-                            className="w-full text-left px-3 py-2 text-xs text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
                           >
-                            <DocumentDuplicateIcon className="w-3.5 h-3.5" />
+                            <DocumentDuplicateIcon className="w-4 h-4" />
                             Clone
                           </button>
                           <button
                             onClick={() => { deleteTemplate(t.design); setMenuOpen(null); }}
-                            className="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2"
                           >
-                            <TrashIcon className="w-3.5 h-3.5" />
+                            <TrashIcon className="w-4 h-4" />
                             Delete
                           </button>
                         </div>
@@ -463,6 +536,36 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
           onClose={() => setShowBulkModal(false)}
         />
       )}
+
+      {/* Preview Modal */}
+      {previewDesign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => setPreviewDesign(null)}>
+          <div className="glass-modal w-[720px] h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold truncate">
+                  {tplMap[previewDesign]?.name || formatDesign(previewDesign)}
+                </h3>
+                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{previewDesign}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => { setPreviewDesign(null); router.push(editorHref(previewDesign)); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--primary)] border border-[var(--primary)]/30 rounded-lg hover:bg-[var(--primary)]/5 transition-colors"
+                >
+                  <PencilSquareIcon className="w-3.5 h-3.5" /> Edit
+                </button>
+                <button onClick={() => setPreviewDesign(null)} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0">
+              <TemplatePreview design={previewDesign} interactive />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -478,6 +581,7 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const [search, setSearch] = useState('');
   const [tagData, setTagData] = useState<TagData>({ tags: [], assignments: {} });
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [previewDesign, setPreviewDesign] = useState<string | null>(null);
   const isCampaignDraft = campaignDraftQuery.length > 0;
   const editorHref = (design: string) => `/templates/${design}/template${campaignDraftQuery}`;
 
@@ -520,14 +624,17 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search templates..."
-          className="w-full max-w-xs text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
-        />
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="relative flex-1 max-w-xs">
+          <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search templates..."
+            className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
+          />
+        </div>
         {tagData.tags.length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
@@ -572,24 +679,26 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
             return (
               <div
                 key={t.design}
-                role={isCampaignDraft ? 'button' : undefined}
-                tabIndex={isCampaignDraft ? 0 : undefined}
-                onClick={
-                  isCampaignDraft
-                    ? () => router.push(editorHref(t.design))
-                    : undefined
-                }
-                onKeyDown={
-                  isCampaignDraft
-                    ? (event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          router.push(editorHref(t.design));
-                        }
-                      }
-                    : undefined
-                }
-                className={`glass-card rounded-xl overflow-hidden ${isCampaignDraft ? 'cursor-pointer hover:border-[var(--primary)]/40 transition-colors' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  if (isCampaignDraft) {
+                    router.push(editorHref(t.design));
+                  } else {
+                    setPreviewDesign(t.design);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    if (isCampaignDraft) {
+                      router.push(editorHref(t.design));
+                    } else {
+                      setPreviewDesign(t.design);
+                    }
+                  }
+                }}
+                className="glass-card rounded-xl overflow-hidden cursor-pointer hover:border-[var(--primary)]/40 transition-colors"
               >
                 <TemplatePreview design={t.design} height={220} />
                 <div className="p-3">
@@ -616,6 +725,39 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
       <p className="text-xs text-[var(--muted-foreground)] mt-4">
         {filtered.length} template{filtered.length !== 1 ? 's' : ''} available
       </p>
+
+      {/* Preview Modal */}
+      {previewDesign && (() => {
+        const pt = templates.find((t) => t.design === previewDesign);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => setPreviewDesign(null)}>
+            <div className="glass-modal w-[720px] h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold truncate">
+                    {pt?.name || formatDesign(previewDesign)}
+                  </h3>
+                  <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{previewDesign}</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => { setPreviewDesign(null); router.push(editorHref(previewDesign)); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--primary)] border border-[var(--primary)]/30 rounded-lg hover:bg-[var(--primary)]/5 transition-colors"
+                  >
+                    <PencilSquareIcon className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  <button onClick={() => setPreviewDesign(null)} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                    <XMarkIcon className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 min-h-0">
+                <TemplatePreview design={previewDesign} interactive />
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -32,6 +32,7 @@ import {
   EnvelopeIcon,
   QuestionMarkCircleIcon,
   ArrowDownTrayIcon,
+  BookOpenIcon,
 } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -1419,7 +1420,7 @@ export default function TemplateEditorPage() {
   const searchParams = useSearchParams();
   const design = params.oem as string;
   const templateName = params.type as string;
-  const { isAccount, accountKey, accountData } = useAccount();
+  const { isAdmin, isAccount, accountKey, accountData } = useAccount();
   const builderMode = searchParams.get("builder");
   const isHtmlOnlyBuilder = builderMode === "html";
 
@@ -1433,6 +1434,7 @@ export default function TemplateEditorPage() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState("");
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copied, setCopied] = useState(false);
   const [showCopyDropdown, setShowCopyDropdown] = useState(false);
   const [previewWidth, setPreviewWidth] = useState<"desktop" | "mobile">(
@@ -1704,6 +1706,31 @@ export default function TemplateEditorPage() {
   useEffect(() => {
     setHasChanges(code !== originalCode);
   }, [code, originalCode]);
+
+  // ── Auto-save (3s after last change) ──
+  useEffect(() => {
+    if (code === originalCode || saving) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(async () => {
+      setSaving(true);
+      setMessage("");
+      try {
+        const res = await fetch("/api/templates", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ design, type: templateName, raw: code }),
+        });
+        if (res.ok) {
+          setOriginalCode(code);
+          setMessage("Saved");
+          setTimeout(() => setMessage(""), 2000);
+        }
+      } catch { /* silent */ }
+      setSaving(false);
+    }, 3000);
+    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, originalCode, design, templateName]);
 
   useEffect(() => {
     if (isHtmlOnlyBuilder) {
@@ -2267,21 +2294,187 @@ export default function TemplateEditorPage() {
     }
   };
 
-  const handleSchedule = async () => {
-    if (hasChanges) {
-      const saved = await handleSave();
-      if (!saved) return;
-    }
+  // ── Save Template (to Loomi + optional ESP providers) ──
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [saveTemplateProviders, setSaveTemplateProviders] = useState<Record<string, boolean>>({});
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [saveTemplateResults, setSaveTemplateResults] = useState<Record<string, { success: boolean; error?: string }> | null>(null);
+  const [saveToLibrary, setSaveToLibrary] = useState(false);
+  const [saveToLibraryResult, setSaveToLibraryResult] = useState<{ success: boolean; error?: string } | null>(null);
 
-    const next = new URLSearchParams({
-      design,
-      type: templateName,
-    });
-    if (searchParams.get('campaignDraft') === '1') {
-      next.set('campaignDraft', '1');
+  const connectedProviders = useMemo(() => accountData?.connectedProviders ?? [], [accountData]);
+
+  const PROVIDER_META: Record<string, { displayName: string; iconSrc: string }> = {
+    ghl: {
+      displayName: "GoHighLevel",
+      iconSrc: "https://storage.googleapis.com/msgsndr/CVpny6EUSHRxlXfqAFb7/media/6992d3c254da0462343bf828.jpg",
+    },
+    klaviyo: {
+      displayName: "Klaviyo",
+      iconSrc: "https://storage.googleapis.com/msgsndr/CVpny6EUSHRxlXfqAFb7/media/6992d3ac3b3cc9155bdaf06e.png",
+    },
+  };
+
+  const handleOpenSaveTemplate = () => {
+    // Reset state
+    setSaveTemplateResults(null);
+    setSaveToLibrary(false);
+    setSaveToLibraryResult(null);
+    const initial: Record<string, boolean> = {};
+    for (const p of connectedProviders) initial[p] = true;
+    setSaveTemplateProviders(initial);
+    setShowSaveTemplateModal(true);
+  };
+
+  const handleSaveTemplate = async () => {
+    setSavingTemplate(true);
+    setSaveTemplateResults(null);
+    try {
+      // 1. Save locally first
+      if (hasChanges) {
+        const saved = await handleSave();
+        if (!saved) {
+          setSavingTemplate(false);
+          return;
+        }
+      }
+
+      // Save to template library if checked
+      let librarySaved = false;
+      if (saveToLibrary) {
+        try {
+          const templateTitle = parsed?.frontmatter?.title || designLabel;
+          const slug = templateTitle
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+
+          // Create or check if exists
+          const createRes = await fetch("/api/templates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ design: slug }),
+          });
+
+          if (!createRes.ok && createRes.status !== 409) {
+            const err = await createRes.json();
+            setSaveToLibraryResult({ success: false, error: err.error || "Failed to create library entry" });
+          } else {
+            // Save the actual content
+            const putRes = await fetch("/api/templates", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ design: slug, raw: code }),
+            });
+
+            if (putRes.ok) {
+              librarySaved = true;
+              setSaveToLibraryResult({ success: true });
+            } else {
+              const err = await putRes.json();
+              setSaveToLibraryResult({ success: false, error: err.error || "Failed to save to library" });
+            }
+          }
+        } catch {
+          setSaveToLibraryResult({ success: false, error: "Failed to save to library" });
+        }
+      }
+
+      // Check which providers are selected
+      const selectedProviders = Object.entries(saveTemplateProviders)
+        .filter(([, checked]) => checked)
+        .map(([p]) => p);
+
+      if (selectedProviders.length === 0) {
+        // No provider publishing — show appropriate toast
+        if (librarySaved) {
+          toast.success("Template saved on Loomi and added to library");
+        } else {
+          toast.success("Template saved on Loomi");
+        }
+        setShowSaveTemplateModal(false);
+        setSavingTemplate(false);
+        return;
+      }
+
+      // 2. Compile to get final HTML for ESP
+      let compiledHtml = previewHtml;
+      if (!compiledHtml) {
+        const compileRes = await fetch("/api/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ html: code, project: "core" }),
+        });
+        const compileData = await compileRes.json();
+        if (compileData.html) compiledHtml = compileData.html;
+      }
+
+      if (!compiledHtml) {
+        toast.error("Failed to compile template HTML");
+        setSavingTemplate(false);
+        return;
+      }
+
+      // 3. Create ESP template record
+      const templateTitle = parsed?.frontmatter?.title || designLabel;
+      const createRes = await fetch("/api/esp/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountKey,
+          name: templateTitle,
+          subject: parsed?.frontmatter?.preheader || "",
+          html: compiledHtml,
+          source: code,
+          editorType: editorMode === "code" ? "code" : "visual",
+        }),
+      });
+
+      if (!createRes.ok) {
+        const err = await createRes.json();
+        toast.error(err.error || "Failed to create template");
+        setSavingTemplate(false);
+        return;
+      }
+
+      const { template: espTemplate } = await createRes.json();
+
+      // 4. Publish to selected providers
+      const publishRes = await fetch(`/api/esp/templates/${espTemplate.id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providers: selectedProviders }),
+      });
+
+      if (!publishRes.ok) {
+        const err = await publishRes.json();
+        toast.error(err.error || "Failed to publish template");
+        setSavingTemplate(false);
+        return;
+      }
+
+      const { results } = await publishRes.json();
+      setSaveTemplateResults(results);
+
+      // Check results
+      const allSuccess = Object.values(results).every((r: any) => r.success);
+      const anySuccess = Object.values(results).some((r: any) => r.success);
+
+      if (allSuccess) {
+        toast.success(`Template saved and published to ${selectedProviders.map(p => PROVIDER_META[p]?.displayName || p).join(", ")}`);
+        setTimeout(() => setShowSaveTemplateModal(false), 1500);
+      } else if (anySuccess) {
+        toast.warning("Template published to some integrations — check results below");
+      } else {
+        toast.error("Failed to publish template");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save template");
+    } finally {
+      setSavingTemplate(false);
     }
-    if (isHtmlOnlyBuilder) next.set("builder", "html");
-    router.push(`/campaigns/schedule?${next.toString()}`);
   };
 
   const handleExport = async () => {
@@ -2511,6 +2704,10 @@ export default function TemplateEditorPage() {
           setShowShortcuts(false);
           return;
         }
+        if (showSaveTemplateModal) {
+          setShowSaveTemplateModal(false);
+          return;
+        }
         if (showSendTest) {
           setShowSendTest(false);
           return;
@@ -2539,6 +2736,7 @@ export default function TemplateEditorPage() {
     code,
     editorMode,
     showShortcuts,
+    showSaveTemplateModal,
     showSendTest,
     showHistory,
     showAiAssistant,
@@ -2822,15 +3020,22 @@ export default function TemplateEditorPage() {
           {message && (
             <span className="text-xs text-green-400 mr-2">{message}</span>
           )}
+          {/* Ask Loomi */}
           <button
-            onClick={handleSchedule}
-            disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
-            title="Open campaign scheduling"
+            onClick={() => setShowAiAssistant((prev) => !prev)}
+            className={`group relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-200 ${
+              showAiAssistant
+                ? "text-white border-pink-300/70 ring-1 ring-cyan-300/35 bg-gradient-to-r from-orange-500 via-pink-500 to-purple-500 shadow-[0_8px_24px_rgba(45,212,191,0.35)]"
+                : "text-pink-100 border-pink-400/40 bg-gradient-to-r from-orange-500/20 via-pink-500/20 to-purple-500/20 hover:from-orange-500/30 hover:via-pink-500/30 hover:to-purple-500/30 hover:border-pink-300/60 hover:ring-1 hover:ring-cyan-300/25 hover:shadow-[0_6px_18px_rgba(45,212,191,0.22)]"
+            }`}
+            title="Open AI assistant"
           >
-            <PaperAirplaneIcon className="w-3.5 h-3.5" />
-            Schedule
+            <SparklesIcon
+              className={`w-3.5 h-3.5 transition-transform ${showAiAssistant ? "scale-110" : "group-hover:scale-110 group-hover:rotate-6"}`}
+            />
+            Ask Loomi
           </button>
+          {/* Send Test */}
           <button
             onClick={() => {
               setSendTestSubject(
@@ -2845,64 +3050,23 @@ export default function TemplateEditorPage() {
             <EnvelopeIcon className="w-3.5 h-3.5" />
             Send Test
           </button>
+          {/* Save Template */}
           <button
-            onClick={() => compilePreview(code)}
-            disabled={previewLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--muted)] hover:bg-[var(--accent)] disabled:opacity-40 transition-colors"
-            title="Refresh preview"
-          >
-            <ArrowPathIcon
-              className={`w-3.5 h-3.5 ${previewLoading ? "animate-spin" : ""}`}
-            />
-            Preview
-          </button>
-          <button
-            onClick={handleOpenHistory}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--muted)] hover:bg-[var(--accent)] transition-colors"
-            title="View recent saved versions"
-          >
-            <ClockIcon className="w-3.5 h-3.5" />
-            History
-          </button>
-          <button
-            onClick={() => setShowAiAssistant((prev) => !prev)}
-            className={`group relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-200 ${
-              showAiAssistant
-                ? "text-white border-pink-300/70 ring-1 ring-cyan-300/35 bg-gradient-to-r from-orange-500 via-pink-500 to-purple-500 shadow-[0_8px_24px_rgba(45,212,191,0.35)]"
-                : "text-pink-100 border-pink-400/40 bg-gradient-to-r from-orange-500/20 via-pink-500/20 to-purple-500/20 hover:from-orange-500/30 hover:via-pink-500/30 hover:to-purple-500/30 hover:border-pink-300/60 hover:ring-1 hover:ring-cyan-300/25 hover:shadow-[0_6px_18px_rgba(45,212,191,0.22)]"
-            }`}
-            title="Open AI assistant"
-          >
-            <SparklesIcon
-              className={`w-3.5 h-3.5 transition-transform ${showAiAssistant ? "scale-110" : "group-hover:scale-110 group-hover:rotate-6"}`}
-            />
-            AI Assist
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--muted)] hover:bg-[var(--accent)] disabled:opacity-40 transition-colors"
-            title="Build &amp; export compiled HTML"
-          >
-            <ArrowDownTrayIcon
-              className={`w-3.5 h-3.5 ${exporting ? "animate-bounce" : ""}`}
-            />
-            {exporting ? "Building..." : "Export"}
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || !hasChanges}
-            className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--primary)] text-white rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity"
+            onClick={handleOpenSaveTemplate}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+            title="Save template"
           >
             <DocumentArrowDownIcon className="w-3.5 h-3.5" />
-            {saving ? "Saving..." : "Save"}
+            Save Template
           </button>
+          {/* History (clock icon only) */}
           <button
-            onClick={() => setShowShortcuts(true)}
+            onClick={handleOpenHistory}
             className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-            title="Keyboard shortcuts (?)"
+            title="Version History"
           >
-            <QuestionMarkCircleIcon className="w-4 h-4" />
+            <ClockIcon className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -3377,7 +3541,7 @@ export default function TemplateEditorPage() {
                   title={
                     accountKey
                       ? "Refresh contacts"
-                      : "Switch to an ESP-connected account to load contacts"
+                      : "Switch to a connected account to load contacts"
                   }
                 >
                   <ArrowPathIcon
@@ -3476,7 +3640,7 @@ export default function TemplateEditorPage() {
                 <button
                   onClick={() => setShowCopyDropdown(!showCopyDropdown)}
                   disabled={!previewHtml}
-                  className={`p-1.5 rounded-lg transition-colors ${copied ? "text-green-400 bg-green-500/10" : "bg-[var(--muted)] hover:bg-[var(--accent)] disabled:opacity-40"}`}
+                  className={`p-1.5 rounded-lg transition-colors ${copied ? "text-green-400 bg-green-500/10" : "hover:bg-[var(--muted)] disabled:opacity-40"}`}
                   title="Copy HTML"
                 >
                   {copied ? (
@@ -3511,6 +3675,26 @@ export default function TemplateEditorPage() {
                   </div>
                 )}
               </div>
+              {/* Save */}
+              <button
+                onClick={handleSave}
+                disabled={saving || !hasChanges}
+                className={`p-1.5 rounded-lg transition-colors ${saving ? "text-amber-400 bg-amber-500/10" : "hover:bg-[var(--muted)] disabled:opacity-40"}`}
+                title="Save (⌘S)"
+              >
+                <DocumentArrowDownIcon className={`w-4 h-4 ${saving ? "animate-pulse" : ""}`} />
+              </button>
+              {/* Refresh preview */}
+              <button
+                onClick={() => compilePreview(code)}
+                disabled={previewLoading}
+                className="p-1.5 rounded-lg hover:bg-[var(--muted)] disabled:opacity-40 transition-colors"
+                title="Refresh preview"
+              >
+                <ArrowPathIcon
+                  className={`w-4 h-4 ${previewLoading ? "animate-spin" : ""}`}
+                />
+              </button>
             </div>
           </div>
 
@@ -4180,6 +4364,140 @@ export default function TemplateEditorPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Template Modal */}
+      {showSaveTemplateModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in"
+          onClick={() => !savingTemplate && setShowSaveTemplateModal(false)}
+        >
+          <div
+            className="glass-modal w-[440px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <div className="flex items-center gap-2">
+                <DocumentArrowDownIcon className="w-4 h-4 text-[var(--primary)]" />
+                <h3 className="text-sm font-semibold">Save Template</h3>
+              </div>
+              <button
+                onClick={() => setShowSaveTemplateModal(false)}
+                disabled={savingTemplate}
+                className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Your template will always be saved on Loomi. Optionally, also publish it to your connected integration{connectedProviders.length > 1 ? "s" : ""}.
+              </p>
+
+              {/* Save to Template Library — admin/developer only */}
+              {isAdmin && (
+                <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] hover:bg-[var(--muted)]/50 cursor-pointer transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={saveToLibrary}
+                    onChange={(e) => setSaveToLibrary(e.target.checked)}
+                    className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                  />
+                  <BookOpenIcon className="w-5 h-5 text-[var(--primary)]" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium block">Save to Template Library</span>
+                    <span className="text-[10px] text-[var(--muted-foreground)]">Make available for all accounts</span>
+                  </div>
+                  {saveToLibraryResult && (
+                    <span className={`ml-auto text-[10px] font-medium ${saveToLibraryResult.success ? "text-green-400" : "text-red-400"}`}>
+                      {saveToLibraryResult.success ? "✓ Added" : saveToLibraryResult.error || "Failed"}
+                    </span>
+                  )}
+                </label>
+              )}
+
+              {connectedProviders.length > 0 ? (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-[var(--muted-foreground)]">
+                    Also publish to:
+                  </label>
+                  {connectedProviders.map((provider) => {
+                    const meta = PROVIDER_META[provider];
+                    return (
+                      <label
+                        key={provider}
+                        className="flex items-center gap-3 p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] hover:bg-[var(--muted)]/50 cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={saveTemplateProviders[provider] ?? false}
+                          onChange={(e) =>
+                            setSaveTemplateProviders((prev) => ({
+                              ...prev,
+                              [provider]: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                        />
+                        {meta?.iconSrc && (
+                          <img
+                            src={meta.iconSrc}
+                            alt={meta.displayName}
+                            className="w-5 h-5 rounded"
+                          />
+                        )}
+                        <span className="text-sm font-medium">
+                          {meta?.displayName || provider}
+                        </span>
+                        {saveTemplateResults?.[provider] && (
+                          <span className={`ml-auto text-[10px] font-medium ${saveTemplateResults[provider].success ? "text-green-400" : "text-red-400"}`}>
+                            {saveTemplateResults[provider].success ? "✓ Published" : saveTemplateResults[provider].error || "Failed"}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 space-y-2">
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    No integrations connected. The template will be saved on Loomi only.
+                  </p>
+                  <Link
+                    href={accountKey ? `/accounts/${accountKey}?tab=integrations` : "/settings"}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--primary)] hover:underline"
+                  >
+                    <LinkIcon className="w-3 h-3" />
+                    Set up integrations
+                  </Link>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-3 border-t border-[var(--border)] bg-[var(--muted)]/30">
+              <button
+                onClick={() => setShowSaveTemplateModal(false)}
+                disabled={savingTemplate}
+                className="px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveTemplate}
+                disabled={savingTemplate}
+                className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              >
+                <DocumentArrowDownIcon className="w-3.5 h-3.5" />
+                {savingTemplate
+                  ? "Saving..."
+                  : Object.values(saveTemplateProviders).some(Boolean)
+                    ? "Save & Publish"
+                    : saveToLibrary
+                      ? "Save & Add to Library"
+                      : "Save on Loomi"}
+              </button>
             </div>
           </div>
         </div>

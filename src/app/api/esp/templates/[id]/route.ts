@@ -4,10 +4,39 @@ import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-he
 import { prisma } from '@/lib/prisma';
 
 /**
+ * GET /api/esp/templates/[id]
+ *
+ * Fetch a single template by ID.
+ */
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { session, error } = await requireAuth();
+  if (error) return error;
+
+  const { id } = await params;
+  const template = await prisma.espTemplate.findUnique({ where: { id } });
+  if (!template) {
+    return NextResponse.json({ error: 'Template not found' }, { status: 404 });
+  }
+
+  const userRole = session!.user.role;
+  const userAccountKeys: string[] = session!.user.accountKeys ?? [];
+  const hasUnrestrictedAdminAccess =
+    userRole === 'developer' || (userRole === 'admin' && userAccountKeys.length === 0);
+  if (!hasUnrestrictedAdminAccess && !userAccountKeys.includes(template.accountKey)) {
+    return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+  }
+
+  return NextResponse.json({ template });
+}
+
+/**
  * PUT /api/esp/templates/[id]
  *
  * Update a template locally, optionally push to ESP.
- * Body: { name?, subject?, previewText?, html?, syncToRemote?: boolean }
+ * Body: { name?, subject?, previewText?, html?, source?, editorType?, syncToRemote?: boolean }
  */
 export async function PUT(
   req: NextRequest,
@@ -18,7 +47,7 @@ export async function PUT(
 
   const { id } = await params;
   const body = await req.json();
-  const { name, subject, previewText, html, syncToRemote } = body;
+  const { name, subject, previewText, html, source, editorType, syncToRemote } = body;
 
   // Find the local template
   const existing = await prisma.espTemplate.findUnique({ where: { id } });
@@ -58,6 +87,8 @@ export async function PUT(
         ...(subject !== undefined && { subject }),
         ...(previewText !== undefined && { previewText }),
         ...(html !== undefined && { html }),
+        ...(source !== undefined && { source }),
+        ...(editorType !== undefined && { editorType }),
         ...(syncToRemote && { lastSyncedAt: new Date() }),
       },
     });
