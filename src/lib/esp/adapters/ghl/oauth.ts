@@ -84,6 +84,8 @@ export const REQUIRED_SCOPES = [
   'users.readonly',
   'emails/builder.readonly',
   'emails/builder.write',
+  'medias.readonly',
+  'medias.write',
 ];
 
 /**
