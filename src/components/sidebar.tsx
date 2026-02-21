@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   Squares2X2Icon,
   CogIcon,
-  BookOpenIcon,
+  EnvelopeIcon,
   PaperAirplaneIcon,
   UserGroupIcon,
   SunIcon,
@@ -22,7 +22,7 @@ const adminNavItems = [
   { href: '/', label: 'Dashboard', icon: Squares2X2Icon },
   { href: '/contacts', label: 'Contacts', icon: UserGroupIcon },
   { href: '/components', label: 'Sections', icon: SectionsIcon },
-  { href: '/templates', label: 'Templates', icon: BookOpenIcon },
+  { href: '/templates', label: 'Templates', icon: EnvelopeIcon },
   { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
   { href: '/flows', label: 'Flows', icon: FlowIcon },
 ];
@@ -30,7 +30,7 @@ const adminNavItems = [
 const clientNavItems = [
   { href: '/', label: 'Dashboard', icon: Squares2X2Icon },
   { href: '/contacts', label: 'Contacts', icon: UserGroupIcon },
-  { href: '/templates', label: 'Templates', icon: BookOpenIcon },
+  { href: '/templates', label: 'Templates', icon: EnvelopeIcon },
   { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
 ];
 

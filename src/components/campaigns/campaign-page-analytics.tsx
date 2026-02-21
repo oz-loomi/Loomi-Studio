@@ -85,7 +85,7 @@ export function CampaignPageAnalytics({
   showAccountBreakdown,
   accountNames,
   emptyTitle = 'No campaign data yet',
-  emptySubtitle = 'Accounts may need to reconnect their ESP integration with campaign scopes',
+  emptySubtitle = 'Accounts may need to reconnect their integration with campaign scopes',
 }: CampaignPageAnalyticsProps) {
   const [animated, setAnimated] = useState(false);
 

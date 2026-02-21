@@ -20,7 +20,7 @@ interface ChatMessage {
 const PRESETS = [
   'How do I create an email?',
   'What template types exist?',
-  'How do I connect my ESP?',
+  'How do I connect an integration?',
 ];
 
 export function AiBubble() {

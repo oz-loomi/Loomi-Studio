@@ -120,7 +120,7 @@ function withCampaignErrorHint(message: string): string {
     message.includes('emails/schedule.readonly') ||
     message.includes('not authorized')
   ) {
-    return `${message} Reconnect this account's ESP integration to grant campaign schedule scope.`;
+    return `${message} Reconnect this account's integration to grant campaign schedule scope.`;
   }
   return message;
 }
@@ -422,7 +422,7 @@ function AdminCampaignsPage() {
     : filters.account.length > 1
       ? {
           title: 'No campaigns found for selected accounts',
-          subtitle: 'Create campaigns in each account\'s connected ESP to get started.',
+          subtitle: 'Create campaigns in each account\'s connected platform to get started.',
         }
     : null;
 
@@ -432,7 +432,7 @@ function AdminCampaignsPage() {
       : 'No campaigns match current filters';
   const adminEmptySubtitle =
     campaigns.length === 0
-      ? 'Accounts may need to reconnect their ESP integration with campaign scopes'
+      ? 'Accounts may need to reconnect their integration with campaign scopes'
       : 'Try expanding the selected account/date/status/industry filters.';
 
   return (
@@ -930,8 +930,8 @@ function AccountCampaignsPage() {
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[var(--border)] text-[var(--primary)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors"
-                              aria-label="View provider analytics"
-                              title="View provider analytics"
+                              aria-label="View analytics"
+                              title="View analytics"
                             >
                               <ChartBarIcon className="w-4 h-4" />
                             </a>

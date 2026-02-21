@@ -126,7 +126,7 @@ export function FlowAnalytics({
         <FlowIcon className="w-8 h-8 text-[var(--muted-foreground)] mx-auto mb-2" />
         <p className="text-sm text-[var(--muted-foreground)]">No workflow data yet</p>
         <p className="text-xs text-[var(--muted-foreground)] mt-1">
-          Accounts may need to reconnect their ESP integration with workflow scopes
+          Accounts may need to reconnect their integration with workflow scopes
         </p>
       </div>
     );

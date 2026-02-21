@@ -491,7 +491,7 @@ export default function AccountDetailPage() {
           toast.success('Saved locally!');
           toast.warning(syncWarning);
         } else {
-          toast.success(deleteManaged ? 'Saved! Cleared values removed from connected ESP.' : 'Saved!');
+          toast.success(deleteManaged ? 'Saved! Cleared values removed from connected platform.' : 'Saved!');
         }
       } else {
         const data = await res.json();
@@ -839,10 +839,10 @@ export default function AccountDetailPage() {
               <h3 className={sectionHeadingClass}>Business Details</h3>
               <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
                 {activeProviderConnected && activeProviderSupportsBusinessDetailsSync
-                  ? 'These details are synced to your connected ESP when saved.'
+                  ? 'These details are synced to your connected platform when saved.'
                   : activeProviderConnected
                     ? `${providerUnsupportedMessage(activeProvider, 'business detail push sync')} Changes are saved locally in Loomi.`
-                    : 'Connect an ESP in Integrations to sync these details. Until then, changes are saved locally in Loomi.'}
+                    : 'Connect an integration to sync these details. Until then, changes are saved locally in Loomi.'}
               </p>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -1128,8 +1128,8 @@ export default function AccountDetailPage() {
             {/* ══════ Provider Detail Modal ══════ */}
             {integrationModal && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setIntegrationModal(null)}>
-                <div className="glass-card glass-modal rounded-xl p-0 max-w-lg w-full mx-4 border border-[var(--border)] shadow-2xl overflow-hidden animate-fade-in-up" onClick={e => e.stopPropagation()}>
-                  <div className="p-6 space-y-5">
+                <div className="glass-card glass-modal rounded-xl p-0 max-w-lg w-full mx-4 border border-[var(--border)] shadow-2xl overflow-hidden animate-fade-in-up max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                  <div className="p-6 space-y-5 overflow-y-auto flex-1 min-h-0">
                     {(() => {
                       const provider = providerById.get(normalizeProviderId(integrationModal));
                       if (!provider) {
@@ -1184,7 +1184,7 @@ export default function AccountDetailPage() {
                               {providerLabel}
                             </h3>
                             <p className="text-sm text-[var(--muted-foreground)] mt-1 leading-relaxed">
-                              {providerTheme.description || 'This provider is registered in Loomi&apos;s ESP adapter registry.'}
+                              {providerTheme.description || 'This integration is registered in Loomi.'}
                             </p>
                           </div>
 
@@ -1388,14 +1388,14 @@ export default function AccountDetailPage() {
                       );
                     })()}
 
-                    <div className="flex justify-end pt-2">
-                      <button
-                        onClick={() => setIntegrationModal(null)}
-                        className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                      >
-                        Close
-                      </button>
-                    </div>
+                  </div>
+                  <div className="flex-shrink-0 border-t border-[var(--border)] px-6 py-4 flex justify-end">
+                    <button
+                      onClick={() => setIntegrationModal(null)}
+                      className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                    >
+                      Close
+                    </button>
                   </div>
                 </div>
               </div>

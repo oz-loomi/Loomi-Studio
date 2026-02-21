@@ -222,7 +222,7 @@ export default function TemplatePreviewPage() {
             onClick={loadPreviewContacts}
             disabled={!accountKey || previewContactsLoading}
             className="p-0.5 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
-            title={accountKey ? 'Refresh contacts' : 'Switch to an ESP-connected account to load contacts'}
+            title={accountKey ? 'Refresh contacts' : 'Switch to a connected account to load contacts'}
           >
             <ArrowPathIcon className={`w-3.5 h-3.5 ${previewContactsLoading ? 'animate-spin' : ''}`} />
           </button>

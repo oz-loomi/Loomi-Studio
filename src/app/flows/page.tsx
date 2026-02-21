@@ -297,7 +297,7 @@ function AdminFlowsPage() {
     : filters.account.length > 1
       ? {
           title: 'No flows found for selected accounts',
-          subtitle: 'Create and manage workflows directly in each account\'s connected ESP.',
+          subtitle: 'Create and manage workflows directly in each account\'s connected platform.',
         }
       : null;
 
@@ -310,7 +310,7 @@ function AdminFlowsPage() {
             <div>
               <h2 className="text-2xl font-bold">Flows</h2>
               <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
-                ESP workflows across all accounts
+                Workflows across all accounts
                 {filteredWorkflows.length !== workflows.length && (
                   <span className="ml-1 tabular-nums">
                     · {filteredWorkflows.length} / {workflows.length}
