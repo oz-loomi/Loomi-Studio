@@ -16,7 +16,8 @@ import {
   ChevronRightIcon,
   CheckIcon,
 } from '@heroicons/react/24/outline';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
+import { safeJson } from '@/lib/safe-json';
 import { useAccount } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
 
@@ -351,12 +352,12 @@ export default function MediaPage() {
           method: 'POST',
           body: formData,
         });
-        const data = await res.json();
+        const { ok, data, error } = await safeJson<{ file: MediaFile }>(res);
 
-        if (res.ok && data.file) {
+        if (ok && data?.file) {
           uploadedFiles.push(data.file);
         } else {
-          toast.error(`Failed to upload ${file.name}: ${data.error || 'Unknown error'}`);
+          toast.error(`Failed to upload ${file.name}: ${error || 'Unknown error'}`);
         }
       } catch {
         toast.error(`Failed to upload ${file.name}`);

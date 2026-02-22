@@ -14,7 +14,7 @@ import {
   TrashIcon,
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { AdminOnly } from '@/components/route-guard';
 import { OemMultiSelect } from '@/components/oem-multi-select';
 import { UserPicker, type UserPickerUser } from '@/components/user-picker';

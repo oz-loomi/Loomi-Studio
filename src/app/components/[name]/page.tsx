@@ -13,7 +13,7 @@ import {
   SwatchIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { componentSchemas, type PropSchema } from '@/lib/component-schemas';
 import { AdminOnly } from '@/components/route-guard';
 import { CodeEditor } from '@/components/code-editor';

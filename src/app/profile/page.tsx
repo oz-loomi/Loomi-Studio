@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
 import { UserAvatar } from '@/components/user-avatar';
+import { safeJson } from '@/lib/safe-json';
 import {
   EnvelopeIcon,
   ShieldCheckIcon,
@@ -91,10 +92,10 @@ export default function ProfilePage() {
           password: newPassword,
         }),
       });
-      const data = await res.json();
+      const { ok, data, error } = await safeJson<{ name: string; title?: string; email: string }>(res);
 
-      if (!res.ok) {
-        throw new Error(data.error || 'Could not update profile');
+      if (!ok || !data) {
+        throw new Error(error || 'Could not update profile');
       }
 
       setName(data.name);
@@ -135,14 +136,13 @@ export default function ProfilePage() {
         body: formData,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Upload failed');
+      const { ok, data, error } = await safeJson<{ avatarUrl: string }>(res);
+      if (!ok || !data) {
+        throw new Error(error || 'Upload failed');
       }
 
-      const nextAvatarUrl = data.avatarUrl as string;
-      setAvatarUrl(nextAvatarUrl);
-      await update({ avatarUrl: nextAvatarUrl });
+      setAvatarUrl(data.avatarUrl);
+      await update({ avatarUrl: data.avatarUrl });
       toast.success('Profile photo updated');
     } catch (err) {
       toast.error(String(err instanceof Error ? err.message : 'Upload failed'));
@@ -162,9 +162,9 @@ export default function ProfilePage() {
     setUploadingAvatar(true);
     try {
       const res = await fetch('/api/users/me/avatar', { method: 'DELETE' });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Could not remove photo');
+      const { ok, error } = await safeJson(res);
+      if (!ok) {
+        throw new Error(error || 'Could not remove photo');
       }
 
       setAvatarUrl(null);

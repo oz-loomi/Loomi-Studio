@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -21,6 +21,8 @@ import type { AccountData } from '@/contexts/account-context';
 import { providerDisplayName, providerIcon } from '@/lib/esp/provider-display';
 
 type CreateMode = null | 'choose' | 'manual';
+type SortDirection = 'asc' | 'desc';
+type AccountSortField = 'dealer' | 'category' | 'location' | 'rep' | 'integrations';
 
 interface AccountsListProps {
   listPath?: string;
@@ -28,6 +30,7 @@ interface AccountsListProps {
 }
 
 const CATEGORY_SUGGESTIONS = ['Automotive', 'Powersports', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
+const ACCOUNTS_PAGE_SIZE = 10;
 
 /** Convert a display name to camelCase slug, e.g. "Young Ford Ogden" → "youngFordOgden" */
 function toCamelCaseSlug(name: string): string {
@@ -57,6 +60,23 @@ function normalizeConnectedProviders(account: AccountData): string[] {
   return [];
 }
 
+function getVisiblePages(currentPage: number, totalPages: number, maxVisible = 5): number[] {
+  if (totalPages <= maxVisible) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const halfWindow = Math.floor(maxVisible / 2);
+  let start = Math.max(1, currentPage - halfWindow);
+  let end = start + maxVisible - 1;
+
+  if (end > totalPages) {
+    end = totalPages;
+    start = Math.max(1, end - maxVisible + 1);
+  }
+
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
 export function AccountsList({
   listPath = '/accounts',
   detailBasePath = '/accounts',
@@ -66,6 +86,9 @@ export function AccountsList({
   const [accounts, setAccounts] = useState<Record<string, AccountData> | null>(null);
   const [users, setUsers] = useState<UserPickerUser[]>([]);
   const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState<AccountSortField>('dealer');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [page, setPage] = useState(1);
 
   // Create account state
   const [createMode, setCreateMode] = useState<CreateMode>(null);
@@ -174,29 +197,91 @@ export function AccountsList({
     }
   };
 
-  if (!accounts) return <div className="text-[var(--muted-foreground)]">Loading...</div>;
+  const allEntries = useMemo(() => Object.entries(accounts || {}), [accounts]);
+  const filteredEntries = useMemo(() => {
+    if (!search) return allEntries;
 
-  const allEntries = Object.entries(accounts);
-  const entries = search
-    ? allEntries.filter(([key, account]) => {
-        const q = search.toLowerCase();
-        return (
-          (account.dealer || '').toLowerCase().includes(q) ||
-          key.toLowerCase().includes(q) ||
-          (account.category || '').toLowerCase().includes(q) ||
-          (account.city || '').toLowerCase().includes(q) ||
-          (account.state || '').toLowerCase().includes(q) ||
-          (account.accountRep?.name || '').toLowerCase().includes(q)
-        );
-      })
-    : allEntries;
+    const q = search.toLowerCase();
+    return allEntries.filter(([key, account]) => (
+      (account.dealer || '').toLowerCase().includes(q) ||
+      key.toLowerCase().includes(q) ||
+      (account.category || '').toLowerCase().includes(q) ||
+      (account.city || '').toLowerCase().includes(q) ||
+      (account.state || '').toLowerCase().includes(q) ||
+      (account.accountRep?.name || '').toLowerCase().includes(q)
+    ));
+  }, [allEntries, search]);
+
+  const sortedEntries = useMemo(() => {
+    const direction = sortDirection === 'asc' ? 1 : -1;
+    const sorted = [...filteredEntries];
+
+    sorted.sort(([keyA, accountA], [keyB, accountB]) => {
+      const dealerA = (accountA.dealer || keyA).toLowerCase();
+      const dealerB = (accountB.dealer || keyB).toLowerCase();
+
+      let compareValue = 0;
+
+      if (sortField === 'dealer') {
+        compareValue = dealerA.localeCompare(dealerB);
+      } else if (sortField === 'category') {
+        compareValue = (accountA.category || '').toLowerCase().localeCompare((accountB.category || '').toLowerCase());
+      } else if (sortField === 'location') {
+        compareValue = (formatAccountCityState(accountA) || '').toLowerCase().localeCompare((formatAccountCityState(accountB) || '').toLowerCase());
+      } else if (sortField === 'rep') {
+        compareValue = (accountA.accountRep?.name || '').toLowerCase().localeCompare((accountB.accountRep?.name || '').toLowerCase());
+      } else if (sortField === 'integrations') {
+        compareValue = normalizeConnectedProviders(accountA).length - normalizeConnectedProviders(accountB).length;
+      }
+
+      if (compareValue === 0) {
+        compareValue = dealerA.localeCompare(dealerB);
+      }
+
+      return compareValue * direction;
+    });
+
+    return sorted;
+  }, [filteredEntries, sortDirection, sortField]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedEntries.length / ACCOUNTS_PAGE_SIZE));
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const pageStart = (page - 1) * ACCOUNTS_PAGE_SIZE;
+  const pagedEntries = sortedEntries.slice(pageStart, pageStart + ACCOUNTS_PAGE_SIZE);
+  const visiblePages = getVisiblePages(page, totalPages);
+  const showingStart = sortedEntries.length === 0 ? 0 : pageStart + 1;
+  const showingEnd = Math.min(pageStart + ACCOUNTS_PAGE_SIZE, sortedEntries.length);
+
+  const toggleSort = (field: AccountSortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setPage(1);
+  };
+
+  const sortIndicator = (field: AccountSortField) => {
+    if (sortField !== field) return '↕';
+    return sortDirection === 'asc' ? '↑' : '↓';
+  };
+
   const showManualBrands = industryHasBrands(newCategory);
+
+  if (!accounts) return <div className="text-[var(--muted-foreground)]">Loading...</div>;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-[var(--muted-foreground)]">
-          {entries.length} account{entries.length !== 1 ? 's' : ''}{search ? ' found' : ' configured'}
+          {sortedEntries.length} account{sortedEntries.length !== 1 ? 's' : ''}{search ? ' found' : ' configured'}
         </p>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -204,7 +289,10 @@ export function AccountsList({
             <input
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
               placeholder="Search accounts..."
               className="w-52 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
             />
@@ -342,27 +430,52 @@ export function AccountsList({
       )}
 
       {/* ─── Account Table ─── */}
-      {entries.length === 0 ? (
+      {sortedEntries.length === 0 ? (
         <div className="text-center py-16 text-[var(--muted-foreground)]">
           <p className="text-sm">No accounts yet.</p>
           <p className="text-xs mt-1">Click &quot;New Account&quot; to get started.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto glass-table max-h-[600px] overflow-y-auto">
+        <div className="overflow-x-auto glass-table">
           <table className="w-full min-w-[700px]">
             <thead className="sticky top-0 z-10">
               <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
                 <th className="w-10 px-3 py-2"></th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Account Name</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Industry</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Location</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Account Rep</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Integrations</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                  <button type="button" onClick={() => toggleSort('dealer')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                    Account Name
+                    <span className="text-[10px]">{sortIndicator('dealer')}</span>
+                  </button>
+                </th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                  <button type="button" onClick={() => toggleSort('category')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                    Industry
+                    <span className="text-[10px]">{sortIndicator('category')}</span>
+                  </button>
+                </th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                  <button type="button" onClick={() => toggleSort('location')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                    Location
+                    <span className="text-[10px]">{sortIndicator('location')}</span>
+                  </button>
+                </th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                  <button type="button" onClick={() => toggleSort('rep')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                    Account Rep
+                    <span className="text-[10px]">{sortIndicator('rep')}</span>
+                  </button>
+                </th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                  <button type="button" onClick={() => toggleSort('integrations')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                    Integrations
+                    <span className="text-[10px]">{sortIndicator('integrations')}</span>
+                  </button>
+                </th>
                 <th className="w-10 px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
-              {entries.map(([key, account]) => {
+              {pagedEntries.map(([key, account]) => {
                 const cityState = formatAccountCityState(account) || '';
                 return (
                   <tr
@@ -455,6 +568,62 @@ export function AccountsList({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {sortedEntries.length > 0 && (
+        <div className="flex items-center justify-between mt-3">
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Showing {showingStart}-{showingEnd} of {sortedEntries.length}
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage(1)}
+              disabled={page === 1}
+              className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+            >
+              First
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+              disabled={page === 1}
+              className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+            >
+              Prev
+            </button>
+            {visiblePages.map((pageNumber) => (
+              <button
+                key={pageNumber}
+                type="button"
+                onClick={() => setPage(pageNumber)}
+                className={`px-2 py-1 text-xs rounded-md border transition-colors ${
+                  pageNumber === page
+                    ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                    : 'border-[var(--border)] hover:bg-[var(--muted)]'
+                }`}
+              >
+                {pageNumber}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={page === totalPages}
+              className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage(totalPages)}
+              disabled={page === totalPages}
+              className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+            >
+              Last
+            </button>
+          </div>
         </div>
       )}
     </div>

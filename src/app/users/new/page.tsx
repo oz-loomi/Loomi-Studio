@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AdminOnly } from '@/components/route-guard';
 import { useAccount } from '@/contexts/account-context';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 
 export default function NewUserPage() {

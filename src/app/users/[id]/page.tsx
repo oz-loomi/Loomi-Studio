@@ -7,7 +7,8 @@ import { useSession } from 'next-auth/react';
 import { AdminOnly } from '@/components/route-guard';
 import { useAccount } from '@/contexts/account-context';
 import { UserAvatar } from '@/components/user-avatar';
-import { toast } from 'sonner';
+import { safeJson } from '@/lib/safe-json';
+import { toast } from '@/lib/toast';
 import { ArrowLeftIcon, ArrowUpTrayIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
@@ -105,11 +106,10 @@ function UserDetailContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to update user');
+      const { ok: saveOk, data: updated, error: saveError } = await safeJson<User>(res);
+      if (!saveOk || !updated) {
+        throw new Error(saveError || 'Failed to update user');
       }
-      const updated = await res.json() as User;
       setUser(updated);
       setName(updated.name);
       setTitle(updated.title ?? '');
@@ -136,9 +136,9 @@ function UserDetailContent() {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     try {
       const res = await fetch(`/api/users?id=${userId}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to delete');
+      const { ok: delOk, error: delError } = await safeJson(res);
+      if (!delOk) {
+        throw new Error(delError || 'Failed to delete');
       }
       toast.success('User deleted');
       router.push(usersBasePath);
@@ -155,9 +155,9 @@ function UserDetailContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to send invite');
+      const { ok: invOk, error: invError } = await safeJson(res);
+      if (!invOk) {
+        throw new Error(invError || 'Failed to send invite');
       }
       toast.success('Invite email sent');
     } catch (err) {
@@ -187,16 +187,15 @@ function UserDetailContent() {
         method: 'POST',
         body: formData,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Upload failed');
+      const { ok, data, error } = await safeJson<{ avatarUrl: string }>(res);
+      if (!ok || !data) {
+        throw new Error(error || 'Upload failed');
       }
 
-      const nextAvatarUrl = data.avatarUrl as string;
-      setAvatarUrl(nextAvatarUrl);
-      setUser(prev => prev ? { ...prev, avatarUrl: nextAvatarUrl } : prev);
+      setAvatarUrl(data.avatarUrl);
+      setUser(prev => prev ? { ...prev, avatarUrl: data.avatarUrl } : prev);
       if (session?.user.id === userId) {
-        await update({ avatarUrl: nextAvatarUrl });
+        await update({ avatarUrl: data.avatarUrl });
       }
       toast.success('Profile photo updated');
     } catch (err) {
@@ -217,9 +216,9 @@ function UserDetailContent() {
     setAvatarLoading(true);
     try {
       const res = await fetch(`/api/users/${userId}/avatar`, { method: 'DELETE' });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Could not remove photo');
+      const { ok, error } = await safeJson(res);
+      if (!ok) {
+        throw new Error(error || 'Could not remove photo');
       }
 
       setAvatarUrl(null);

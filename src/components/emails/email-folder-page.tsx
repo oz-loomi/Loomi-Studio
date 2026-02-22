@@ -16,7 +16,7 @@ import {
   FolderPlusIcon,
   FolderArrowDownIcon,
 } from '@heroicons/react/24/outline';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
 import {
   parseEmailFoldersPayload,

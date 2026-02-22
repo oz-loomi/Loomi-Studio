@@ -21,7 +21,7 @@ import {
   EyeIcon,
   PencilSquareIcon,
 } from '@heroicons/react/24/outline';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
 import { TemplatePreview } from '@/components/template-preview';
 import {
@@ -68,18 +68,19 @@ export default function TemplateLibraryPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { userRole, isAccount } = useAccount();
+  const { userRole } = useAccount();
   const campaignDraftQuery = searchParams.get('campaignDraft') === '1' ? '?campaignDraft=1' : '';
 
+  const isClient = userRole === 'client';
   const isDeveloper = userRole === 'developer';
-  const isAdmin = !isAccount && !isDeveloper;
+  const isAdmin = userRole === 'admin';
 
   // Client-role users do not access Template Library; redirect to account templates.
   useEffect(() => {
-    if (isAccount) router.replace('/templates');
-  }, [isAccount, router]);
+    if (isClient) router.replace('/templates');
+  }, [isClient, router]);
 
-  if (isAccount) return null;
+  if (isClient) return null;
 
   return (
     <div>

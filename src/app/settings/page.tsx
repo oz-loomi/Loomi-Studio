@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
@@ -52,6 +52,27 @@ const roleColors: Record<string, string> = {
   admin: 'text-blue-400 bg-blue-500/10',
   client: 'text-green-400 bg-green-500/10',
 };
+
+const USERS_PAGE_SIZE = 10;
+type UserSortField = 'name' | 'email' | 'role' | 'accounts';
+type UserSortDirection = 'asc' | 'desc';
+
+function getVisiblePages(currentPage: number, totalPages: number, maxVisible = 5): number[] {
+  if (totalPages <= maxVisible) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const halfWindow = Math.floor(maxVisible / 2);
+  let start = Math.max(1, currentPage - halfWindow);
+  let end = start + maxVisible - 1;
+
+  if (end > totalPages) {
+    end = totalPages;
+    start = Math.max(1, end - maxVisible + 1);
+  }
+
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
 
 export default function SettingsPage() {
   const { isAdmin, isAccount, userRole } = useAccount();
@@ -306,6 +327,9 @@ function UsersTab() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState<UserSortField>('name');
+  const [sortDirection, setSortDirection] = useState<UserSortDirection>('asc');
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     fetch('/api/users')
@@ -327,23 +351,79 @@ function UsersTab() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filteredUsers = search
-    ? users.filter((u) => {
-        const q = search.toLowerCase();
-        return (
-          u.name.toLowerCase().includes(q) ||
-          u.email.toLowerCase().includes(q) ||
-          u.role.toLowerCase().includes(q) ||
-          (u.title || '').toLowerCase().includes(q)
-        );
-      })
-    : users;
+  const filteredUsers = useMemo(() => {
+    if (!search) return users;
+
+    const q = search.toLowerCase();
+    return users.filter((u) => (
+      u.name.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q) ||
+      u.role.toLowerCase().includes(q) ||
+      (u.title || '').toLowerCase().includes(q)
+    ));
+  }, [users, search]);
+
+  const sortedUsers = useMemo(() => {
+    const direction = sortDirection === 'asc' ? 1 : -1;
+    const sorted = [...filteredUsers];
+
+    sorted.sort((a, b) => {
+      let compareValue = 0;
+
+      if (sortField === 'name') {
+        compareValue = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      } else if (sortField === 'email') {
+        compareValue = a.email.toLowerCase().localeCompare(b.email.toLowerCase());
+      } else if (sortField === 'role') {
+        compareValue = a.role.toLowerCase().localeCompare(b.role.toLowerCase());
+      } else if (sortField === 'accounts') {
+        compareValue = a.accountKeys.length - b.accountKeys.length;
+      }
+
+      if (compareValue === 0) {
+        compareValue = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      }
+
+      return compareValue * direction;
+    });
+
+    return sorted;
+  }, [filteredUsers, sortDirection, sortField]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedUsers.length / USERS_PAGE_SIZE));
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const pageStart = (page - 1) * USERS_PAGE_SIZE;
+  const pagedUsers = sortedUsers.slice(pageStart, pageStart + USERS_PAGE_SIZE);
+  const visiblePages = getVisiblePages(page, totalPages);
+  const showingStart = sortedUsers.length === 0 ? 0 : pageStart + 1;
+  const showingEnd = Math.min(pageStart + USERS_PAGE_SIZE, sortedUsers.length);
+
+  const toggleSort = (field: UserSortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setPage(1);
+  };
+
+  const sortIndicator = (field: UserSortField) => {
+    if (sortField !== field) return '↕';
+    return sortDirection === 'asc' ? '↑' : '↓';
+  };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-[var(--muted-foreground)]">
-          {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''}{search ? ' found' : ''}
+          {sortedUsers.length} user{sortedUsers.length !== 1 ? 's' : ''}{search ? ' found' : ''}
         </p>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -351,7 +431,10 @@ function UsersTab() {
             <input
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
               placeholder="Search users..."
               className="w-48 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
             />
@@ -370,10 +453,30 @@ function UsersTab() {
         <table className="w-full">
           <thead>
             <tr className="border-b border-[var(--border)]">
-              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Name</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Email</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Role</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Accounts</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                <button type="button" onClick={() => toggleSort('name')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                  Name
+                  <span className="text-[10px]">{sortIndicator('name')}</span>
+                </button>
+              </th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                <button type="button" onClick={() => toggleSort('email')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                  Email
+                  <span className="text-[10px]">{sortIndicator('email')}</span>
+                </button>
+              </th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                <button type="button" onClick={() => toggleSort('role')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                  Role
+                  <span className="text-[10px]">{sortIndicator('role')}</span>
+                </button>
+              </th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                <button type="button" onClick={() => toggleSort('accounts')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                  Accounts
+                  <span className="text-[10px]">{sortIndicator('accounts')}</span>
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -381,14 +484,14 @@ function UsersTab() {
               <tr>
                 <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">Loading...</td>
               </tr>
-            ) : filteredUsers.length === 0 ? (
+            ) : sortedUsers.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">
                   {search ? 'No users match your search' : 'No users found'}
                 </td>
               </tr>
             ) : (
-              filteredUsers.map(user => (
+              pagedUsers.map(user => (
                 <tr
                   key={user.id}
                   onClick={() => router.push(`/settings/users/${user.id}`)}
@@ -431,6 +534,62 @@ function UsersTab() {
           </tbody>
         </table>
       </div>
+
+      {!loading && sortedUsers.length > 0 && (
+        <div className="flex items-center justify-between mt-3">
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Showing {showingStart}-{showingEnd} of {sortedUsers.length}
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage(1)}
+              disabled={page === 1}
+              className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+            >
+              First
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+              disabled={page === 1}
+              className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+            >
+              Prev
+            </button>
+            {visiblePages.map((pageNumber) => (
+              <button
+                key={pageNumber}
+                type="button"
+                onClick={() => setPage(pageNumber)}
+                className={`px-2 py-1 text-xs rounded-md border transition-colors ${
+                  pageNumber === page
+                    ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                    : 'border-[var(--border)] hover:bg-[var(--muted)]'
+                }`}
+              >
+                {pageNumber}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={page === totalPages}
+              className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage(totalPages)}
+              disabled={page === totalPages}
+              className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+            >
+              Last
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

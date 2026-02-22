@@ -11,7 +11,7 @@ import {
   QuestionMarkCircleIcon,
   UserCircleIcon,
 } from '@heroicons/react/24/outline';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
 import { UserAvatar } from '@/components/user-avatar';
 import { AI_ASSIST_OPEN_EVENT } from '@/lib/ui-events';
