@@ -20,6 +20,192 @@ function formatDesign(design: string) {
   return design.split('-').map(w => capitalize(w)).join(' ');
 }
 
+const FORCED_MOBILE_STYLE_ID = 'loomi-forced-mobile-styles';
+const FORCED_MOBILE_NORMALIZE_STYLE_ID = 'loomi-forced-mobile-normalize';
+
+function syncPreviewMobileStyles(doc: Document, isMobile: boolean) {
+  const existing = doc.getElementById(FORCED_MOBILE_STYLE_ID) as HTMLStyleElement | null;
+  if (!isMobile) {
+    existing?.remove();
+    return;
+  }
+
+  const forcedRules: string[] = [];
+  for (const sheet of Array.from(doc.styleSheets)) {
+    let rules: CSSRuleList;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+
+    for (const rule of Array.from(rules)) {
+      if (rule.type !== CSSRule.MEDIA_RULE) continue;
+      const mediaRule = rule as CSSMediaRule;
+      if (!/max-width\s*:\s*600px/i.test(mediaRule.conditionText)) continue;
+      for (const nestedRule of Array.from(mediaRule.cssRules)) {
+        forcedRules.push(nestedRule.cssText);
+      }
+    }
+  }
+
+  if (forcedRules.length === 0) {
+    existing?.remove();
+    return;
+  }
+
+  const styleEl = existing || doc.createElement('style');
+  styleEl.id = FORCED_MOBILE_STYLE_ID;
+  styleEl.textContent = forcedRules.join('\n');
+  if (!existing) doc.head?.appendChild(styleEl);
+}
+
+function syncPreviewMobileNormalizeStyle(doc: Document, isMobile: boolean) {
+  const existing = doc.getElementById(FORCED_MOBILE_NORMALIZE_STYLE_ID) as HTMLStyleElement | null;
+  if (!isMobile) {
+    existing?.remove();
+    return;
+  }
+
+  const css = `
+    html, body {
+      overflow-x: hidden !important;
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+    table.email-container,
+    table[width="600"],
+    table[width="600px"],
+    table[style*="max-width: 600px"],
+    table[style*="max-width:600px"] {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+    }
+    img[width="600"],
+    img[width="600px"] {
+      width: 100% !important;
+      max-width: 100% !important;
+      height: auto !important;
+    }
+    .loomi-btn-row > td,
+    .loomi-btn-gap,
+    .loomi-btn-gap + td {
+      display: block !important;
+      width: 100% !important;
+      padding-right: 0 !important;
+    }
+    .loomi-btn-secondary-cell,
+    .loomi-btn-gap + td {
+      padding-top: 10px !important;
+    }
+    .loomi-btn-primary,
+    .loomi-btn-secondary {
+      display: block !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+      text-align: center !important;
+    }
+    .loomi-headline,
+    .loomi-subheadline {
+      overflow-wrap: anywhere !important;
+      word-break: break-word !important;
+    }
+    .email-container,
+    .email-container table {
+      table-layout: fixed !important;
+    }
+    td {
+      min-width: 0 !important;
+    }
+    td, p, span, a, h1, h2, h3, h4, h5, h6, div {
+      overflow-wrap: anywhere !important;
+      word-break: break-word !important;
+    }
+  `;
+
+  const styleEl = existing || doc.createElement('style');
+  styleEl.id = FORCED_MOBILE_NORMALIZE_STYLE_ID;
+  styleEl.textContent = css;
+  if (!existing) doc.head?.appendChild(styleEl);
+}
+
+function normalizePreviewMobileLayout(doc: Document, isMobile: boolean) {
+  if (!isMobile) return;
+
+  const root = doc.documentElement as HTMLElement | null;
+  if (root) {
+    root.style.overflowX = 'hidden';
+    root.style.maxWidth = '100%';
+  }
+  if (doc.body) {
+    doc.body.style.overflowX = 'hidden';
+    doc.body.style.width = '100%';
+    doc.body.style.maxWidth = '100%';
+  }
+
+  doc.querySelectorAll('table').forEach((node) => {
+    const table = node as HTMLTableElement;
+    const widthAttr = (table.getAttribute('width') || '').trim();
+    const numericWidth = parseInt(widthAttr, 10);
+    const inlineStyle = table.getAttribute('style') || '';
+    const looksLikeDesktopContainer =
+      (!Number.isNaN(numericWidth) && numericWidth >= 500) ||
+      /max-width\s*:\s*600px/i.test(inlineStyle) ||
+      table.classList.contains('email-container');
+    if (!looksLikeDesktopContainer) return;
+    table.setAttribute('width', '100%');
+    table.style.width = '100%';
+    table.style.maxWidth = '100%';
+    table.style.minWidth = '0';
+  });
+
+  doc.querySelectorAll('img[width]').forEach((node) => {
+    const img = node as HTMLImageElement;
+    const numericWidth = parseInt(img.getAttribute('width') || '', 10);
+    if (Number.isNaN(numericWidth) || numericWidth < 500) return;
+    img.style.maxWidth = '100%';
+    img.style.width = '100%';
+    img.style.height = 'auto';
+  });
+
+  const normalizeHeroButtonRow = (row: HTMLElement) => {
+    const cells = Array.from(row.children).filter(
+      (child) => child.tagName.toLowerCase() === 'td',
+    ) as HTMLTableCellElement[];
+    cells.forEach((td, idx) => {
+      td.style.display = 'block';
+      td.style.width = '100%';
+      td.style.paddingRight = '0';
+      if (idx > 0) td.style.paddingTop = '10px';
+    });
+  };
+  doc.querySelectorAll('.loomi-btn-row').forEach((node) => {
+    normalizeHeroButtonRow(node as HTMLElement);
+  });
+  doc.querySelectorAll('.loomi-btn-gap').forEach((node) => {
+    const td = node as HTMLTableCellElement;
+    const row = td.parentElement;
+    if (row && row.tagName.toLowerCase() === 'tr') {
+      normalizeHeroButtonRow(row as HTMLElement);
+    }
+  });
+  doc.querySelectorAll('.loomi-btn-primary, .loomi-btn-secondary').forEach((node) => {
+    const el = node as HTMLElement;
+    el.style.display = 'block';
+    el.style.width = '100%';
+    el.style.maxWidth = '100%';
+    el.style.boxSizing = 'border-box';
+    el.style.textAlign = 'center';
+  });
+  doc.querySelectorAll('.loomi-headline, .loomi-subheadline').forEach((node) => {
+    const el = node as HTMLElement;
+    el.style.overflowWrap = 'anywhere';
+    el.style.wordBreak = 'break-word';
+  });
+}
+
 export default function TemplatePreviewPage() {
   const params = useParams();
   const router = useRouter();
@@ -139,7 +325,7 @@ export default function TemplatePreviewPage() {
       });
       if (res.ok) {
         const email = await res.json();
-        router.push(`/templates/${design}/template?email=${email.id}`);
+        router.push(`/templates/editor?design=${encodeURIComponent(design)}&email=${email.id}`);
       }
     } catch {
       // ignore
@@ -151,7 +337,12 @@ export default function TemplatePreviewPage() {
     const iframe = iframeRef.current;
     if (!iframe) return;
     try {
-      const height = iframe.contentDocument?.body?.scrollHeight;
+      const doc = iframe.contentDocument;
+      if (!doc) return;
+      syncPreviewMobileNormalizeStyle(doc, previewWidth === 'mobile');
+      syncPreviewMobileStyles(doc, previewWidth === 'mobile');
+      normalizePreviewMobileLayout(doc, previewWidth === 'mobile');
+      const height = doc.body?.scrollHeight;
       if (height && height > 100) {
         iframe.style.height = `${height + 20}px`;
       }

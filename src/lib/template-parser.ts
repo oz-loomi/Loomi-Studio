@@ -58,8 +58,8 @@ function parseAttributes(attrString: string): Record<string, string> {
   const props: Record<string, string> = {};
   if (!attrString) return props;
 
-  // Match key="value" or key='value' pairs, handling multiline
-  const attrRegex = /([\w-]+)=(?:"([^"]*?)"|'([^']*?)')/g;
+  // Match key="value" or key='value' pairs, handling multiline (supports m: prefix for mobile overrides)
+  const attrRegex = /([\w][\w:-]*)=(?:"([^"]*?)"|'([^']*?)')/g;
   let match;
   while ((match = attrRegex.exec(attrString)) !== null) {
     const key = match[1];

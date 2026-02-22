@@ -509,7 +509,7 @@ export function AdminDashboard() {
               {recentTemplates.map((t) => (
                 <Link
                   key={t.design}
-                  href={`/templates/${t.design}/template`}
+                  href={`/templates/editor?design=${encodeURIComponent(t.design)}`}
                   className="flex items-center justify-between p-3 glass-card rounded-lg"
                 >
                   <div className="min-w-0">

@@ -15,7 +15,7 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
     || pathname.startsWith('/onboarding');
 
   // Template editor gets full-width layout (no sidebar)
-  const isTemplateEditor = /^\/templates\/[^/]+\/[^/]+$/.test(pathname)
+  const isTemplateEditor = pathname === '/templates/editor'
     || /^\/templates\/folder\/[^/]+$/.test(pathname)
     || /^\/components\/[^/]+$/.test(pathname)
     || /^\/components\/folder\/[^/]+$/.test(pathname);

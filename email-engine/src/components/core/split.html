@@ -1,0 +1,301 @@
+<script props>
+  module.exports = {
+    rooftop: props.rooftop || '',
+    // Image
+    image: props.image || '',
+    imageAlt: props['image-alt'] || '',
+    imageSide: props['image-side'] || 'left',
+    imageFit: props['image-fit'] || 'auto',
+    imagePosition: props['image-position'] || 'center center',
+    get imageLeft() { return this.imageSide === 'left'; },
+    // Content
+    eyebrow: props.eyebrow || '',
+    headline: props.headline || '',
+    description: props.description || '',
+    // Typography
+    font: props.font || "Helvetica Neue, Helvetica, Arial, sans-serif",
+    eyebrowSize: props['eyebrow-size'] || '11px',
+    eyebrowWeight: props['eyebrow-weight'] || '600',
+    eyebrowSpacing: props['eyebrow-spacing'] || '3px',
+    eyebrowTransform: props['eyebrow-transform'] || 'uppercase',
+    eyebrowColor: props['eyebrow-color'] || 'rgba(0,0,0,0.5)',
+    eyebrowMargin: props['eyebrow-margin'] || '0 0 12px 0',
+    headlineSize: props['headline-size'] || '28px',
+    headlineWeight: props['headline-weight'] || '700',
+    headlineSpacing: props['headline-spacing'] || 'normal',
+    headlineTransform: props['headline-transform'] || 'none',
+    headlineLineHeight: props['headline-line-height'] || '1.2',
+    headlineColor: props['headline-color'] || '#1a1a1a',
+    headlineMargin: props['headline-margin'] || '0 0 12px 0',
+    descriptionSize: props['description-size'] || '15px',
+    descriptionWeight: props['description-weight'] || '400',
+    descriptionLineHeight: props['description-line-height'] || '1.6',
+    descriptionColor: props['description-color'] || '#444444',
+    descriptionMargin: props['description-margin'] || '0 0 24px 0',
+    // Primary button
+    primaryButtonText: props['primary-button-text'] || '',
+    primaryButtonUrl: props['primary-button-url'] || '{{custom_values.website_url}}',
+    primaryButtonBgColor: props['primary-button-bg-color'] || '#1a1a1a',
+    primaryButtonTextColor: props['primary-button-text-color'] || '#ffffff',
+    primaryButtonRadius: props['primary-button-radius'] || '0',
+    primaryButtonPadding: props['primary-button-padding'] || '14px 28px',
+    primaryButtonBorderStyle: props['primary-button-border-style'] || '',
+    primaryButtonBorderWidth: props['primary-button-border-width'] || '',
+    primaryButtonBorderColor: props['primary-button-border-color'] || '',
+    get primaryButtonBorderCss() {
+      const style = this.primaryButtonBorderStyle || (this.primaryButtonBorderWidth || this.primaryButtonBorderColor ? 'solid' : '');
+      if (style === 'none') return '';
+      if (style) {
+        const width = this.primaryButtonBorderWidth || '1px';
+        const color = this.primaryButtonBorderColor || this.primaryButtonTextColor || '#000000';
+        return ' border: ' + width + ' ' + style + ' ' + color + ';';
+      }
+      return '';
+    },
+    primaryButtonFontSize: props['primary-button-font-size'] || '12px',
+    primaryButtonFontWeight: props['primary-button-font-weight'] || '700',
+    primaryButtonLetterSpacing: props['primary-button-letter-spacing'] || '2px',
+    primaryButtonTextTransform: props['primary-button-text-transform'] || 'uppercase',
+    // Button gap
+    buttonGap: props['button-gap'] != null && props['button-gap'] !== '' ? props['button-gap'] : '12px',
+    // Secondary button
+    secondaryButtonText: props['secondary-button-text'] || '',
+    secondaryButtonUrl: props['secondary-button-url'] || '{{custom_values.website_url}}',
+    secondaryButtonBgColor: props['secondary-button-bg-color'] || 'transparent',
+    secondaryButtonTextColor: props['secondary-button-text-color'] || '#1a1a1a',
+    secondaryButtonRadius: props['secondary-button-radius'] || '0',
+    secondaryButtonPadding: props['secondary-button-padding'] || '14px 28px',
+    secondaryButtonBorderStyle: props['secondary-button-border-style'] || '',
+    secondaryButtonBorderWidth: props['secondary-button-border-width'] || '',
+    secondaryButtonBorderColor: props['secondary-button-border-color'] || '',
+    get secondaryButtonBorderCss() {
+      const style = this.secondaryButtonBorderStyle || (this.secondaryButtonBorderWidth || this.secondaryButtonBorderColor ? 'solid' : '');
+      if (style === 'none') return '';
+      if (style) {
+        const width = this.secondaryButtonBorderWidth || '1px';
+        const color = this.secondaryButtonBorderColor || this.secondaryButtonTextColor || '#1a1a1a';
+        return ' border: ' + width + ' ' + style + ' ' + color + ';';
+      }
+      return ' border: 1px solid #1a1a1a;';
+    },
+    secondaryButtonFontSize: props['secondary-button-font-size'] || '12px',
+    secondaryButtonFontWeight: props['secondary-button-font-weight'] || '700',
+    secondaryButtonLetterSpacing: props['secondary-button-letter-spacing'] || '2px',
+    secondaryButtonTextTransform: props['secondary-button-text-transform'] || 'uppercase',
+    // UTM Tracking
+    utmSource: props['utm-source'] || 'email',
+    utmMedium: props['utm-medium'] || 'lifecycle',
+    utmCampaign: props['utm-campaign'] || '',
+    utmContent: props['utm-content'] || '',
+    utmTerm: props['utm-term'] || '',
+    secondaryUtmSource: props['secondary-utm-source'] || '',
+    secondaryUtmMedium: props['secondary-utm-medium'] || '',
+    secondaryUtmCampaign: props['secondary-utm-campaign'] || '',
+    secondaryUtmContent: props['secondary-utm-content'] || '',
+    secondaryUtmTerm: props['secondary-utm-term'] || '',
+    get fullPrimaryUrl() {
+      let url = this.primaryButtonUrl;
+      const params = [];
+      if (this.utmSource) params.push('utm_source=' + this.utmSource);
+      if (this.utmMedium) params.push('utm_medium=' + this.utmMedium);
+      if (this.utmCampaign) params.push('utm_campaign=' + this.utmCampaign);
+      if (this.utmContent) params.push('utm_content=' + this.utmContent);
+      if (this.utmTerm) params.push('utm_term=' + this.utmTerm);
+      if (params.length) url += (url.includes('?') ? '&' : '?') + params.join('&');
+      return url;
+    },
+    get fullSecondaryUrl() {
+      let url = this.secondaryButtonUrl;
+      const params = [];
+      if (this.secondaryUtmSource) params.push('utm_source=' + this.secondaryUtmSource);
+      if (this.secondaryUtmMedium) params.push('utm_medium=' + this.secondaryUtmMedium);
+      if (this.secondaryUtmCampaign) params.push('utm_campaign=' + this.secondaryUtmCampaign);
+      if (this.secondaryUtmContent) params.push('utm_content=' + this.secondaryUtmContent);
+      if (this.secondaryUtmTerm) params.push('utm_term=' + this.secondaryUtmTerm);
+      if (params.length) url += (url.includes('?') ? '&' : '?') + params.join('&');
+      return url;
+    },
+    // Background
+    bgColor: props['bg-color'] || '',
+    textBgColor: props['text-bg-color'] || '',
+    // Layout
+    textAlign: props['text-align'] || 'left',
+    contentPadding: props['content-padding'] || '32px',
+    contentValign: props['content-valign'] || 'middle',
+    // Border
+    borderColor: props['border-color'] || '',
+    borderWidth: props['border-width'] || '0px',
+    borderStyle: props['border-style'] || 'none',
+    borderTopColor: props['border-top-color'] || '',
+    borderTopWidth: props['border-top-width'] || '',
+    borderTopStyle: props['border-top-style'] || '',
+    borderRightColor: props['border-right-color'] || '',
+    borderRightWidth: props['border-right-width'] || '',
+    borderRightStyle: props['border-right-style'] || '',
+    borderBottomColor: props['border-bottom-color'] || '',
+    borderBottomWidth: props['border-bottom-width'] || '',
+    borderBottomStyle: props['border-bottom-style'] || '',
+    borderLeftColor: props['border-left-color'] || '',
+    borderLeftWidth: props['border-left-width'] || '',
+    borderLeftStyle: props['border-left-style'] || '',
+    borderRadius: props['border-radius'] || '',
+    get borderCss() {
+      const sides = [
+        { s: 'top', c: this.borderTopColor, w: this.borderTopWidth, st: this.borderTopStyle },
+        { s: 'right', c: this.borderRightColor, w: this.borderRightWidth, st: this.borderRightStyle },
+        { s: 'bottom', c: this.borderBottomColor, w: this.borderBottomWidth, st: this.borderBottomStyle },
+        { s: 'left', c: this.borderLeftColor, w: this.borderLeftWidth, st: this.borderLeftStyle },
+      ];
+      const perSide = sides.filter(x => x.c).map(x => ' border-' + x.s + ': ' + (x.w || this.borderWidth || '1px') + ' ' + (x.st || this.borderStyle || 'solid') + ' ' + x.c + ';').join('');
+      if (perSide) return perSide;
+      return this.borderColor ? ' border: ' + this.borderWidth + ' ' + this.borderStyle + ' ' + this.borderColor + ';' : '';
+    },
+    // ── Mobile overrides ──
+    mEyebrowSize: props['m:eyebrow-size'] || '',
+    mHeadlineSize: props['m:headline-size'] || '',
+    mDescriptionSize: props['m:description-size'] || '',
+    mContentPadding: props['m:content-padding'] || '',
+    mTextAlign: props['m:text-align'] || '',
+    mPrimaryButtonFontSize: props['m:primary-button-font-size'] || '',
+    mPrimaryButtonPadding: props['m:primary-button-padding'] || '',
+    mPrimaryButtonRadius: props['m:primary-button-radius'] || '',
+    mPrimaryButtonLetterSpacing: props['m:primary-button-letter-spacing'] || '',
+    mSecondaryButtonFontSize: props['m:secondary-button-font-size'] || '',
+    mSecondaryButtonPadding: props['m:secondary-button-padding'] || '',
+    mSecondaryButtonRadius: props['m:secondary-button-radius'] || '',
+    mSecondaryButtonLetterSpacing: props['m:secondary-button-letter-spacing'] || '',
+    mButtonGap: props['m:button-gap'] || '',
+    mBorderRadius: props['m:border-radius'] || '',
+    scopeClass: 'loomi-c' + (props['component-index'] || '0'),
+    get responsiveCss() {
+      const r = [];
+      const s = '.' + this.scopeClass + ' ';
+      // Stack columns on mobile: convert table to block and go full-width
+      r.push(s + '.loomi-split-table { direction: ltr !important; }');
+      r.push(s + '.loomi-split-table, ' + s + '.loomi-split-table > tbody, ' + s + '.loomi-split-table > tbody > tr { display: block !important; width: 100% !important; }');
+      r.push(s + '.loomi-split-col { display: block !important; width: 100% !important; }');
+      // Reset cover mode on mobile: remove bg-image, restore natural img
+      r.push(s + '.loomi-split-image { background-image: none !important; }');
+      r.push(s + '.loomi-split-img { height: auto !important; overflow: visible !important; width: 100% !important; }');
+      // Text wrapping safety
+      r.push(s + '.loomi-split-headline, ' + s + '.loomi-split-desc { overflow-wrap: anywhere !important; word-break: break-word !important; }');
+      // Buttons are always stacked (separate <tr>s), just ensure full-width on mobile
+      r.push(s + '.loomi-btn-table { width: 100% !important; max-width: 100% !important; }');
+      r.push(s + '.loomi-btn-primary, ' + s + '.loomi-btn-secondary { display: block !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; text-align: center !important; }');
+      // Default mobile fallbacks
+      if (!this.mContentPadding) r.push(s + '.loomi-split-text-inner { padding: 24px !important; }');
+      if (!this.mHeadlineSize) r.push(s + '.loomi-split-headline { font-size: 24px !important; }');
+      if (!this.mDescriptionSize) r.push(s + '.loomi-split-desc { font-size: 14px !important; }');
+      // Conditional mobile overrides
+      if (this.mEyebrowSize) r.push(s + '.loomi-split-eyebrow { font-size: ' + this.mEyebrowSize + ' !important; }');
+      if (this.mHeadlineSize) r.push(s + '.loomi-split-headline { font-size: ' + this.mHeadlineSize + ' !important; }');
+      if (this.mDescriptionSize) r.push(s + '.loomi-split-desc { font-size: ' + this.mDescriptionSize + ' !important; }');
+      if (this.mContentPadding) r.push(s + '.loomi-split-text-inner { padding: ' + this.mContentPadding + ' !important; }');
+      if (this.mTextAlign) r.push(s + '.loomi-split-text-inner { text-align: ' + this.mTextAlign + ' !important; }');
+      if (this.mPrimaryButtonFontSize) r.push(s + '.loomi-btn-primary { font-size: ' + this.mPrimaryButtonFontSize + ' !important; }');
+      if (this.mPrimaryButtonPadding) r.push(s + '.loomi-btn-primary { padding: ' + this.mPrimaryButtonPadding + ' !important; }');
+      if (this.mPrimaryButtonRadius) r.push(s + '.loomi-btn-primary { border-radius: ' + this.mPrimaryButtonRadius + ' !important; }');
+      if (this.mPrimaryButtonLetterSpacing) r.push(s + '.loomi-btn-primary { letter-spacing: ' + this.mPrimaryButtonLetterSpacing + ' !important; }');
+      if (this.mSecondaryButtonFontSize) r.push(s + '.loomi-btn-secondary { font-size: ' + this.mSecondaryButtonFontSize + ' !important; }');
+      if (this.mSecondaryButtonPadding) r.push(s + '.loomi-btn-secondary { padding: ' + this.mSecondaryButtonPadding + ' !important; }');
+      if (this.mSecondaryButtonRadius) r.push(s + '.loomi-btn-secondary { border-radius: ' + this.mSecondaryButtonRadius + ' !important; }');
+      if (this.mSecondaryButtonLetterSpacing) r.push(s + '.loomi-btn-secondary { letter-spacing: ' + this.mSecondaryButtonLetterSpacing + ' !important; }');
+      if (this.mButtonGap) r.push(s + '.loomi-btn-gap { padding-right: ' + this.mButtonGap + ' !important; }');
+      if (this.mBorderRadius) r.push(s + '.loomi-split-outer { border-radius: ' + this.mBorderRadius + ' !important; overflow: hidden !important; }');
+      return r.join(' ');
+    },
+  };
+</script>
+
+<if condition="responsiveCss">
+  <style>
+    @media screen and (max-width: 600px) {
+      {{{ responsiveCss }}}
+    }
+  </style>
+</if>
+
+<tr class="{{ scopeClass }}">
+  <td
+    class="loomi-split-outer"
+    style="width: 100%;{{ bgColor ? ' background-color: ' + bgColor + ';' : '' }}{{ borderCss }}{{ borderRadius ? ' border-radius: ' + borderRadius + '; overflow: hidden;' : '' }}"
+  >
+    <!--
+      Text column is ALWAYS first in HTML for mobile stacking (text on top).
+      direction: rtl on the table visually flips columns on desktop when image-side=left.
+    -->
+    <table class="loomi-split-table" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="table-layout: fixed;{{ imageLeft ? ' direction: rtl;' : '' }}">
+      <tr>
+        <td class="loomi-split-col loomi-split-text" width="50%" valign="{{ contentValign }}" style="direction: ltr; font-size: 16px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+          <tr>
+            <td class="loomi-split-text-inner" style="padding: {{ contentPadding }}; text-align: {{ textAlign }};{{ textBgColor ? ' background-color: ' + textBgColor + ';' : '' }}">
+              <if condition="eyebrow">
+                <p class="loomi-split-eyebrow" style="font-family: {{ font }}; font-size: {{ eyebrowSize }}; font-weight: {{ eyebrowWeight }}; letter-spacing: {{ eyebrowSpacing }}; text-transform: {{ eyebrowTransform }}; color: {{ eyebrowColor }}; margin: {{ eyebrowMargin }};">
+                  {{ eyebrow }}
+                </p>
+              </if>
+              <if condition="headline">
+                <h2 class="loomi-split-headline" style="font-family: {{ font }}; font-size: {{ headlineSize }}; font-weight: {{ headlineWeight }}; letter-spacing: {{ headlineSpacing }}; text-transform: {{ headlineTransform }}; line-height: {{ headlineLineHeight }}; color: {{ headlineColor }}; margin: {{ headlineMargin }};">
+                  {{{ headline }}}
+                </h2>
+              </if>
+              <if condition="description">
+                <p class="loomi-split-desc" style="font-family: {{ font }}; font-size: {{ descriptionSize }}; font-weight: {{ descriptionWeight }}; line-height: {{ descriptionLineHeight }}; color: {{ descriptionColor }}; margin: {{ descriptionMargin }};">
+                  {{ description }}
+                </p>
+              </if>
+              <if condition="primaryButtonText">
+                <table class="loomi-btn-table" role="presentation" cellspacing="0" cellpadding="0" border="0" style="width: 100%; max-width: 100%;{{ textAlign === 'center' ? ' margin: 0 auto;' : '' }}">
+                  <tr>
+                    <td>
+                      <a
+                        class="loomi-btn-primary"
+                        href="{{ fullPrimaryUrl }}"
+                        target="_blank"
+                        style="display: block; width: 100%; text-align: center; box-sizing: border-box; background-color: {{ primaryButtonBgColor }}; border-radius: {{ primaryButtonRadius }}; color: {{ primaryButtonTextColor }}; font-family: {{ font }}; font-size: {{ primaryButtonFontSize }}; font-weight: {{ primaryButtonFontWeight }}; letter-spacing: {{ primaryButtonLetterSpacing }}; text-decoration: none; text-transform: {{ primaryButtonTextTransform }}; padding: {{ primaryButtonPadding }};{{ primaryButtonBorderCss }}"
+                      >
+                        {{ primaryButtonText }}
+                      </a>
+                    </td>
+                  </tr>
+                  <if condition="secondaryButtonText">
+                    <tr>
+                      <td style="padding-top: {{ buttonGap }};">
+                        <a
+                          class="loomi-btn-secondary"
+                          href="{{ fullSecondaryUrl }}"
+                          target="_blank"
+                          style="display: block; width: 100%; text-align: center; box-sizing: border-box; background-color: {{ secondaryButtonBgColor }}; border-radius: {{ secondaryButtonRadius }}; color: {{ secondaryButtonTextColor }}; font-family: {{ font }}; font-size: {{ secondaryButtonFontSize }}; font-weight: {{ secondaryButtonFontWeight }}; letter-spacing: {{ secondaryButtonLetterSpacing }}; text-decoration: none; text-transform: {{ secondaryButtonTextTransform }}; padding: {{ secondaryButtonPadding }};{{ secondaryButtonBorderCss }}"
+                        >
+                          {{ secondaryButtonText }}
+                        </a>
+                      </td>
+                    </tr>
+                  </if>
+                </table>
+              </if>
+            </td>
+          </tr>
+        </table>
+        </td>
+        <td
+          class="loomi-split-col loomi-split-image"
+          width="50%"
+          valign="{{ contentValign }}"
+          background="{{ imageFit === 'cover' ? image : '' }}"
+          style="direction: ltr; font-size: 0; padding: 0;{{ imageFit === 'cover' ? ' background-size: cover; background-position: ' + imagePosition + '; background-repeat: no-repeat;' : '' }}"
+        >
+          <if condition="image">
+            <img
+              class="loomi-split-img"
+              src="{{ image }}"
+              style="display: block; width: 100%;{{ imageFit === 'cover' ? ' height: 0; overflow: hidden;' : ' height: auto;' }} border: 0;"
+              alt="{{ imageAlt }}"
+            />
+          </if>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>

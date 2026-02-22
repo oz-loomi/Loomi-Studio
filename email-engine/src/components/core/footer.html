@@ -70,15 +70,35 @@
     copyrightWeight: props['copyright-weight'] || '400',
     copyrightSpacing: props['copyright-spacing'] || '1px',
     copyrightTransform: props['copyright-transform'] || 'uppercase',
+    // ── Mobile overrides (responsive) ──
+    mLogoWidth: props['m:logo-width'] || '',
+    mContainerPadding: props['m:container-padding'] || '',
+    scopeClass: 'loomi-c' + (props['component-index'] || '0'),
+    get responsiveCss() {
+      const r = [];
+      const s = '.' + this.scopeClass + ' ';
+      if (this.mLogoWidth) r.push(s + '.loomi-footer-logo { width: ' + this.mLogoWidth + ' !important; }');
+      if (this.mContainerPadding) r.push(s + '.loomi-footer-td { padding: ' + this.mContainerPadding + ' !important; }');
+      return r.join(' ');
+    },
   };
 </script>
 
+<if condition="responsiveCss">
+  <style>
+    @media screen and (max-width: 600px) {
+      {{{ responsiveCss }}}
+    }
+  </style>
+</if>
+
 <if condition="variant === 'dealer'">
   <!-- DEALER FOOTER: Logo, name, address, phone, divider, links + social -->
-  <tr>
-    <td style="text-align: left; padding: {{ containerPadding }}; background-color: {{ bgColor }};">
+  <tr class="{{ scopeClass }}">
+    <td class="loomi-footer-td" style="text-align: left; padding: {{ containerPadding }}; background-color: {{ bgColor }};">
       <a href="{{custom_values.website_url}}" style="text-decoration: none;">
         <img
+          class="loomi-footer-logo"
           src="{{ logoUrl }}"
           alt="{{ dealerName }}"
           width="{{ logoWidth }}"
@@ -117,14 +137,14 @@
                 <if condition="facebookUrl">
                   <td style="padding-left: {{ iconGap }};" valign="middle">
                     <a href="{{ facebookUrl }}" target="_blank" style="text-decoration: none;">
-                      <img src="https://img.icons8.com/?size=100&id=8818&format=png&color={{ iconColor }}" width="{{ iconSize }}" height="{{ iconSize }}" alt="Facebook" style="display: block; border: 0;" />
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="{{ iconSize }}" height="{{ iconSize }}" fill="#{{ iconColor }}" style="display: block;"><path d="M25,3C12.85,3,3,12.85,3,25c0,11.03,8.125,20.137,18.712,21.728V30.831h-5.443v-5.783h5.443v-3.848 c0-6.371,3.104-9.168,8.399-9.168c2.536,0,3.877,0.188,4.512,0.274v5.048h-3.612c-2.248,0-3.033,2.131-3.033,4.533v3.161h6.588 l-0.894,5.783h-5.694v15.944C38.716,45.318,47,36.137,47,25C47,12.85,37.15,3,25,3z"/></svg>
                     </a>
                   </td>
                 </if>
                 <if condition="instagramUrl">
                   <td style="padding-left: {{ iconGap }};" valign="middle">
                     <a href="{{ instagramUrl }}" target="_blank" style="text-decoration: none;">
-                      <img src="https://img.icons8.com/?size=100&id=RhYNENh5cxlS&format=png&color={{ iconColor }}" width="{{ iconSize }}" height="{{ iconSize }}" alt="Instagram" style="display: block; border: 0;" />
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="{{ iconSize }}" height="{{ iconSize }}" fill="#{{ iconColor }}" style="display: block;"><path d="M 9.998 3 C 6.139 3 3 6.142 3 10.002 L 3 20.002 C 3 23.861 6.142 27 10.002 27 L 20.002 27 C 23.861 27 27 23.858 27 19.998 L 27 9.998 C 27 6.139 23.858 3 19.998 3 L 9.998 3 z M 22 7 C 22.552 7 23 7.448 23 8 C 23 8.552 22.552 9 22 9 C 21.448 9 21 8.552 21 8 C 21 7.448 21.448 7 22 7 z M 15 9 C 18.309 9 21 11.691 21 15 C 21 18.309 18.309 21 15 21 C 11.691 21 9 18.309 9 15 C 9 11.691 11.691 9 15 9 z M 15 11 A 4 4 0 0 0 11 15 A 4 4 0 0 0 15 19 A 4 4 0 0 0 19 15 A 4 4 0 0 0 15 11 z"/></svg>
                     </a>
                   </td>
                 </if>
@@ -138,7 +158,7 @@
                 <if condition="youtubeUrl">
                   <td style="padding-left: {{ iconGap }};" valign="middle">
                     <a href="{{ youtubeUrl }}" target="_blank" style="text-decoration: none;">
-                      <img src="https://img.icons8.com/?size=100&id=37326&format=png&color={{ iconColor }}" width="{{ iconSize }}" height="{{ iconSize }}" alt="YouTube" style="display: block; border: 0;" />
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="{{ iconSize }}" height="{{ iconSize }}" fill="#{{ iconColor }}" style="display: block;"><path d="M 44.898 14.5 C 44.5 12.301 42.602 10.699 40.398 10.199 C 37.102 9.5 31 9 24.398 9 C 17.801 9 11.602 9.5 8.301 10.199 C 6.102 10.699 4.199 12.199 3.801 14.5 C 3.398 17 3 20.5 3 25 C 3 29.5 3.398 33 3.898 35.5 C 4.301 37.699 6.199 39.301 8.398 39.801 C 11.898 40.5 17.898 41 24.5 41 C 31.102 41 37.102 40.5 40.602 39.801 C 42.801 39.301 44.699 37.801 45.102 35.5 C 45.5 33 46 29.398 46.102 25 C 45.898 20.5 45.398 17 44.898 14.5 Z M 19 32 L 19 18 L 31.199 25 Z"/></svg>
                     </a>
                   </td>
                 </if>
@@ -152,7 +172,7 @@
                 <if condition="tiktokUrl">
                   <td style="padding-left: {{ iconGap }};" valign="middle">
                     <a href="{{ tiktokUrl }}" target="_blank" style="text-decoration: none;">
-                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07e2335ff4e5668e60b.png" width="{{ iconSize }}" height="{{ iconSize }}" alt="TikTok" style="display: block; border: 0;" />
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="{{ iconSize }}" height="{{ iconSize }}" fill="#{{ iconColor }}" style="display: block;"><path d="M41,4H9C6.243,4,4,6.243,4,9v32c0,2.757,2.243,5,5,5h32c2.757,0,5-2.243,5-5V9C46,6.243,43.757,4,41,4z M37.006,22.323 c-0.227,0.021-0.457,0.035-0.69,0.035c-2.623,0-4.928-1.349-6.269-3.388c0,5.349,0,11.435,0,11.537c0,4.709-3.818,8.527-8.527,8.527 s-8.527-3.818-8.527-8.527s3.818-8.527,8.527-8.527c0.178,0,0.352,0.016,0.527,0.027v4.202c-0.175-0.021-0.347-0.053-0.527-0.053 c-2.404,0-4.352,1.948-4.352,4.352s1.948,4.352,4.352,4.352s4.527-1.894,4.527-4.298c0-0.095,0.042-19.594,0.042-19.594h4.016 c0.378,3.591,3.277,6.425,6.901,6.685V22.323z"/></svg>
                     </a>
                   </td>
                 </if>
@@ -167,14 +187,15 @@
 
 <if condition="variant === 'brand'">
   <!-- BRAND FOOTER: OEM logo, Follow Us + social, divider, links, copyright -->
-  <tr>
-    <td style="background-color: {{ bgColor }}; padding: {{ brandPadding }};">
+  <tr class="{{ scopeClass }}">
+    <td class="loomi-footer-td" style="background-color: {{ bgColor }}; padding: {{ brandPadding }};">
       <!-- Logo -->
       <if condition="logoUrl">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
           <tr>
             <td align="left" style="padding: 0 0 24px 0;">
               <img
+                class="loomi-footer-logo"
                 src="{{ logoUrl }}"
                 alt="{{ dealerName }}"
                 width="{{ logoWidth }}"
@@ -199,14 +220,14 @@
                 <if condition="facebookUrl">
                   <td style="padding-right: {{ brandIconGap }};" valign="middle">
                     <a href="{{ facebookUrl }}" target="_blank" style="text-decoration: none;">
-                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07e1fd827cbaada63c8.png" width="{{ brandIconSize }}" height="{{ brandIconSize }}" alt="Facebook" style="display: block; border: 0;" />
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="{{ brandIconSize }}" height="{{ brandIconSize }}" fill="#{{ iconColor }}" style="display: block;"><path d="M25,3C12.85,3,3,12.85,3,25c0,11.03,8.125,20.137,18.712,21.728V30.831h-5.443v-5.783h5.443v-3.848 c0-6.371,3.104-9.168,8.399-9.168c2.536,0,3.877,0.188,4.512,0.274v5.048h-3.612c-2.248,0-3.033,2.131-3.033,4.533v3.161h6.588 l-0.894,5.783h-5.694v15.944C38.716,45.318,47,36.137,47,25C47,12.85,37.15,3,25,3z"/></svg>
                     </a>
                   </td>
                 </if>
                 <if condition="instagramUrl">
                   <td style="padding-right: {{ brandIconGap }};" valign="middle">
                     <a href="{{ instagramUrl }}" target="_blank" style="text-decoration: none;">
-                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07ef7a877fc9968b48c.png" width="{{ brandIconSize }}" height="{{ brandIconSize }}" alt="Instagram" style="display: block; border: 0;" />
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="{{ brandIconSize }}" height="{{ brandIconSize }}" fill="#{{ iconColor }}" style="display: block;"><path d="M 9.998 3 C 6.139 3 3 6.142 3 10.002 L 3 20.002 C 3 23.861 6.142 27 10.002 27 L 20.002 27 C 23.861 27 27 23.858 27 19.998 L 27 9.998 C 27 6.139 23.858 3 19.998 3 L 9.998 3 z M 22 7 C 22.552 7 23 7.448 23 8 C 23 8.552 22.552 9 22 9 C 21.448 9 21 8.552 21 8 C 21 7.448 21.448 7 22 7 z M 15 9 C 18.309 9 21 11.691 21 15 C 21 18.309 18.309 21 15 21 C 11.691 21 9 18.309 9 15 C 9 11.691 11.691 9 15 9 z M 15 11 A 4 4 0 0 0 11 15 A 4 4 0 0 0 15 19 A 4 4 0 0 0 19 15 A 4 4 0 0 0 15 11 z"/></svg>
                     </a>
                   </td>
                 </if>
@@ -220,7 +241,7 @@
                 <if condition="youtubeUrl">
                   <td style="padding-right: {{ brandIconGap }};" valign="middle">
                     <a href="{{ youtubeUrl }}" target="_blank" style="text-decoration: none;">
-                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07ef7a87716c268b48d.png" width="{{ brandIconSize }}" height="{{ brandIconSize }}" alt="YouTube" style="display: block; border: 0;" />
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="{{ brandIconSize }}" height="{{ brandIconSize }}" fill="#{{ iconColor }}" style="display: block;"><path d="M 44.898 14.5 C 44.5 12.301 42.602 10.699 40.398 10.199 C 37.102 9.5 31 9 24.398 9 C 17.801 9 11.602 9.5 8.301 10.199 C 6.102 10.699 4.199 12.199 3.801 14.5 C 3.398 17 3 20.5 3 25 C 3 29.5 3.398 33 3.898 35.5 C 4.301 37.699 6.199 39.301 8.398 39.801 C 11.898 40.5 17.898 41 24.5 41 C 31.102 41 37.102 40.5 40.602 39.801 C 42.801 39.301 44.699 37.801 45.102 35.5 C 45.5 33 46 29.398 46.102 25 C 45.898 20.5 45.398 17 44.898 14.5 Z M 19 32 L 19 18 L 31.199 25 Z"/></svg>
                     </a>
                   </td>
                 </if>
@@ -234,7 +255,7 @@
                 <if condition="tiktokUrl">
                   <td valign="middle">
                     <a href="{{ tiktokUrl }}" target="_blank" style="text-decoration: none;">
-                      <img src="https://storage.googleapis.com/msgsndr/8Xv9n9xuRpa8uCvbL59M/media/6981a07e2335ff4e5668e60b.png" width="{{ brandIconSize }}" height="{{ brandIconSize }}" alt="TikTok" style="display: block; border: 0;" />
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="{{ brandIconSize }}" height="{{ brandIconSize }}" fill="#{{ iconColor }}" style="display: block;"><path d="M41,4H9C6.243,4,4,6.243,4,9v32c0,2.757,2.243,5,5,5h32c2.757,0,5-2.243,5-5V9C46,6.243,43.757,4,41,4z M37.006,22.323 c-0.227,0.021-0.457,0.035-0.69,0.035c-2.623,0-4.928-1.349-6.269-3.388c0,5.349,0,11.435,0,11.537c0,4.709-3.818,8.527-8.527,8.527 s-8.527-3.818-8.527-8.527s3.818-8.527,8.527-8.527c0.178,0,0.352,0.016,0.527,0.027v4.202c-0.175-0.021-0.347-0.053-0.527-0.053 c-2.404,0-4.352,1.948-4.352,4.352s1.948,4.352,4.352,4.352s4.527-1.894,4.527-4.298c0-0.095,0.042-19.594,0.042-19.594h4.016 c0.378,3.591,3.277,6.425,6.901,6.685V22.323z"/></svg>
                     </a>
                   </td>
                 </if>

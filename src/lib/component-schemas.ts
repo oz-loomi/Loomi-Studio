@@ -1,4 +1,4 @@
-export type FieldType = 'text' | 'textarea' | 'color' | 'url' | 'select' | 'toggle' | 'number' | 'padding' | 'radius';
+export type FieldType = 'text' | 'textarea' | 'color' | 'url' | 'image' | 'select' | 'toggle' | 'number' | 'padding' | 'radius' | 'unit';
 
 export interface PropSchema {
   key: string;
@@ -11,6 +11,11 @@ export interface PropSchema {
   description?: string;
   half?: boolean; // Render at half-width, side-by-side with adjacent half prop
   repeatableGroup?: string; // Which repeatable group this prop belongs to
+  placeholder?: string;
+  conditionalOn?: string; // Only show this prop when the referenced prop's value is truthy (e.g. 'true')
+  buttonSet?: 'primary' | 'secondary'; // Which button tab this prop belongs to
+  responsive?: boolean; // Allow mobile-specific override via m: prefix
+  separator?: boolean; // Render a visual divider line before this prop
 }
 
 export interface RepeatableGroup {
@@ -28,45 +33,179 @@ export interface ComponentSchema {
   repeatableGroups?: RepeatableGroup[];
 }
 
+// ── Shared options & helpers ──
+
+const BORDER_STYLE_OPTIONS = [
+  { label: 'None', value: 'none' },
+  { label: 'Solid', value: 'solid' },
+  { label: 'Dashed', value: 'dashed' },
+  { label: 'Dotted', value: 'dotted' },
+];
+
+const ALIGN_OPTIONS = [
+  { label: 'Left', value: 'left' },
+  { label: 'Center', value: 'center' },
+  { label: 'Right', value: 'right' },
+];
+
+const GRADIENT_DIRECTION_OPTIONS = [
+  { label: 'To Bottom', value: 'to bottom' },
+  { label: 'To Top', value: 'to top' },
+  { label: 'To Right', value: 'to right' },
+  { label: 'To Left', value: 'to left' },
+  { label: 'To Bottom Right', value: 'to bottom right' },
+  { label: 'To Bottom Left', value: 'to bottom left' },
+  { label: 'To Top Right', value: 'to top right' },
+  { label: 'To Top Left', value: 'to top left' },
+];
+
+const FONT_WEIGHT_OPTIONS = [
+  { label: '400 (Normal)', value: '400' },
+  { label: '500 (Medium)', value: '500' },
+  { label: '600 (Semibold)', value: '600' },
+  { label: '700 (Bold)', value: '700' },
+  { label: '800 (Extra Bold)', value: '800' },
+];
+
+const TEXT_TRANSFORM_OPTIONS = [
+  { label: 'None', value: 'none' },
+  { label: 'Uppercase', value: 'uppercase' },
+  { label: 'Lowercase', value: 'lowercase' },
+  { label: 'Capitalize', value: 'capitalize' },
+];
+
+/** Generate the "all sides" border shorthand + per-side border props */
+function borderProps(prefix = 'border', defaultWidth = '0px'): PropSchema[] {
+  const p = prefix === 'border' ? 'border' : prefix;
+  return [
+    // All-sides shorthand
+    { key: `${p}-color`, label: 'Color', type: 'color', half: true, group: 'border' },
+    { key: `${p}-width`, label: 'Width', type: 'unit', half: true, default: defaultWidth, group: 'border' },
+    { key: `${p}-style`, label: 'Style', type: 'select', half: true, group: 'border', options: BORDER_STYLE_OPTIONS },
+    // Per-side
+    { key: `${p}-top-color`, label: 'Top Color', type: 'color', half: true, group: 'border' },
+    { key: `${p}-top-width`, label: 'Top Width', type: 'unit', half: true, group: 'border' },
+    { key: `${p}-top-style`, label: 'Top Style', type: 'select', half: true, group: 'border', options: BORDER_STYLE_OPTIONS },
+    { key: `${p}-right-color`, label: 'Right Color', type: 'color', half: true, group: 'border' },
+    { key: `${p}-right-width`, label: 'Right Width', type: 'unit', half: true, group: 'border' },
+    { key: `${p}-right-style`, label: 'Right Style', type: 'select', half: true, group: 'border', options: BORDER_STYLE_OPTIONS },
+    { key: `${p}-bottom-color`, label: 'Bottom Color', type: 'color', half: true, group: 'border' },
+    { key: `${p}-bottom-width`, label: 'Bottom Width', type: 'unit', half: true, group: 'border' },
+    { key: `${p}-bottom-style`, label: 'Bottom Style', type: 'select', half: true, group: 'border', options: BORDER_STYLE_OPTIONS },
+    { key: `${p}-left-color`, label: 'Left Color', type: 'color', half: true, group: 'border' },
+    { key: `${p}-left-width`, label: 'Left Width', type: 'unit', half: true, group: 'border' },
+    { key: `${p}-left-style`, label: 'Left Style', type: 'select', half: true, group: 'border', options: BORDER_STYLE_OPTIONS },
+  ];
+}
+
+/** Generate gradient props for the background group */
+function gradientProps(): PropSchema[] {
+  return [
+    { key: 'gradient-type', label: 'Gradient', type: 'select', group: 'background', options: [
+      { label: 'None', value: 'none' }, { label: 'Linear', value: 'linear' }, { label: 'Radial', value: 'radial' },
+    ]},
+    { key: 'gradient-angle', label: 'Angle', type: 'number', half: true, group: 'background', default: '180' },
+    { key: 'gradient-direction', label: 'Direction', type: 'select', half: true, group: 'background', options: GRADIENT_DIRECTION_OPTIONS },
+    { key: 'gradient-start', label: 'Start', type: 'color', half: true, group: 'background' },
+    { key: 'gradient-start-position', label: 'Start Location', type: 'number', half: true, group: 'background', default: '0' },
+    { key: 'gradient-end', label: 'End', type: 'color', half: true, group: 'background' },
+    { key: 'gradient-end-position', label: 'End Location', type: 'number', half: true, group: 'background', default: '100' },
+  ];
+}
+
+/** Generate full button design props */
+function buttonProps(prefix: string, set?: 'primary' | 'secondary'): PropSchema[] {
+  const bs = set ? { buttonSet: set } : {};
+  return [
+    { key: `${prefix}-text`, label: 'Text', type: 'text', group: 'buttons', ...bs },
+    { key: `${prefix}-url`, label: 'URL', type: 'url', group: 'buttons', ...bs },
+    { key: `${prefix}-padding`, label: 'Padding', type: 'padding', group: 'buttons', responsive: true, ...bs },
+    { key: `${prefix}-bg-color`, label: 'Background', type: 'color', half: true, group: 'buttons', separator: true, ...bs },
+    { key: `${prefix}-text-color`, label: 'Text Color', type: 'color', half: true, group: 'buttons', ...bs },
+    { key: `${prefix}-border-style`, label: 'Border Type', type: 'select', group: 'buttons', options: BORDER_STYLE_OPTIONS, separator: true, ...bs },
+    { key: `${prefix}-border-width`, label: 'Border Width', type: 'unit', half: true, group: 'buttons', default: '0px', ...bs },
+    { key: `${prefix}-border-color`, label: 'Border Color', type: 'color', half: true, group: 'buttons', ...bs },
+    { key: `${prefix}-radius`, label: 'Border Radius', type: 'radius', group: 'buttons', responsive: true, ...bs },
+    { key: `${prefix}-font-size`, label: 'Font Size', separator: true, type: 'unit', half: true, group: 'buttons', responsive: true, ...bs },
+    { key: `${prefix}-font-weight`, label: 'Font Weight', type: 'select', half: true, group: 'buttons', options: FONT_WEIGHT_OPTIONS, ...bs },
+    { key: `${prefix}-letter-spacing`, label: 'Letter Spacing', type: 'unit', half: true, group: 'buttons', responsive: true, ...bs },
+    { key: `${prefix}-text-transform`, label: 'Text Transform', type: 'select', half: true, group: 'buttons', options: TEXT_TRANSFORM_OPTIONS, ...bs },
+  ];
+}
+
+/** Generate full UTM tracking props */
+function trackingProps({
+  prefix = '',
+  buttonSet,
+  conditionalOn,
+  defaultSource = 'email',
+  defaultMedium = 'lifecycle',
+}: {
+  prefix?: string;
+  buttonSet?: 'primary' | 'secondary';
+  conditionalOn?: string;
+  defaultSource?: string;
+  defaultMedium?: string;
+} = {}): PropSchema[] {
+  const k = (key: string) => `${prefix}${key}`;
+  const setMeta = buttonSet ? { buttonSet } : {};
+  const condMeta = conditionalOn ? { conditionalOn } : {};
+  return [
+    { key: k('utm-source'), label: 'UTM Source', type: 'text', half: true, default: defaultSource, group: 'tracking', ...setMeta, ...condMeta },
+    { key: k('utm-medium'), label: 'UTM Medium', type: 'text', half: true, default: defaultMedium, group: 'tracking', ...setMeta, ...condMeta },
+    { key: k('utm-campaign'), label: 'UTM Campaign', type: 'text', group: 'tracking', ...setMeta, ...condMeta },
+    { key: k('utm-content'), label: 'UTM Content', type: 'text', half: true, group: 'tracking', ...setMeta, ...condMeta },
+    { key: k('utm-term'), label: 'UTM Term', type: 'text', half: true, group: 'tracking', ...setMeta, ...condMeta },
+  ];
+}
+
+// ── Component schemas ──
+
 export const componentSchemas: Record<string, ComponentSchema> = {
   hero: {
     name: 'hero',
     label: 'Hero Banner',
     icon: 'PhotoIcon',
     props: [
-      { key: 'eyebrow', label: 'Eyebrow', type: 'text' },
-      { key: 'headline', label: 'Headline', type: 'text', required: true },
-      { key: 'subheadline', label: 'Subheadline', type: 'textarea' },
-      { key: 'primary-button-text', label: 'Button Text', type: 'text', half: true },
-      { key: 'primary-button-url', label: 'Button URL', type: 'url', half: true },
-      { key: 'secondary-button-text', label: 'Secondary Button', type: 'text', half: true },
-      { key: 'secondary-button-url', label: 'Secondary URL', type: 'url', half: true },
-      { key: 'bg-image', label: 'Background Image', type: 'url' },
-      { key: 'hero-height', label: 'Height', type: 'text', default: '500px', half: true },
-      { key: 'fallback-bg', label: 'Fallback Color', type: 'color', half: true },
-      { key: 'gradient', label: 'Gradient Overlay', type: 'text' },
-      { key: 'text-align', label: 'Text Align', type: 'select', half: true, options: [
-        { label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' },
-      ]},
-      { key: 'content-valign', label: 'Vertical Align', type: 'select', half: true, options: [
+      // ── Text ──
+      { key: 'eyebrow', label: 'Eyebrow', type: 'text', group: 'text' },
+      { key: 'headline', label: 'Headline', type: 'text', required: true, group: 'text' },
+      { key: 'subheadline', label: 'Subheadline', type: 'textarea', group: 'text' },
+      { key: 'eyebrow-size', label: 'Eyebrow Size', separator: true, type: 'unit', half: true, group: 'text', responsive: true },
+      { key: 'eyebrow-color', label: 'Eyebrow Color', type: 'color', half: true, group: 'text' },
+      { key: 'headline-size', label: 'Headline Size', type: 'unit', half: true, group: 'text', responsive: true },
+      { key: 'headline-color', label: 'Headline Color', type: 'color', half: true, group: 'text' },
+      { key: 'subheadline-size', label: 'Sub Size', type: 'unit', half: true, group: 'text', responsive: true },
+      { key: 'subheadline-color', label: 'Sub Color', type: 'color', half: true, group: 'text' },
+      // ── Background ──
+      { key: 'bg-image', label: 'Background Image', type: 'image', group: 'background' },
+      { key: 'fallback-bg', label: 'Fallback Color', type: 'color', group: 'background' },
+      { key: 'overlay-opacity', label: 'Image Overlay Opacity', type: 'number', group: 'background', default: '0', placeholder: '0-100' },
+      { key: 'gradient', label: 'Gradient Overlay (CSS)', type: 'text', group: 'background', placeholder: 'linear-gradient(...)' },
+      ...gradientProps(),
+      // ── Buttons ──
+      ...buttonProps('primary-button', 'primary'),
+      { key: 'button-gap', label: 'Button Gap', type: 'unit', group: 'buttons', responsive: true, buttonSet: 'secondary' },
+      ...buttonProps('secondary-button', 'secondary'),
+      // ── Layout ──
+      { key: 'hero-height', label: 'Height', type: 'unit', default: '500px', group: 'layout', responsive: true },
+      { key: 'text-align', label: 'Text Align', type: 'select', group: 'layout', options: ALIGN_OPTIONS, responsive: true },
+      { key: 'content-valign', label: 'Vertical Align', type: 'select', group: 'layout', options: [
         { label: 'Top', value: 'top' }, { label: 'Middle', value: 'middle' }, { label: 'Bottom', value: 'bottom' },
-      ]},
-      { key: 'content-padding', label: 'Content Padding', type: 'padding', default: '48px' },
-      { key: 'primary-bg-color', label: 'Button BG', type: 'color', half: true },
-      { key: 'primary-text-color', label: 'Button Text', type: 'color', half: true },
-      { key: 'primary-radius', label: 'Button Radius', type: 'text', half: true },
-      { key: 'utm-campaign', label: 'UTM Campaign', type: 'text', half: true },
-      { key: 'eyebrow-size', label: 'Eyebrow Size', type: 'text', half: true },
-      { key: 'eyebrow-color', label: 'Eyebrow Color', type: 'color', half: true },
-      { key: 'headline-size', label: 'Headline Size', type: 'text', half: true },
-      { key: 'headline-color', label: 'Headline Color', type: 'color', half: true },
-      { key: 'subheadline-size', label: 'Sub Size', type: 'text', half: true },
-      { key: 'subheadline-color', label: 'Sub Color', type: 'color', half: true },
-      { key: 'border-color', label: 'Border Color', type: 'color', half: true },
-      { key: 'border-width', label: 'Border Width', type: 'text', half: true, default: '0px' },
-      { key: 'border-style', label: 'Border Style', type: 'select', half: true, options: [
-        { label: 'None', value: 'none' }, { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
-      ]},
+      ], responsive: true },
+      { key: 'content-padding', label: 'Content Padding', type: 'padding', default: '48px', group: 'layout', responsive: true },
+      // ── Border ──
+      { key: 'border-radius', label: 'Border Radius', type: 'radius', group: 'border', responsive: true },
+      ...borderProps(),
+      // ── Tracking ──
+      ...trackingProps({ buttonSet: 'primary' }),
+      ...trackingProps({
+        prefix: 'secondary-',
+        buttonSet: 'secondary',
+        conditionalOn: 'secondary-button-text',
+        defaultSource: '',
+        defaultMedium: '',
+      }),
     ],
   },
 
@@ -75,106 +214,99 @@ export const componentSchemas: Record<string, ComponentSchema> = {
     label: 'Spacer',
     icon: 'ArrowsUpDownIcon',
     props: [
-      { key: 'size', label: 'Height (px)', type: 'number', default: '48' },
-      { key: 'bg-color', label: 'Background', type: 'color' },
+      // ── Layout ──
+      { key: 'size', label: 'Height', type: 'unit', default: '48px', group: 'layout', responsive: true },
+      // ── Background ──
+      { key: 'bg-color', label: 'Background', type: 'color', group: 'background' },
     ],
   },
 
   copy: {
     name: 'copy',
     label: 'Copy Block',
-    icon: 'DocumentTextIcon',
+    icon: 'TextIcon',
     props: [
-      { key: 'greeting', label: 'Greeting', type: 'text' },
-      { key: 'body', label: 'Body Text', type: 'textarea', required: true },
-      { key: 'align', label: 'Alignment', type: 'select', half: true, options: [
-        { label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' },
-      ]},
-      { key: 'line-height', label: 'Line Height', type: 'text', half: true },
-      { key: 'padding', label: 'Padding', type: 'padding' },
-      { key: 'greeting-size', label: 'Greeting Size', type: 'text', half: true },
-      { key: 'greeting-color', label: 'Greeting Color', type: 'color', half: true },
-      { key: 'body-size', label: 'Body Size', type: 'text', half: true },
-      { key: 'body-color', label: 'Body Color', type: 'color', half: true },
-      { key: 'border-color', label: 'Border Color', type: 'color', half: true },
-      { key: 'border-width', label: 'Border Width', type: 'text', half: true, default: '0px' },
-      { key: 'border-style', label: 'Border Style', type: 'select', half: true, options: [
-        { label: 'None', value: 'none' }, { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
-      ]},
+      // ── Text ──
+      { key: 'greeting', label: 'Greeting', type: 'text', group: 'text' },
+      { key: 'body', label: 'Body Text', type: 'textarea', required: true, group: 'text' },
+      { key: 'greeting-size', label: 'Greeting Size', separator: true, type: 'unit', half: true, group: 'text', responsive: true },
+      { key: 'greeting-color', label: 'Greeting Color', type: 'color', half: true, group: 'text' },
+      { key: 'body-size', label: 'Body Size', type: 'unit', half: true, group: 'text', responsive: true },
+      { key: 'body-color', label: 'Body Color', type: 'color', half: true, group: 'text' },
+      { key: 'line-height', label: 'Line Height', type: 'unit', group: 'text', responsive: true },
+      // ── Background ──
+      { key: 'bg-color', label: 'Background Color', type: 'color', group: 'background' },
+      { key: 'bg-image', label: 'Background Image', type: 'image', group: 'background' },
+      // ── Layout ──
+      { key: 'align', label: 'Alignment', type: 'select', group: 'layout', options: ALIGN_OPTIONS, responsive: true },
+      { key: 'padding', label: 'Padding', type: 'padding', group: 'layout', responsive: true },
+      // ── Border ──
+      ...borderProps(),
     ],
   },
 
   cta: {
     name: 'cta',
-    label: 'Call to Action',
-    icon: 'CursorArrowRaysIcon',
+    label: 'Button',
+    icon: 'ButtonIcon',
     props: [
-      { key: 'button-text', label: 'Button Text', type: 'text', required: true, default: 'Schedule Service' },
-      { key: 'button-url', label: 'Button URL', type: 'url' },
-      { key: 'phone-text', label: 'Phone Text', type: 'text', half: true },
-      { key: 'show-phone', label: 'Show Phone', type: 'toggle', half: true, default: 'true' },
-      { key: 'align', label: 'Alignment', type: 'select', half: true, options: [
-        { label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' },
-      ]},
-      { key: 'border', label: 'Border', type: 'text', half: true },
-      { key: 'bg-color', label: 'Button BG', type: 'color', half: true },
-      { key: 'text-color', label: 'Button Text', type: 'color', half: true },
-      { key: 'radius', label: 'Border Radius', type: 'radius' },
-      { key: 'padding', label: 'Button Padding', type: 'padding' },
-      { key: 'phone-color', label: 'Phone Color', type: 'color', half: true },
-      { key: 'phone-link-color', label: 'Phone Link', type: 'color', half: true },
-      { key: 'utm-source', label: 'UTM Source', type: 'text', half: true, default: 'email' },
-      { key: 'utm-medium', label: 'UTM Medium', type: 'text', half: true, default: 'lifecycle' },
-      { key: 'utm-campaign', label: 'UTM Campaign', type: 'text' },
-      { key: 'section-border-color', label: 'Border Color', type: 'color', half: true },
-      { key: 'section-border-width', label: 'Border Width', type: 'text', half: true, default: '0px' },
-      { key: 'section-border-style', label: 'Border Style', type: 'select', half: true, options: [
-        { label: 'None', value: 'none' }, { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
-      ]},
+      // ── Buttons ──
+      ...buttonProps('button'),
+      { key: 'show-phone', label: 'Show Phone', type: 'toggle', half: true, default: 'true', group: 'buttons' },
+      { key: 'phone-text', label: 'Phone Text', type: 'text', half: true, group: 'buttons' },
+      { key: 'phone-color', label: 'Phone Color', type: 'color', half: true, group: 'buttons' },
+      { key: 'phone-link-color', label: 'Phone Link', type: 'color', half: true, group: 'buttons' },
+      // ── Background ──
+      { key: 'section-bg-color', label: 'Section BG', type: 'color', group: 'background' },
+      // ── Layout ──
+      { key: 'align', label: 'Alignment', type: 'select', group: 'layout', options: ALIGN_OPTIONS, responsive: true },
+      { key: 'section-padding', label: 'Padding', type: 'padding', group: 'layout', responsive: true },
+      // ── Border ──
+      ...borderProps('section-border'),
+      // ── Tracking ──
+      ...trackingProps(),
     ],
   },
 
   'vehicle-card': {
     name: 'vehicle-card',
     label: 'Vehicle Card',
-    icon: 'TruckIcon',
-    repeatableGroups: [
-      {
-        key: 'stat',
-        label: 'Stat',
-        maxItems: 2,
-        propsPerItem: ['stat-{n}-label', 'stat-{n}-value'],
-      },
-    ],
+    icon: 'CarIcon',
     props: [
-      { key: 'card-label', label: 'Card Label', type: 'text', default: 'Your Vehicle' },
-      { key: 'vehicle-year', label: 'Year', type: 'text', half: true, default: '{{contact.vehicle_year}}' },
-      { key: 'vehicle-make', label: 'Make', type: 'text', half: true, default: '{{contact.vehicle_make}}' },
-      { key: 'vehicle-model', label: 'Model', type: 'text', half: true, default: '{{contact.vehicle_model}}' },
-      { key: 'show-stats', label: 'Show Stats', type: 'toggle', half: true, default: 'true' },
-      { key: 'stat-1-label', label: 'Label', type: 'text', half: true, repeatableGroup: 'stat' },
-      { key: 'stat-1-value', label: 'Value', type: 'text', half: true, repeatableGroup: 'stat' },
-      { key: 'stat-2-label', label: 'Label', type: 'text', half: true, repeatableGroup: 'stat' },
-      { key: 'stat-2-value', label: 'Value', type: 'text', half: true, repeatableGroup: 'stat' },
-      { key: 'bg-color', label: 'Background', type: 'color', half: true },
-      { key: 'accent-color', label: 'Accent', type: 'color', half: true },
-      { key: 'label-color', label: 'Label Color', type: 'color', half: true },
-      { key: 'vehicle-color', label: 'Vehicle Color', type: 'color', half: true },
-      { key: 'stat-label-color', label: 'Stat Label', type: 'color', half: true },
-      { key: 'stat-value-color', label: 'Stat Value', type: 'color', half: true },
-      { key: 'border-color', label: 'Border Color', type: 'color', half: true },
-      { key: 'border-width', label: 'Border Width', type: 'text', half: true, default: '1px' },
-      { key: 'border-style', label: 'Border Style', type: 'select', half: true, options: [
-        { label: 'None', value: 'none' }, { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
-      ]},
-      { key: 'radius', label: 'Radius', type: 'radius' },
+      // ── Stats (above text, always visible) ──
+      { key: 'show-stats', label: 'Show Stats', type: 'toggle', group: 'stats' },
+      { key: 'stat-1-label', label: 'Stat 1 Label', type: 'text', half: true, group: 'stats' },
+      { key: 'stat-1-value', label: 'Stat 1 Value', type: 'text', half: true, group: 'stats' },
+      { key: 'stat-2-label', label: 'Stat 2 Label', type: 'text', half: true, group: 'stats' },
+      { key: 'stat-2-value', label: 'Stat 2 Value', type: 'text', half: true, group: 'stats' },
+      { key: 'stat-label-color', label: 'Label Color', separator: true, type: 'color', half: true, group: 'stats' },
+      { key: 'stat-value-color', label: 'Value Color', type: 'color', half: true, group: 'stats' },
+      { key: 'stat-divider-width', label: 'Inner Border Width', type: 'unit', half: true, default: '0.5px', group: 'stats' },
+      { key: 'stat-divider-color', label: 'Inner Border Color', type: 'color', half: true, group: 'stats' },
+      // ── Text ──
+      { key: 'card-label', label: 'Card Label', type: 'text', default: 'Your Vehicle', group: 'text' },
+      { key: 'vehicle-year', label: 'Year', type: 'text', half: true, default: '{{contact.vehicle_year}}', group: 'text' },
+      { key: 'vehicle-make', label: 'Make', type: 'text', half: true, default: '{{contact.vehicle_make}}', group: 'text' },
+      { key: 'vehicle-model', label: 'Model', type: 'text', half: true, group: 'text', default: '{{contact.vehicle_model}}' },
+      { key: 'label-color', label: 'Label Color', separator: true, type: 'color', half: true, group: 'text' },
+      { key: 'vehicle-color', label: 'Vehicle Color', type: 'color', half: true, group: 'text' },
+      // ── Background ──
+      { key: 'section-bg-color', label: 'Section BG', type: 'color', half: true, group: 'background' },
+      { key: 'bg-color', label: 'Card BG', type: 'color', half: true, group: 'background' },
+      { key: 'accent-color', label: 'Accent', type: 'color', half: true, group: 'background' },
+      ...gradientProps(),
+      // ── Layout ──
+      { key: 'radius', label: 'Border Radius', type: 'radius', group: 'border', responsive: true },
+      { key: 'padding', label: 'Padding', type: 'padding', group: 'layout', responsive: true },
+      // ── Border ──
+      ...borderProps('border', '1px'),
     ],
   },
 
   features: {
     name: 'features',
     label: 'Features Grid',
-    icon: 'SparklesIcon',
+    icon: 'GridIcon',
     repeatableGroups: [
       {
         key: 'feature',
@@ -184,37 +316,40 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       },
     ],
     props: [
-      { key: 'section-title', label: 'Section Title', type: 'text' },
-      { key: 'variant', label: 'Variant', type: 'select', options: [
+      // ── Text ──
+      { key: 'section-title', label: 'Section Title', type: 'text', group: 'text' },
+      { key: 'title-color', label: 'Title Color', type: 'color', half: true, group: 'text' },
+      { key: 'text-color', label: 'Text Color', type: 'color', half: true, group: 'text' },
+      // ── Background ──
+      { key: 'bg-color', label: 'Background', type: 'color', half: true, group: 'background' },
+      { key: 'card-bg-color', label: 'Card BG', type: 'color', half: true, group: 'background' },
+      { key: 'accent-color', label: 'Accent Color', type: 'color', group: 'background' },
+      ...gradientProps(),
+      // ── Layout ──
+      { key: 'variant', label: 'Variant', type: 'select', group: 'layout', options: [
         { label: 'Icon', value: 'icon' }, { label: 'Image', value: 'image' },
       ]},
+      { key: 'card-radius', label: 'Card Border Radius', type: 'radius', group: 'layout', responsive: true },
+      { key: 'padding', label: 'Padding', type: 'padding', group: 'layout', responsive: true },
+      // ── Border ──
+      ...borderProps(),
+      // ── Repeatable (no group) ──
       { key: 'feature1', label: 'Title', type: 'text', repeatableGroup: 'feature' },
       { key: 'feature1-desc', label: 'Description', type: 'textarea', repeatableGroup: 'feature' },
-      { key: 'feature1-icon', label: 'Icon URL', type: 'url', half: true, repeatableGroup: 'feature' },
-      { key: 'feature1-image', label: 'Image URL', type: 'url', half: true, repeatableGroup: 'feature' },
+      { key: 'feature1-icon', label: 'Icon URL', type: 'image', half: true, repeatableGroup: 'feature' },
+      { key: 'feature1-image', label: 'Image URL', type: 'image', half: true, repeatableGroup: 'feature' },
       { key: 'feature2', label: 'Title', type: 'text', repeatableGroup: 'feature' },
       { key: 'feature2-desc', label: 'Description', type: 'textarea', repeatableGroup: 'feature' },
-      { key: 'feature2-icon', label: 'Icon URL', type: 'url', half: true, repeatableGroup: 'feature' },
-      { key: 'feature2-image', label: 'Image URL', type: 'url', half: true, repeatableGroup: 'feature' },
+      { key: 'feature2-icon', label: 'Icon URL', type: 'image', half: true, repeatableGroup: 'feature' },
+      { key: 'feature2-image', label: 'Image URL', type: 'image', half: true, repeatableGroup: 'feature' },
       { key: 'feature3', label: 'Title', type: 'text', repeatableGroup: 'feature' },
       { key: 'feature3-desc', label: 'Description', type: 'textarea', repeatableGroup: 'feature' },
-      { key: 'feature3-icon', label: 'Icon URL', type: 'url', half: true, repeatableGroup: 'feature' },
-      { key: 'feature3-image', label: 'Image URL', type: 'url', half: true, repeatableGroup: 'feature' },
+      { key: 'feature3-icon', label: 'Icon URL', type: 'image', half: true, repeatableGroup: 'feature' },
+      { key: 'feature3-image', label: 'Image URL', type: 'image', half: true, repeatableGroup: 'feature' },
       { key: 'feature4', label: 'Title', type: 'text', repeatableGroup: 'feature' },
       { key: 'feature4-desc', label: 'Description', type: 'textarea', repeatableGroup: 'feature' },
-      { key: 'feature4-icon', label: 'Icon URL', type: 'url', half: true, repeatableGroup: 'feature' },
-      { key: 'feature4-image', label: 'Image URL', type: 'url', half: true, repeatableGroup: 'feature' },
-      { key: 'bg-color', label: 'Background', type: 'color', half: true },
-      { key: 'card-bg-color', label: 'Card BG', type: 'color', half: true },
-      { key: 'title-color', label: 'Title Color', type: 'color', half: true },
-      { key: 'text-color', label: 'Text Color', type: 'color', half: true },
-      { key: 'accent-color', label: 'Accent Color', type: 'color', half: true },
-      { key: 'card-radius', label: 'Card Radius', type: 'radius' },
-      { key: 'border-color', label: 'Border Color', type: 'color', half: true },
-      { key: 'border-width', label: 'Border Width', type: 'text', half: true, default: '0px' },
-      { key: 'border-style', label: 'Border Style', type: 'select', half: true, options: [
-        { label: 'None', value: 'none' }, { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
-      ]},
+      { key: 'feature4-icon', label: 'Icon URL', type: 'image', half: true, repeatableGroup: 'feature' },
+      { key: 'feature4-image', label: 'Image URL', type: 'image', half: true, repeatableGroup: 'feature' },
     ],
   },
 
@@ -223,17 +358,17 @@ export const componentSchemas: Record<string, ComponentSchema> = {
     label: 'Image',
     icon: 'PhotoIcon',
     props: [
-      { key: 'image', label: 'Image URL', type: 'url', required: true },
-      { key: 'alt', label: 'Alt Text', type: 'text' },
-      { key: 'width', label: 'Width', type: 'number', half: true, default: '600' },
-      { key: 'max-height', label: 'Max Height', type: 'text', half: true },
-      { key: 'radius', label: 'Radius', type: 'radius' },
-      { key: 'padding', label: 'Padding', type: 'padding' },
-      { key: 'border-color', label: 'Border Color', type: 'color', half: true },
-      { key: 'border-width', label: 'Border Width', type: 'text', half: true, default: '0px' },
-      { key: 'border-style', label: 'Border Style', type: 'select', half: true, options: [
-        { label: 'None', value: 'none' }, { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
-      ]},
+      // ── Text ──
+      { key: 'alt', label: 'Alt Text', type: 'text', group: 'text' },
+      // ── Background ──
+      { key: 'image', label: 'Image URL', type: 'image', required: true, group: 'background' },
+      // ── Layout ──
+      { key: 'width', label: 'Width', type: 'unit', half: true, default: '600px', group: 'layout', responsive: true },
+      { key: 'max-height', label: 'Max Height', type: 'unit', half: true, group: 'layout', responsive: true },
+      { key: 'radius', label: 'Border Radius', type: 'radius', group: 'layout', responsive: true },
+      { key: 'padding', label: 'Padding', type: 'padding', group: 'layout', responsive: true },
+      // ── Border ──
+      ...borderProps(),
     ],
   },
 
@@ -242,30 +377,26 @@ export const componentSchemas: Record<string, ComponentSchema> = {
     label: 'Image Overlay',
     icon: 'PaintBrushIcon',
     props: [
-      { key: 'image', label: 'Background Image', type: 'url', required: true },
-      { key: 'heading', label: 'Heading', type: 'text' },
-      { key: 'description', label: 'Description', type: 'textarea' },
-      { key: 'button-text', label: 'Button Text', type: 'text', half: true },
-      { key: 'button-url', label: 'Button URL', type: 'url', half: true },
-      { key: 'overlay', label: 'Overlay Preset', type: 'select', half: true, options: [
+      // ── Text ──
+      { key: 'heading', label: 'Heading', type: 'text', group: 'text' },
+      { key: 'description', label: 'Description', type: 'textarea', group: 'text' },
+      { key: 'heading-size', label: 'Heading Size', separator: true, type: 'unit', half: true, group: 'text', responsive: true },
+      { key: 'heading-color', label: 'Heading Color', type: 'color', half: true, group: 'text' },
+      // ── Background ──
+      { key: 'image', label: 'Background Image', type: 'image', required: true, group: 'background' },
+      { key: 'overlay', label: 'Overlay Preset', type: 'select', group: 'background', options: [
         { label: 'Light', value: 'light' }, { label: 'Medium', value: 'medium' },
         { label: 'Dark', value: 'dark' }, { label: 'Heavy', value: 'heavy' },
       ]},
-      { key: 'align', label: 'Alignment', type: 'select', half: true, options: [
-        { label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' },
-      ]},
-      { key: 'content-padding', label: 'Content Padding', type: 'padding' },
-      { key: 'heading-size', label: 'Heading Size', type: 'text', half: true },
-      { key: 'heading-color', label: 'Heading Color', type: 'color', half: true },
-      { key: 'button-bg-color', label: 'Button BG', type: 'color', half: true },
-      { key: 'button-text-color', label: 'Button Text', type: 'color', half: true },
-      { key: 'button-radius', label: 'Button Radius', type: 'radius' },
-      { key: 'utm-campaign', label: 'UTM Campaign', type: 'text' },
-      { key: 'border-color', label: 'Border Color', type: 'color', half: true },
-      { key: 'border-width', label: 'Border Width', type: 'text', half: true, default: '0px' },
-      { key: 'border-style', label: 'Border Style', type: 'select', half: true, options: [
-        { label: 'None', value: 'none' }, { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
-      ]},
+      // ── Buttons ──
+      ...buttonProps('button'),
+      // ── Layout ──
+      { key: 'align', label: 'Alignment', type: 'select', group: 'layout', options: ALIGN_OPTIONS, responsive: true },
+      { key: 'content-padding', label: 'Content Padding', type: 'padding', group: 'layout', responsive: true },
+      // ── Border ──
+      ...borderProps(),
+      // ── Tracking ──
+      ...trackingProps(),
     ],
   },
 
@@ -274,28 +405,27 @@ export const componentSchemas: Record<string, ComponentSchema> = {
     label: 'Image Card Overlay',
     icon: 'RectangleGroupIcon',
     props: [
-      { key: 'background-image', label: 'Background Image', type: 'url', required: true },
-      { key: 'eyebrow', label: 'Eyebrow', type: 'text' },
-      { key: 'headline', label: 'Headline', type: 'text' },
-      { key: 'body', label: 'Body', type: 'textarea' },
-      { key: 'cta-text', label: 'CTA Text', type: 'text', half: true },
-      { key: 'cta-url', label: 'CTA URL', type: 'url', half: true },
-      { key: 'card-align', label: 'Card Align', type: 'select', half: true, options: [
-        { label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' },
-      ]},
-      { key: 'card-max-width', label: 'Card Max Width', type: 'text', half: true },
-      { key: 'card-padding', label: 'Card Padding', type: 'padding' },
-      { key: 'card-radius', label: 'Card Radius', type: 'radius' },
-      { key: 'card-background', label: 'Card BG', type: 'color', half: true },
-      { key: 'eyebrow-color', label: 'Eyebrow Color', type: 'color', half: true },
-      { key: 'headline-color', label: 'Headline Color', type: 'color', half: true },
-      { key: 'body-color', label: 'Body Color', type: 'color', half: true },
-      { key: 'cta-color', label: 'CTA Color', type: 'color' },
-      { key: 'border-color', label: 'Border Color', type: 'color', half: true },
-      { key: 'border-width', label: 'Border Width', type: 'text', half: true, default: '0px' },
-      { key: 'border-style', label: 'Border Style', type: 'select', half: true, options: [
-        { label: 'None', value: 'none' }, { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
-      ]},
+      // ── Text ──
+      { key: 'eyebrow', label: 'Eyebrow', type: 'text', group: 'text' },
+      { key: 'headline', label: 'Headline', type: 'text', group: 'text' },
+      { key: 'body', label: 'Body', type: 'textarea', group: 'text' },
+      { key: 'eyebrow-color', label: 'Eyebrow Color', separator: true, type: 'color', half: true, group: 'text' },
+      { key: 'headline-color', label: 'Headline Color', type: 'color', half: true, group: 'text' },
+      { key: 'body-color', label: 'Body Color', type: 'color', group: 'text' },
+      // ── Background ──
+      { key: 'background-image', label: 'Background Image', type: 'image', required: true, group: 'background' },
+      { key: 'card-background', label: 'Card BG', type: 'color', group: 'background' },
+      // ── Buttons ──
+      ...buttonProps('cta'),
+      // ── Layout ──
+      { key: 'card-align', label: 'Card Align', type: 'select', group: 'layout', options: ALIGN_OPTIONS, responsive: true },
+      { key: 'card-max-width', label: 'Card Max Width', type: 'unit', group: 'layout', responsive: true },
+      { key: 'card-padding', label: 'Card Padding', type: 'padding', group: 'layout', responsive: true },
+      { key: 'card-radius', label: 'Card Border Radius', type: 'radius', group: 'layout', responsive: true },
+      // ── Border ──
+      ...borderProps(),
+      // ── Tracking ──
+      ...trackingProps(),
     ],
   },
 
@@ -304,38 +434,42 @@ export const componentSchemas: Record<string, ComponentSchema> = {
     label: 'Divider',
     icon: 'MinusIcon',
     props: [
-      { key: 'color', label: 'Color', type: 'color' },
-      { key: 'thickness', label: 'Thickness', type: 'text', half: true, default: '1px' },
-      { key: 'style', label: 'Style', type: 'select', half: true, options: [
+      // ── Border (the divider IS a border line) ──
+      { key: 'color', label: 'Color', type: 'color', group: 'border' },
+      { key: 'thickness', label: 'Thickness', type: 'unit', half: true, default: '1px', group: 'border' },
+      { key: 'style', label: 'Style', type: 'select', half: true, group: 'border', options: [
         { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
       ]},
-      { key: 'padding', label: 'Padding', type: 'padding' },
-      { key: 'margin', label: 'Margin', type: 'padding' },
+      // ── Background ──
+      { key: 'bg-color', label: 'Background', type: 'color', group: 'background' },
+      // ── Layout ──
+      { key: 'padding', label: 'Padding', type: 'padding', group: 'layout', responsive: true },
+      { key: 'margin', label: 'Margin', type: 'padding', group: 'layout', responsive: true },
     ],
   },
 
   'countdown-stat': {
     name: 'countdown-stat',
     label: 'Countdown Stat',
-    icon: 'HashtagIcon',
+    icon: 'CountdownIcon',
     props: [
-      { key: 'label', label: 'Label', type: 'text', half: true },
-      { key: 'value', label: 'Value', type: 'text', half: true, required: true },
-      { key: 'caption', label: 'Caption', type: 'text' },
-      { key: 'align', label: 'Alignment', type: 'select', options: [
-        { label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' },
-      ]},
-      { key: 'bg-color', label: 'Background', type: 'color', half: true },
-      { key: 'value-color', label: 'Value Color', type: 'color', half: true },
-      { key: 'label-color', label: 'Label Color', type: 'color', half: true },
-      { key: 'caption-color', label: 'Caption Color', type: 'color', half: true },
-      { key: 'radius', label: 'Radius', type: 'radius' },
-      { key: 'padding', label: 'Padding', type: 'padding' },
-      { key: 'border-color', label: 'Border Color', type: 'color', half: true },
-      { key: 'border-width', label: 'Border Width', type: 'text', half: true, default: '0px' },
-      { key: 'border-style', label: 'Border Style', type: 'select', half: true, options: [
-        { label: 'None', value: 'none' }, { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
-      ]},
+      // ── Text ──
+      { key: 'label', label: 'Label', type: 'text', half: true, group: 'text' },
+      { key: 'value', label: 'Value', type: 'text', half: true, required: true, group: 'text' },
+      { key: 'caption', label: 'Caption', type: 'text', group: 'text' },
+      { key: 'value-size', label: 'Value Size', separator: true, type: 'unit', half: true, group: 'text', responsive: true },
+      { key: 'value-color', label: 'Value Color', type: 'color', half: true, group: 'text' },
+      { key: 'label-color', label: 'Label Color', type: 'color', half: true, group: 'text' },
+      { key: 'caption-color', label: 'Caption Color', type: 'color', half: true, group: 'text' },
+      // ── Background ──
+      { key: 'bg-color', label: 'Background', type: 'color', group: 'background' },
+      ...gradientProps(),
+      // ── Layout ──
+      { key: 'align', label: 'Alignment', type: 'select', group: 'layout', options: ALIGN_OPTIONS, responsive: true },
+      { key: 'radius', label: 'Border Radius', type: 'radius', group: 'layout', responsive: true },
+      { key: 'padding', label: 'Padding', type: 'padding', group: 'layout', responsive: true },
+      // ── Border ──
+      ...borderProps(),
     ],
   },
 
@@ -344,48 +478,103 @@ export const componentSchemas: Record<string, ComponentSchema> = {
     label: 'Testimonial',
     icon: 'ChatBubbleLeftIcon',
     props: [
-      { key: 'quote', label: 'Quote', type: 'textarea', required: true },
-      { key: 'author', label: 'Author', type: 'text', half: true },
-      { key: 'source', label: 'Source', type: 'text', half: true },
-      { key: 'align', label: 'Alignment', type: 'select', options: [
-        { label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' },
+      // ── Text ──
+      { key: 'quote', label: 'Quote', type: 'textarea', required: true, group: 'text' },
+      { key: 'author', label: 'Author', type: 'text', half: true, group: 'text' },
+      { key: 'source', label: 'Source', type: 'text', half: true, group: 'text' },
+      { key: 'quote-color', label: 'Quote Color', separator: true, type: 'color', half: true, group: 'text' },
+      { key: 'author-color', label: 'Author Color', type: 'color', half: true, group: 'text' },
+      { key: 'source-color', label: 'Source Color', type: 'color', group: 'text' },
+      // ── Background ──
+      { key: 'bg-color', label: 'Background', type: 'color', half: true, group: 'background' },
+      { key: 'accent-color', label: 'Accent', type: 'color', half: true, group: 'background' },
+      ...gradientProps(),
+      // ── Layout ──
+      { key: 'align', label: 'Alignment', type: 'select', group: 'layout', options: ALIGN_OPTIONS, responsive: true },
+      { key: 'radius', label: 'Border Radius', type: 'radius', group: 'layout', responsive: true },
+      { key: 'padding', label: 'Padding', type: 'padding', group: 'layout', responsive: true },
+      // ── Border ──
+      ...borderProps('border', '0.5px'),
+    ],
+  },
+
+  split: {
+    name: 'split',
+    label: 'Split Section',
+    icon: 'SplitIcon',
+    props: [
+      // ── Text ──
+      { key: 'eyebrow', label: 'Eyebrow', type: 'text', group: 'text' },
+      { key: 'headline', label: 'Headline', type: 'text', required: true, group: 'text' },
+      { key: 'description', label: 'Description', type: 'textarea', group: 'text' },
+      { key: 'eyebrow-size', label: 'Eyebrow Size', separator: true, type: 'unit', half: true, group: 'text', responsive: true },
+      { key: 'eyebrow-color', label: 'Eyebrow Color', type: 'color', half: true, group: 'text' },
+      { key: 'headline-size', label: 'Headline Size', type: 'unit', half: true, group: 'text', responsive: true },
+      { key: 'headline-color', label: 'Headline Color', type: 'color', half: true, group: 'text' },
+      { key: 'description-size', label: 'Desc Size', type: 'unit', half: true, group: 'text', responsive: true },
+      { key: 'description-color', label: 'Desc Color', type: 'color', half: true, group: 'text' },
+      // ── Background ──
+      { key: 'image', label: 'Image', type: 'image', required: true, group: 'background' },
+      { key: 'image-alt', label: 'Image Alt Text', type: 'text', group: 'background' },
+      { key: 'image-fit', label: 'Image Fit', type: 'select', group: 'background', options: [
+        { label: 'Auto', value: 'auto' }, { label: 'Cover', value: 'cover' },
       ]},
-      { key: 'bg-color', label: 'Background', type: 'color', half: true },
-      { key: 'accent-color', label: 'Accent', type: 'color', half: true },
-      { key: 'quote-color', label: 'Quote Color', type: 'color', half: true },
-      { key: 'author-color', label: 'Author Color', type: 'color', half: true },
-      { key: 'source-color', label: 'Source Color', type: 'color' },
-      { key: 'radius', label: 'Radius', type: 'radius' },
-      { key: 'padding', label: 'Padding', type: 'padding' },
-      { key: 'border-color', label: 'Border Color', type: 'color', half: true },
-      { key: 'border-width', label: 'Border Width', type: 'text', half: true, default: '0.5px' },
-      { key: 'border-style', label: 'Border Style', type: 'select', half: true, options: [
-        { label: 'None', value: 'none' }, { label: 'Solid', value: 'solid' }, { label: 'Dashed', value: 'dashed' }, { label: 'Dotted', value: 'dotted' },
+      { key: 'image-position', label: 'Image Position', type: 'text', default: 'center center', placeholder: 'center center', group: 'background' },
+      { key: 'bg-color', label: 'Section Background', type: 'color', half: true, group: 'background' },
+      { key: 'text-bg-color', label: 'Text Column BG', type: 'color', half: true, group: 'background' },
+      // ── Buttons ──
+      ...buttonProps('primary-button', 'primary'),
+      { key: 'button-gap', label: 'Button Gap', type: 'unit', default: '12px', group: 'buttons', responsive: true, buttonSet: 'secondary' },
+      ...buttonProps('secondary-button', 'secondary'),
+      // ── Layout ──
+      { key: 'image-side', label: 'Image Side', type: 'select', group: 'layout', options: [
+        { label: 'Left', value: 'left' }, { label: 'Right', value: 'right' },
       ]},
+      { key: 'text-align', label: 'Text Align', type: 'select', group: 'layout', options: ALIGN_OPTIONS, responsive: true },
+      { key: 'content-valign', label: 'Vertical Align', type: 'select', group: 'layout', options: [
+        { label: 'Top', value: 'top' }, { label: 'Middle', value: 'middle' }, { label: 'Bottom', value: 'bottom' },
+      ] },
+      { key: 'content-padding', label: 'Text Padding', type: 'padding', default: '32px', group: 'layout', responsive: true },
+      // ── Border ──
+      { key: 'border-radius', label: 'Border Radius', type: 'radius', group: 'border', responsive: true },
+      ...borderProps(),
+      // ── Tracking ──
+      ...trackingProps({ buttonSet: 'primary' }),
+      ...trackingProps({
+        prefix: 'secondary-',
+        buttonSet: 'secondary',
+        conditionalOn: 'secondary-button-text',
+        defaultSource: '',
+        defaultMedium: '',
+      }),
     ],
   },
 
   header: {
     name: 'header',
     label: 'Header',
-    icon: 'Bars3Icon',
+    icon: 'HeaderIcon',
     props: [
-      { key: 'logo-url', label: 'Logo URL', type: 'url' },
-      { key: 'logo-alt', label: 'Logo Alt', type: 'text' },
-      { key: 'link-url', label: 'Link URL', type: 'url' },
-      { key: 'bg-color', label: 'Background', type: 'color' },
-      { key: 'align', label: 'Alignment', type: 'select', half: true, options: [
-        { label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' },
-      ]},
-      { key: 'logo-width', label: 'Logo Width', type: 'number', half: true },
-      { key: 'padding', label: 'Padding', type: 'padding' },
+      // ── Text ──
+      { key: 'logo-alt', label: 'Logo Alt', type: 'text', group: 'text' },
+      // ── Background ──
+      { key: 'logo-url', label: 'Logo URL', type: 'image', group: 'background' },
+      { key: 'bg-color', label: 'Background', type: 'color', group: 'background' },
+      // ── Buttons ──
+      { key: 'link-url', label: 'Link URL', type: 'url', group: 'buttons' },
+      // ── Layout ──
+      { key: 'align', label: 'Alignment', type: 'select', group: 'layout', options: ALIGN_OPTIONS, responsive: true },
+      { key: 'logo-width', label: 'Logo Width', type: 'unit', group: 'layout', responsive: true },
+      { key: 'padding', label: 'Padding', type: 'padding', default: '35px', group: 'layout', responsive: true },
+      // ── Border ──
+      { key: 'border-radius', label: 'Border Radius', type: 'radius', group: 'border', responsive: true },
     ],
   },
 
   footer: {
     name: 'footer',
     label: 'Footer',
-    icon: 'DocumentIcon',
+    icon: 'FooterIcon',
     repeatableGroups: [
       {
         key: 'social',
@@ -395,21 +584,26 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       },
     ],
     props: [
-      { key: 'variant', label: 'Style', type: 'select', options: [
+      // ── Text ──
+      { key: 'dealer-name', label: 'Business Name', type: 'text', group: 'text' },
+      { key: 'text-color', label: 'Text Color', type: 'color', half: true, group: 'text' },
+      { key: 'dealer-name-color', label: 'Name Color', type: 'color', half: true, group: 'text' },
+      { key: 'link-color', label: 'Link Color', type: 'color', half: true, group: 'text' },
+      { key: 'phone-color', label: 'Phone Color', type: 'color', half: true, group: 'text' },
+      { key: 'copyright-color', label: 'Copyright Color', separator: true, type: 'color', group: 'text' },
+      // ── Background ──
+      { key: 'logo-url', label: 'Logo URL', type: 'image', group: 'background' },
+      { key: 'bg-color', label: 'Background', type: 'color', half: true, group: 'background' },
+      { key: 'icon-color', label: 'Icon Color', type: 'color', half: true, group: 'background' },
+      // ── Layout ──
+      { key: 'variant', label: 'Style', type: 'select', group: 'layout', options: [
         { label: 'Dealer', value: 'dealer' }, { label: 'Brand', value: 'brand' },
       ]},
-      { key: 'dealer-name', label: 'Business Name', type: 'text' },
-      { key: 'logo-url', label: 'Logo URL', type: 'url' },
-      { key: 'logo-width', label: 'Logo Width', type: 'number', half: true },
-      { key: 'bg-color', label: 'Background', type: 'color', half: true },
-      { key: 'text-color', label: 'Text Color', type: 'color', half: true },
-      { key: 'dealer-name-color', label: 'Name Color', type: 'color', half: true },
-      { key: 'link-color', label: 'Link Color', type: 'color', half: true },
-      { key: 'divider-color', label: 'Divider Color', type: 'color', half: true },
-      { key: 'phone-color', label: 'Phone Color', type: 'color', half: true },
-      { key: 'icon-color', label: 'Icon Color', type: 'color', half: true },
-      { key: 'copyright-color', label: 'Copyright Color', type: 'color', half: true },
-      { key: 'container-padding', label: 'Padding', type: 'padding' },
+      { key: 'logo-width', label: 'Logo Width', type: 'unit', group: 'layout', responsive: true },
+      { key: 'container-padding', label: 'Padding', type: 'padding', group: 'layout', responsive: true },
+      // ── Border ──
+      { key: 'divider-color', label: 'Divider Color', type: 'color', group: 'border' },
+      // ── Repeatable (no group) ──
       { key: 'facebook-url', label: 'Facebook', type: 'url', repeatableGroup: 'social' },
       { key: 'instagram-url', label: 'Instagram', type: 'url', repeatableGroup: 'social' },
       { key: 'youtube-url', label: 'YouTube', type: 'url', repeatableGroup: 'social' },

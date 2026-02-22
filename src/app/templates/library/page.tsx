@@ -175,7 +175,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
 
-  const editorHref = (design: string) => `/templates/${design}/template${campaignDraftQuery}`;
+  const editorHref = (design: string) => `/templates/editor?design=${encodeURIComponent(design)}${campaignDraftQuery ? '&campaignDraft=1' : ''}`;
 
   const tplMap = useMemo(() => {
     const map: Record<string, TemplateEntry> = {};
@@ -583,7 +583,7 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [previewDesign, setPreviewDesign] = useState<string | null>(null);
   const isCampaignDraft = campaignDraftQuery.length > 0;
-  const editorHref = (design: string) => `/templates/${design}/template${campaignDraftQuery}`;
+  const editorHref = (design: string) => `/templates/editor?design=${encodeURIComponent(design)}${campaignDraftQuery ? '&campaignDraft=1' : ''}`;
 
   useEffect(() => {
     Promise.all([

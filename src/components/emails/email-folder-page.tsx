@@ -140,7 +140,7 @@ export function EmailFolderPage() {
       toast.error('Template is unavailable for this email');
       return;
     }
-    router.push(`/templates/${email.templateSlug}/template?email=${email.id}`);
+    router.push(`/templates/editor?design=${encodeURIComponent(email.templateSlug)}&email=${email.id}`);
   };
 
   const handleMoveToFolder = async (id: string, targetFolder: string) => {

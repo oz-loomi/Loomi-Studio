@@ -10,6 +10,17 @@ import path from 'path';
 
 // Server-side disk cache directory
 const CACHE_DIR = path.join(process.cwd(), '.preview-cache');
+const PREVIEW_CACHE_VERSION = process.env.PREVIEW_CACHE_VERSION || '2026-02-22.2';
+const ENGINE_SIGNATURE_TTL_MS = 1000;
+const ENGINE_SIGNATURE_PATHS = [
+  path.join(PATHS.engine.root, 'src', 'components'),
+  path.join(PATHS.engine.root, 'src', 'layouts'),
+];
+
+let engineSignatureCache: { value: string; computedAt: number } = {
+  value: '',
+  computedAt: 0,
+};
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -40,8 +51,56 @@ function ensureCacheDir() {
   }
 }
 
+function getEngineSignature(): string {
+  const now = Date.now();
+  if (
+    engineSignatureCache.value &&
+    now - engineSignatureCache.computedAt < ENGINE_SIGNATURE_TTL_MS
+  ) {
+    return engineSignatureCache.value;
+  }
+
+  let latestMtime = 0;
+  const stack = [...ENGINE_SIGNATURE_PATHS];
+
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || !fs.existsSync(current)) continue;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(fullPath);
+      } catch {
+        continue;
+      }
+      if (stat.mtimeMs > latestMtime) latestMtime = stat.mtimeMs;
+    }
+  }
+
+  // Include component/layout mtime so cache invalidates when engine files change.
+  const value = String(Math.floor(latestMtime));
+  engineSignatureCache = { value, computedAt: now };
+  return value;
+}
+
 function getCacheKey(html: string): string {
-  return crypto.createHash('md5').update(html).digest('hex');
+  const engineSignature = getEngineSignature();
+  return crypto
+    .createHash('md5')
+    .update(`${PREVIEW_CACHE_VERSION}:${engineSignature}:${html}`)
+    .digest('hex');
 }
 
 function getCachedPreview(cacheKey: string): string | null {
@@ -79,12 +138,8 @@ export async function POST(req: NextRequest) {
         : undefined,
     );
 
-    // Check disk cache first
-    const cacheKey = getCacheKey(resolvedHtml);
-    const cached = getCachedPreview(cacheKey);
-    if (cached) {
-      return NextResponse.json({ html: cached });
-    }
+    // For editor POST previews, always compile fresh to avoid stale component/layout artifacts.
+    // (GET previews can still use cache.)
 
     // Always use the email engine for compilation
     const engineRoot = PATHS.engine.root;
@@ -109,7 +164,7 @@ const result = await render(template, {
     root: '.',
     folders: ['src/components', 'src/layouts'],
   },
-  css: { inline: true, purge: true },
+  css: { inline: true, purge: { safelist: ['*loomi-*'] } },
   prettify: true,
 });
 
@@ -131,9 +186,6 @@ process.stdout.write(JSON.stringify({ html: result.html }));
         return NextResponse.json({ error: 'No output from Maizzle render' }, { status: 500 });
       }
       const result = JSON.parse(output.slice(jsonStart));
-
-      // Cache the result to disk
-      setCachedPreview(cacheKey, result.html);
 
       return NextResponse.json({ html: result.html });
     } finally {
@@ -241,7 +293,7 @@ const result = await render(template, {
     root: '.',
     folders: ['src/components', 'src/layouts'],
   },
-  css: { inline: true, purge: true },
+  css: { inline: true, purge: { safelist: ['*loomi-*'] } },
   prettify: true,
 });
 

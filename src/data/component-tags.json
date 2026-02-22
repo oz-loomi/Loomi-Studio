@@ -32,9 +32,6 @@
     "features": [
       "Content"
     ],
-    "image-card-overlay": [
-      "Media"
-    ],
     "divider": [
       "Layout"
     ],
@@ -47,11 +44,9 @@
     "testimonial": [
       "Content"
     ],
-    "image-overlay": [
-      "Call to Action"
-    ],
-    "image": [
-      "Content"
+    "split": [
+      "Content",
+      "Media"
     ]
   }
 }

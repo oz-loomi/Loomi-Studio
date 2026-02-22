@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
 import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-helpers';
-import { unsupportedCapabilityPayload } from '@/lib/esp/unsupported';
 import { prisma } from '@/lib/prisma';
 
 /**
@@ -102,40 +101,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Access denied' }, { status: 403 });
   }
 
-  // Resolve adapter to get provider info
-  const result = await resolveAdapterAndCredentials(accountKey, {
-    requireCapability: 'templates',
-  });
-  if (isResolveError(result)) {
-    return NextResponse.json({ error: result.error }, { status: result.status });
-  }
-
-  const { adapter, credentials } = result;
-  if (!adapter.templates) {
-    return NextResponse.json(
-      unsupportedCapabilityPayload(adapter.provider, 'templates'),
-      { status: 501 },
-    );
-  }
+  // Resolve adapter — best-effort for provider name; only required when syncing to remote
+  const resolved = await resolveAdapterAndCredentials(accountKey, {});
+  const adapterAvailable = !isResolveError(resolved);
+  const providerName = adapterAvailable ? resolved.adapter.provider : 'unknown';
 
   try {
     let remoteId: string | null = null;
 
-    // If user wants to sync to remote, create on ESP first
+    // If user wants to sync to remote, create on ESP first (requires connected adapter)
     if (syncToRemote) {
-      const remoteTemplate = await adapter.templates.createTemplate(
-        credentials.token,
-        credentials.locationId,
+      if (!adapterAvailable || !resolved.adapter.templates) {
+        return NextResponse.json(
+          { error: 'ESP connection with templates support required to sync to remote' },
+          { status: 400 },
+        );
+      }
+      const remoteTemplate = await resolved.adapter.templates.createTemplate(
+        resolved.credentials.token,
+        resolved.credentials.locationId,
         { name, subject, previewText, html: html || '', editorType },
       );
       remoteId = remoteTemplate.id;
     }
 
-    // Create locally
+    // Create locally — always works even without ESP connection
     const template = await prisma.espTemplate.create({
       data: {
         accountKey,
-        provider: adapter.provider,
+        provider: providerName,
         remoteId,
         name,
         subject: subject || null,

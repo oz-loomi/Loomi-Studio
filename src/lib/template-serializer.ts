@@ -20,10 +20,15 @@ export function serializeTemplate(template: ParsedTemplate): string {
   const basePropStr = serializeAttributes(template.baseProps);
   lines.push(`<x-base ${basePropStr}>`);
 
-  // 3. Components
-  for (const comp of template.components) {
+  // 3. Components (inject component-index for scoped responsive CSS)
+  for (let i = 0; i < template.components.length; i++) {
+    const comp = template.components[i];
+    const compWithIndex: ParsedComponent = {
+      ...comp,
+      props: { ...comp.props, 'component-index': String(i) },
+    };
     lines.push('');
-    lines.push(serializeComponent(comp));
+    lines.push(serializeComponent(compWithIndex));
   }
 
   // 4. Close </x-base>
