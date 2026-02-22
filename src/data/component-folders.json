@@ -1,0 +1,15 @@
+{
+  "Automotive": [
+    "copy",
+    "vehicle-card",
+    "testimonial",
+    "features",
+    "countdown-stat",
+    "footer",
+    "cta",
+    "header",
+    "spacer",
+    "hero",
+    "divider"
+  ]
+}
