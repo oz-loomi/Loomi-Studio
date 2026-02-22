@@ -18,7 +18,6 @@ import {
   type CampaignCreateLinks,
 } from '@/lib/esp/provider-links';
 import {
-  InformationCircleIcon,
   PaperAirplaneIcon,
   EnvelopeIcon,
   DevicePhoneMobileIcon,
@@ -155,7 +154,6 @@ function AdminCampaignsPage() {
   const [accountProviders, setAccountProviders] = useState<Record<string, string>>({});
   const [campaignError, setCampaignError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
 
@@ -550,25 +548,6 @@ function AdminCampaignsPage() {
             </div>
           )}
 
-          {/* Read-only info banner */}
-          {!bannerDismissed && (
-            <div className="flex items-start gap-3 px-4 py-3 mb-6 rounded-xl bg-[var(--primary)]/5 border border-[var(--primary)]/15">
-              <InformationCircleIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0 mt-0.5" />
-              <div className="flex-1 text-sm text-[var(--muted-foreground)]">
-                <span className="font-medium text-[var(--foreground)]">Campaign setup and scheduling are managed in your connected ESP</span>
-                {' — '}
-                Use <span className="font-medium text-[var(--primary)]">Create Campaign</span> to open {campaignBuilderLabel} and configure Email/SMS campaigns there.
-              </div>
-              <button
-                type="button"
-                onClick={() => setBannerDismissed(true)}
-                className="flex-shrink-0 mt-0.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-                aria-label="Dismiss"
-              >
-                <XMarkIcon className="w-4 h-4" />
-              </button>
-            </div>
-          )}
 
           <div className="space-y-6">
             <CampaignPageAnalytics

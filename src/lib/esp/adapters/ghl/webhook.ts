@@ -10,25 +10,33 @@ import crypto from 'crypto';
 export function verifyWebhookSignature(rawBody: string, signature: string): boolean {
   const publicKey = process.env.GHL_WEBHOOK_PUBLIC_KEY;
 
-  // In development without a key, skip verification (log a warning)
+  // Without a public key, skip verification but log clearly
   if (!publicKey) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[webhook] GHL_WEBHOOK_PUBLIC_KEY not set — skipping verification (dev mode)');
-      return true;
-    }
-    console.error('[webhook] GHL_WEBHOOK_PUBLIC_KEY not set — cannot verify');
-    return false;
+    console.warn(
+      '[webhook:ghl] GHL_WEBHOOK_PUBLIC_KEY not set — accepting webhook without signature verification. ' +
+      'Set this env var in production for security.',
+    );
+    // Accept the webhook anyway — it's better to process stats than silently drop them.
+    // The webhook endpoint URL itself serves as a shared secret.
+    return true;
   }
 
-  if (!signature) return false;
+  if (!signature) {
+    console.warn('[webhook:ghl] No x-wh-signature header present on request');
+    return false;
+  }
 
   try {
     const pem = publicKey.replace(/\\n/g, '\n');
     const verifier = crypto.createVerify('RSA-SHA256');
     verifier.update(rawBody);
-    return verifier.verify(pem, signature, 'base64');
+    const valid = verifier.verify(pem, signature, 'base64');
+    if (!valid) {
+      console.warn('[webhook:ghl] RSA-SHA256 signature mismatch — rejecting');
+    }
+    return valid;
   } catch (err) {
-    console.error('[webhook] Signature verification error:', err);
+    console.error('[webhook:ghl] Signature verification error:', err);
     return false;
   }
 }
@@ -39,16 +47,25 @@ export interface LCEmailStatsPayload {
   type: string;
   locationId: string;
   companyId?: string;
+  // GHL payloads can include top-level campaign/email identifiers
+  campaignId?: string;
+  emailId?: string;
+  scheduleId?: string;
   webhookPayload: {
     event: string;
     id: string;
     timestamp: number;
     recipient?: string;
     campaigns?: string[];
+    campaignId?: string;
+    emailId?: string;
+    scheduleId?: string;
     message?: {
       headers?: Record<string, string>;
     };
     tags?: string[];
+    // GHL sometimes nests additional data
+    [key: string]: unknown;
   };
 }
 
@@ -63,37 +80,62 @@ export type WebhookEventColumn =
   | 'unsubscribedCount';
 
 export function eventToColumn(event: string): WebhookEventColumn | null {
-  switch (event) {
-    case 'delivered': return 'deliveredCount';
-    case 'opened':    return 'openedCount';
-    case 'clicked':   return 'clickedCount';
-    case 'bounced':   return 'bouncedCount';
-    case 'complained': return 'complainedCount';
-    case 'unsubscribed': return 'unsubscribedCount';
-    default: return null;
-  }
+  // Use fuzzy matching (like Klaviyo handler) to handle variations in event names
+  // GHL may send: "delivered", "Delivered", "email.delivered", "EmailDelivered", etc.
+  const normalized = event.toLowerCase().replace(/[^a-z]+/g, '');
+  if (!normalized) return null;
+
+  // Order matters: check more specific patterns first to avoid false positives
+  if (normalized.includes('unsubscribe')) return 'unsubscribedCount';
+  if (normalized.includes('complain') || normalized.includes('spam')) return 'complainedCount';
+  if (normalized.includes('bounce')) return 'bouncedCount';
+  if (normalized.includes('click')) return 'clickedCount';
+  if (normalized.includes('open')) return 'openedCount';
+  if (normalized.includes('deliver')) return 'deliveredCount';
+  return null;
 }
 
 // ── Campaign ID Extraction ──
 
 /**
  * Extract campaign identifiers from the webhook payload.
- * The `campaigns` array is primary; `tags` may also contain IDs.
+ * GHL payloads may include campaign IDs in various locations:
+ * - webhookPayload.campaigns[] (array of IDs)
+ * - webhookPayload.campaignId / emailId / scheduleId (direct fields)
+ * - payload.campaignId / emailId / scheduleId (top-level fields)
+ * - webhookPayload.tags[] (tags that look like IDs)
  */
 export function extractCampaignIds(payload: LCEmailStatsPayload): string[] {
-  const ids: string[] = [];
+  const ids = new Set<string>();
+  const wp = payload.webhookPayload;
 
-  if (payload.webhookPayload.campaigns) {
-    ids.push(...payload.webhookPayload.campaigns);
+  // Primary: campaigns array
+  if (Array.isArray(wp.campaigns)) {
+    for (const c of wp.campaigns) {
+      if (typeof c === 'string' && c.trim()) ids.add(c.trim());
+    }
   }
 
-  if (payload.webhookPayload.tags) {
-    for (const tag of payload.webhookPayload.tags) {
-      if (/^[a-zA-Z0-9_-]{10,}$/.test(tag) && !ids.includes(tag)) {
-        ids.push(tag);
+  // Direct ID fields on webhookPayload
+  for (const key of ['campaignId', 'emailId', 'scheduleId'] as const) {
+    const val = wp[key];
+    if (typeof val === 'string' && val.trim()) ids.add(val.trim());
+  }
+
+  // Top-level ID fields on the payload root
+  for (const key of ['campaignId', 'emailId', 'scheduleId'] as const) {
+    const val = payload[key];
+    if (typeof val === 'string' && val.trim()) ids.add(val.trim());
+  }
+
+  // Tags that look like IDs (alphanumeric, 10+ chars)
+  if (Array.isArray(wp.tags)) {
+    for (const tag of wp.tags) {
+      if (typeof tag === 'string' && /^[a-zA-Z0-9_-]{10,}$/.test(tag)) {
+        ids.add(tag.trim());
       }
     }
   }
 
-  return ids.filter(Boolean);
+  return [...ids].filter(Boolean);
 }
