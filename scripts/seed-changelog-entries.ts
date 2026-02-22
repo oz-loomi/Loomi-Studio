@@ -1,5 +1,5 @@
 /**
- * Seed changelog entries into the database.
+ * Seed changelog entries and template library data into the database.
  * Uses upsert to avoid duplicates — safe to run multiple times.
  *
  * Run: npx tsx scripts/seed-changelog-entries.ts
@@ -9,6 +9,8 @@ try { require('dotenv/config'); } catch { /* dotenv not available in production 
 import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const connectionString =
   process.env.DATABASE_URL ??
@@ -163,12 +165,46 @@ async function main() {
   }
 
   console.log(`Changelog seed: ${created} upserted, ${skipped} skipped.`);
+
+  // ── Seed template library ──
+  await seedTemplates();
+}
+
+async function seedTemplates() {
+  const dataDir = path.join(__dirname, 'data');
+  let tCreated = 0;
+  let tSkipped = 0;
+
+  // Service Reminder ("Test Template")
+  try {
+    const contentFile = path.join(dataDir, 'test-template-content.html');
+    const content = fs.existsSync(contentFile) ? fs.readFileSync(contentFile, 'utf-8') : '';
+    if (content) {
+      await prisma.template.upsert({
+        where: { slug: 'test-template' },
+        update: { content },
+        create: {
+          slug: 'test-template',
+          title: 'Service Reminder',
+          type: 'design',
+          content,
+          preheader: '',
+        },
+      });
+      tCreated++;
+    }
+  } catch (e) {
+    tSkipped++;
+    console.warn('  Skipped template "Service Reminder":', e instanceof Error ? e.message : e);
+  }
+
+  console.log(`Template seed: ${tCreated} upserted, ${tSkipped} skipped.`);
 }
 
 main()
   .catch((e) => {
-    console.error('Changelog seed failed:', e);
-    // Don't fail the build if changelog seeding fails
+    console.error('Seed failed:', e);
+    // Don't fail the build if seeding fails
     process.exit(0);
   })
   .finally(() => pool.end());
