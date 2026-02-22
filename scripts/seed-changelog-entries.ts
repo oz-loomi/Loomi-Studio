@@ -137,6 +137,16 @@ const entries: Entry[] = [
     createdBy: 'Connor',
     publishedAt: new Date('2026-02-22T12:09:00Z'),
   },
+  // ── 2026-02-22: Production preview fix ──
+  {
+    id: 'fix_preview_email_engine_deps_20260222',
+    title: 'Fix Template Preview on Production',
+    content:
+      'Fixed an issue where the email template preview failed on production with a missing @maizzle/framework error. The root cause was that email-engine dependencies were not installed during the production build. The build script now installs email-engine packages before building the Next.js app.',
+    type: 'fix',
+    createdBy: 'Connor',
+    publishedAt: new Date('2026-02-22T18:00:00Z'),
+  },
 ];
 
 async function main() {

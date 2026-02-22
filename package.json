@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "prisma generate && prisma db push && npx tsx scripts/seed-changelog-entries.ts && next build",
+    "build": "cd email-engine && npm ci && cd .. && prisma generate && prisma db push && npx tsx scripts/seed-changelog-entries.ts && next build",
     "start": "next start -p 3000",
     "db:generate": "npx prisma generate",
     "db:push": "npx prisma db push",
