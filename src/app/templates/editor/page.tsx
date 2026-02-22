@@ -1058,7 +1058,6 @@ const GROUP_CONFIG: Record<string, { label: string; order: number; defaultOpen?:
 // Button set tabs (Primary / Secondary toggle like Elementor's hover/active tabs)
 function ButtonSetTabs({
   groupProps,
-  compProps,
   activeTab,
   onTabChange,
   renderStandardProps,
@@ -1066,7 +1065,6 @@ function ButtonSetTabs({
   hideTabsWhenSingle = false,
 }: {
   groupProps: { key: string; label: string; type: string; buttonSet?: 'primary' | 'secondary'; [k: string]: unknown }[];
-  compProps: Record<string, string>;
   activeTab: 'primary' | 'secondary';
   onTabChange: (tab: 'primary' | 'secondary') => void;
   renderStandardProps: (props: typeof groupProps) => React.ReactNode[];
@@ -1137,76 +1135,6 @@ function CollapsiblePropGroup({
           <div className="space-y-4 pb-4 px-px">
             {children}
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Compact single-row border input (style + width + color)
-function BorderCompactRow({
-  label,
-  styleKey,
-  widthKey,
-  colorKey,
-  styleOptions,
-  values,
-  defaults,
-  onChange,
-  onLiveStyle,
-}: {
-  label: string;
-  styleKey: string;
-  widthKey: string;
-  colorKey: string;
-  styleOptions?: { label: string; value: string }[];
-  values: Record<string, string>;
-  defaults?: { style?: string; width?: string; color?: string };
-  onChange: (key: string, val: string) => void;
-  onLiveStyle?: (key: string, val: string) => void;
-}) {
-  return (
-    <div>
-      <span className="text-[10px] text-[var(--muted-foreground)] mb-1 block">{label}</span>
-      <div className="flex items-center gap-1.5">
-        <select
-          value={values[styleKey] || defaults?.style || ''}
-          onChange={(e) => onChange(styleKey, e.target.value)}
-          className="w-[72px] bg-[var(--input)] border border-[var(--border)] rounded-lg px-1.5 py-1.5 text-[11px]"
-        >
-          <option value="">Default</option>
-          {(styleOptions || []).map(opt => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
-        <div className="relative w-[58px]">
-          <input
-            type="text"
-            value={values[widthKey] ? stripUnit(values[widthKey]) : ''}
-            onChange={(e) => {
-              const raw = e.target.value;
-              onChange(widthKey, raw ? ensureUnit(raw) : '');
-            }}
-            placeholder={stripUnit(defaults?.width || '0')}
-            className="w-full bg-[var(--input)] border border-[var(--border)] rounded-lg pl-1.5 pr-5 py-1.5 text-[11px] font-mono"
-          />
-          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] text-[var(--muted-foreground)] pointer-events-none">px</span>
-        </div>
-        <div className="flex-1 flex items-center bg-[var(--input)] border border-[var(--border)] rounded-lg overflow-hidden">
-          <input
-            type="color"
-            value={values[colorKey] || defaults?.color || '#000000'}
-            onInput={(e) => onLiveStyle?.(colorKey, (e.target as HTMLInputElement).value)}
-            onChange={(e) => onChange(colorKey, e.target.value)}
-            className="w-6 h-6 cursor-pointer bg-transparent flex-shrink-0 border-none p-0.5"
-          />
-          <input
-            type="text"
-            value={values[colorKey] || ''}
-            onChange={(e) => onChange(colorKey, e.target.value)}
-            className="flex-1 bg-transparent border-none px-1 py-1.5 text-[11px] font-mono outline-none min-w-0"
-            placeholder={defaults?.color || '#000000'}
-          />
         </div>
       </div>
     </div>
@@ -2630,7 +2558,6 @@ function ComponentPropsRenderer({
               return (
                 <ButtonSetTabs
                   groupProps={groupProps}
-                  compProps={compProps}
                   activeTab={trackingSetTab}
                   onTabChange={setTrackingSetTab}
                   renderStandardProps={renderStandardProps}
@@ -2643,7 +2570,6 @@ function ComponentPropsRenderer({
             return (
               <ButtonSetTabs
                 groupProps={groupProps}
-                compProps={compProps}
                 activeTab={buttonSetTab}
                 onTabChange={setButtonSetTab}
                 renderStandardProps={renderStandardProps}
