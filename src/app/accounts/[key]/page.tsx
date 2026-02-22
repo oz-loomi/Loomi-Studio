@@ -17,7 +17,7 @@ import {
 import { toast } from '@/lib/toast';
 import { AdminOnly } from '@/components/route-guard';
 import { OemMultiSelect } from '@/components/oem-multi-select';
-import { UserPicker, type UserPickerUser } from '@/components/user-picker';
+import { UserAvatar } from '@/components/user-avatar';
 import { ContactsTable } from '@/components/contacts/contacts-table';
 import type { Contact } from '@/components/contacts/contacts-table';
 import type { AccountData } from '@/contexts/account-context';
@@ -194,7 +194,7 @@ export default function AccountDetailPage() {
   const [bizWebsite, setBizWebsite] = useState('');
   const [bizTimezone, setBizTimezone] = useState('');
   const [accountRepId, setAccountRepId] = useState<string | null>(null);
-  const [allUsers, setAllUsers] = useState<UserPickerUser[]>([]);
+  const [allUsers, setAllUsers] = useState<{ id: string; name: string; title?: string | null; email: string; avatarUrl?: string | null; role?: string; accountKeys?: string[] }[]>([]);
 
   // ── Branding fields ──
   const [logoLight, setLogoLight] = useState('');
@@ -567,7 +567,7 @@ export default function AccountDetailPage() {
 
         const resolvedAccount = accountData as AccountData;
         populateFromAccount(resolvedAccount);
-        setAllUsers(usersData as UserPickerUser[]);
+        setAllUsers(usersData as typeof allUsers);
         if (cvDefaults?.defaults && typeof cvDefaults.defaults === 'object') {
           setCustomValueDefaults(cvDefaults.defaults);
         }
@@ -1107,12 +1107,69 @@ export default function AccountDetailPage() {
                 )}
                 <div>
                   <label className={labelClass}>Account Rep</label>
-                  <UserPicker
-                    value={accountRepId}
-                    onChange={setAccountRepId}
-                    users={allUsers}
-                    placeholder="Assign account rep..."
-                  />
+                  {(() => {
+                    const assignedUsers = allUsers.filter(
+                      (u) => u.accountKeys?.includes(key) && u.role !== 'developer',
+                    );
+                    if (assignedUsers.length === 0) {
+                      return (
+                        <p className="text-xs text-[var(--muted-foreground)] italic py-2">
+                          No users assigned to this account
+                        </p>
+                      );
+                    }
+                    return (
+                      <div className="rounded-xl border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden">
+                        {assignedUsers.map((u) => {
+                          const isRep = accountRepId === u.id;
+                          return (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => setAccountRepId(isRep ? null : u.id)}
+                              className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                                isRep
+                                  ? 'bg-[var(--primary)]/10'
+                                  : 'hover:bg-[var(--muted)]/50'
+                              }`}
+                            >
+                              <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                                isRep
+                                  ? 'border-[var(--primary)] bg-[var(--primary)]'
+                                  : 'border-[var(--muted-foreground)]/40'
+                              }`}>
+                                {isRep && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                                )}
+                              </span>
+                              <UserAvatar
+                                name={u.name}
+                                email={u.email}
+                                avatarUrl={u.avatarUrl}
+                                size={28}
+                                className="w-7 h-7 rounded-full object-cover flex-shrink-0"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-[var(--foreground)] truncate">
+                                  {u.name}
+                                </p>
+                                {u.title && (
+                                  <p className="text-[11px] text-[var(--muted-foreground)] truncate leading-tight">
+                                    {u.title}
+                                  </p>
+                                )}
+                              </div>
+                              {isRep && (
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--primary)] flex-shrink-0">
+                                  Rep
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </section>
