@@ -28,7 +28,7 @@ function formatDate(iso: string) {
 }
 
 export function ClientDashboard() {
-  const { clientKey, clientData } = useAccount();
+  const { accountKey: clientKey, accountData: clientData } = useAccount();
   const [emails, setEmails] = useState<Email[]>([]);
   const [templates, setTemplates] = useState<TemplateEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
