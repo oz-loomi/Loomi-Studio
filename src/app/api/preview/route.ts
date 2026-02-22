@@ -3,14 +3,16 @@ import { PATHS } from '@/lib/paths';
 import { requireAuth } from '@/lib/api-auth';
 import * as templateService from '@/lib/services/templates';
 import * as accountEmailService from '@/lib/services/account-emails';
-import { execSync } from 'child_process';
+import { maizzleRender } from '@/lib/maizzle-render';
 import crypto from 'crypto';
-import fs from 'fs';
+import { readdir, readFile, writeFile, mkdir, unlink, stat } from 'fs/promises';
+import { existsSync } from 'fs';
 import path from 'path';
 
-// Server-side disk cache directory
+// ── Server-side disk cache ──
+
 const CACHE_DIR = path.join(process.cwd(), '.preview-cache');
-const PREVIEW_CACHE_VERSION = process.env.PREVIEW_CACHE_VERSION || '2026-02-22.2';
+const PREVIEW_CACHE_VERSION = process.env.PREVIEW_CACHE_VERSION || '2026-02-22.3';
 const ENGINE_SIGNATURE_TTL_MS = 1000;
 const ENGINE_SIGNATURE_PATHS = [
   path.join(PATHS.engine.root, 'src', 'components'),
@@ -21,6 +23,8 @@ let engineSignatureCache: { value: string; computedAt: number } = {
   value: '',
   computedAt: 0,
 };
+
+// ── Helpers ──
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -45,13 +49,7 @@ function applyPreviewValues(
   return output;
 }
 
-function ensureCacheDir() {
-  if (!fs.existsSync(CACHE_DIR)) {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
-  }
-}
-
-function getEngineSignature(): string {
+async function getEngineSignature(): Promise<string> {
   const now = Date.now();
   if (
     engineSignatureCache.value &&
@@ -65,10 +63,11 @@ function getEngineSignature(): string {
 
   while (stack.length) {
     const current = stack.pop();
-    if (!current || !fs.existsSync(current)) continue;
-    let entries: fs.Dirent[];
+    if (!current || !existsSync(current)) continue;
+
+    let entries: import('fs').Dirent[];
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      entries = await readdir(current, { withFileTypes: true });
     } catch {
       continue;
     }
@@ -79,46 +78,45 @@ function getEngineSignature(): string {
         stack.push(fullPath);
         continue;
       }
-      let stat: fs.Stats;
       try {
-        stat = fs.statSync(fullPath);
+        const s = await stat(fullPath);
+        if (s.mtimeMs > latestMtime) latestMtime = s.mtimeMs;
       } catch {
         continue;
       }
-      if (stat.mtimeMs > latestMtime) latestMtime = stat.mtimeMs;
     }
   }
 
-  // Include component/layout mtime so cache invalidates when engine files change.
   const value = String(Math.floor(latestMtime));
   engineSignatureCache = { value, computedAt: now };
   return value;
 }
 
-function getCacheKey(html: string): string {
-  const engineSignature = getEngineSignature();
+async function getCacheKey(html: string): Promise<string> {
+  const engineSignature = await getEngineSignature();
   return crypto
     .createHash('md5')
     .update(`${PREVIEW_CACHE_VERSION}:${engineSignature}:${html}`)
     .digest('hex');
 }
 
-function getCachedPreview(cacheKey: string): string | null {
+async function getCachedPreview(cacheKey: string): Promise<string | null> {
   const cachePath = path.join(CACHE_DIR, `${cacheKey}.html`);
   try {
-    if (fs.existsSync(cachePath)) {
-      return fs.readFileSync(cachePath, 'utf-8');
-    }
-  } catch {}
-  return null;
+    return await readFile(cachePath, 'utf-8');
+  } catch {
+    return null;
+  }
 }
 
-function setCachedPreview(cacheKey: string, html: string) {
+async function setCachedPreview(cacheKey: string, html: string) {
   try {
-    ensureCacheDir();
-    fs.writeFileSync(path.join(CACHE_DIR, `${cacheKey}.html`), html);
+    await mkdir(CACHE_DIR, { recursive: true });
+    await writeFile(path.join(CACHE_DIR, `${cacheKey}.html`), html);
   } catch {}
 }
+
+// ── POST /api/preview — Editor preview ──
 
 export async function POST(req: NextRequest) {
   const { error } = await requireAuth();
@@ -138,78 +136,32 @@ export async function POST(req: NextRequest) {
         : undefined,
     );
 
-    // For editor POST previews, always compile fresh to avoid stale component/layout artifacts.
-    // (GET previews can still use cache.)
-
-    // Always use the email engine for compilation
-    const engineRoot = PATHS.engine.root;
-
-    // Use unique ID for temp files to avoid race conditions with concurrent requests
-    const uid = crypto.randomBytes(6).toString('hex');
-    const tmpDir = path.join(engineRoot, 'src', 'templates', `_preview_${uid}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
-    const tmpFile = path.join(tmpDir, '_preview.html');
-    fs.writeFileSync(tmpFile, resolvedHtml, 'utf-8');
-
-    const scriptFile = path.join(engineRoot, `_render-preview-${uid}.mjs`);
-
-    try {
-      const scriptContent = `
-import { render } from '@maizzle/framework';
-import fs from 'fs';
-
-const template = fs.readFileSync(${JSON.stringify(tmpFile)}, 'utf-8');
-const result = await render(template, {
-  components: {
-    root: '.',
-    folders: ['src/components', 'src/layouts'],
-  },
-  css: { inline: true, purge: { safelist: ['*loomi-*'] } },
-  prettify: true,
-});
-
-process.stdout.write(JSON.stringify({ html: result.html }));
-`;
-
-      fs.writeFileSync(scriptFile, scriptContent);
-
-      const output = execSync(`node _render-preview-${uid}.mjs`, {
-        cwd: engineRoot,
-        timeout: 15000,
-        encoding: 'utf-8',
-        env: { ...process.env, NODE_NO_WARNINGS: '1' },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      const jsonStart = output.indexOf('{"html":');
-      if (jsonStart === -1) {
-        return NextResponse.json({ error: 'No output from Maizzle render' }, { status: 500 });
-      }
-      const result = JSON.parse(output.slice(jsonStart));
-
-      return NextResponse.json({ html: result.html });
-    } finally {
-      try { fs.unlinkSync(scriptFile); } catch {}
-      try { fs.unlinkSync(tmpFile); } catch {}
-      try { fs.rmdirSync(tmpDir); } catch {}
+    // Check cache — key includes engine file mtimes so stale results are impossible
+    const cacheKey = await getCacheKey(resolvedHtml);
+    const cached = await getCachedPreview(cacheKey);
+    if (cached) {
+      return NextResponse.json({ html: cached });
     }
+
+    // Compile via persistent worker (no prettify for preview — it renders in an iframe)
+    const result = await maizzleRender.renderTemplate(resolvedHtml, {
+      prettify: false,
+      purge: { safelist: ['*loomi-*'] },
+    });
+
+    await setCachedPreview(cacheKey, result);
+    return NextResponse.json({ html: result });
   } catch (err: any) {
     console.error('Preview error:', err);
     return NextResponse.json(
       { error: err.message || 'Preview compilation failed' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
-/**
- * GET /api/preview?design=slug
- * GET /api/preview?emailId=id
- *
- * Resolve a template from the database and compile it.
- * - design: look up a library template by slug
- * - emailId: look up an account email by ID (uses customized content or falls back to library)
- */
+// ── GET /api/preview?design=slug|emailId=id — Listing / account email preview ──
+
 export async function GET(req: NextRequest) {
   const { error } = await requireAuth();
   if (error) return error;
@@ -222,14 +174,12 @@ export async function GET(req: NextRequest) {
     let previewValues: Record<string, string> = {};
 
     if (emailId) {
-      // Look up account email — use customized content or fall back to library template
       const accountEmail = await accountEmailService.getAccountEmail(emailId);
       if (!accountEmail) {
         return NextResponse.json({ error: 'Account email not found' }, { status: 404 });
       }
       html = accountEmail.content || accountEmail.template.content;
 
-      // Build preview values from account data
       if (accountEmail.account) {
         const account = accountEmail.account;
         previewValues['custom_values.dealer_name'] = account.dealer;
@@ -238,7 +188,6 @@ export async function GET(req: NextRequest) {
         if (account.email) previewValues['location.email'] = account.email;
         if (account.address) previewValues['location.address'] = account.address;
         if (account.website) previewValues['location.website'] = account.website;
-        // Parse custom values from JSON
         if (account.customValues) {
           try {
             const cv = JSON.parse(account.customValues) as Record<string, { name: string; value: string }>;
@@ -262,65 +211,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'No template content' }, { status: 404 });
     }
 
-    // Apply preview values
     const resolvedHtml = applyPreviewValues(html, previewValues);
 
     // Check cache
-    const cacheKey = getCacheKey(resolvedHtml);
-    const cached = getCachedPreview(cacheKey);
+    const cacheKey = await getCacheKey(resolvedHtml);
+    const cached = await getCachedPreview(cacheKey);
     if (cached) {
       return NextResponse.json({ html: cached });
     }
 
-    // Compile with Maizzle
-    const engineRoot = PATHS.engine.root;
-    const uid = crypto.randomBytes(6).toString('hex');
-    const tmpDir = path.join(engineRoot, 'src', 'templates', `_preview_${uid}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
-    const tmpFile = path.join(tmpDir, '_preview.html');
-    fs.writeFileSync(tmpFile, resolvedHtml, 'utf-8');
+    // Compile via persistent worker (no prettify for preview)
+    const result = await maizzleRender.renderTemplate(resolvedHtml, {
+      prettify: false,
+      purge: { safelist: ['*loomi-*'] },
+    });
 
-    const scriptFile = path.join(engineRoot, `_render-preview-${uid}.mjs`);
-
-    try {
-      const scriptContent = `
-import { render } from '@maizzle/framework';
-import fs from 'fs';
-
-const template = fs.readFileSync(${JSON.stringify(tmpFile)}, 'utf-8');
-const result = await render(template, {
-  components: {
-    root: '.',
-    folders: ['src/components', 'src/layouts'],
-  },
-  css: { inline: true, purge: { safelist: ['*loomi-*'] } },
-  prettify: true,
-});
-
-process.stdout.write(JSON.stringify({ html: result.html }));
-`;
-      fs.writeFileSync(scriptFile, scriptContent);
-
-      const output = execSync(`node _render-preview-${uid}.mjs`, {
-        cwd: engineRoot,
-        timeout: 15000,
-        encoding: 'utf-8',
-        env: { ...process.env, NODE_NO_WARNINGS: '1' },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      const jsonStart = output.indexOf('{"html":');
-      if (jsonStart === -1) {
-        return NextResponse.json({ error: 'No output from Maizzle render' }, { status: 500 });
-      }
-      const result = JSON.parse(output.slice(jsonStart));
-      setCachedPreview(cacheKey, result.html);
-      return NextResponse.json({ html: result.html });
-    } finally {
-      try { fs.unlinkSync(scriptFile); } catch {}
-      try { fs.unlinkSync(tmpFile); } catch {}
-      try { fs.rmdirSync(tmpDir); } catch {}
-    }
+    await setCachedPreview(cacheKey, result);
+    return NextResponse.json({ html: result });
   } catch (err: any) {
     console.error('Preview GET error:', err);
     return NextResponse.json(
@@ -330,17 +237,16 @@ process.stdout.write(JSON.stringify({ html: result.html }));
   }
 }
 
-// DELETE handler to clear the cache
+// ── DELETE /api/preview — Clear cache ──
+
 export async function DELETE() {
   const { error } = await requireAuth();
   if (error) return error;
 
   try {
-    if (fs.existsSync(CACHE_DIR)) {
-      const files = fs.readdirSync(CACHE_DIR);
-      for (const file of files) {
-        fs.unlinkSync(path.join(CACHE_DIR, file));
-      }
+    if (existsSync(CACHE_DIR)) {
+      const files = await readdir(CACHE_DIR);
+      await Promise.all(files.map((f) => unlink(path.join(CACHE_DIR, f))));
     }
     return NextResponse.json({ cleared: true });
   } catch (err: any) {

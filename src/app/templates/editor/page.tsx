@@ -3196,6 +3196,7 @@ export default function TemplateEditorPage() {
   );
   const selectedComponentRef = useRef<number | null>(null);
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewAbortRef = useRef<AbortController | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Media picker state
@@ -3277,6 +3278,11 @@ export default function TemplateEditorPage() {
 
   const compilePreview = useCallback(
     async (html: string) => {
+      // Cancel any in-flight preview request
+      if (previewAbortRef.current) previewAbortRef.current.abort();
+      const controller = new AbortController();
+      previewAbortRef.current = controller;
+
       setPreviewLoading(true);
       setPreviewError("");
       try {
@@ -3288,16 +3294,19 @@ export default function TemplateEditorPage() {
             project: "core",
             previewValues: previewVariableMap,
           }),
+          signal: controller.signal,
         });
+        if (controller.signal.aborted) return;
         const data = await res.json();
         if (data.html) {
           previewKeyRef.current += 1;
           setPreviewHtml(injectLoomiAttributes(data.html));
         } else if (data.error) setPreviewError(data.error);
       } catch (err: any) {
+        if (err.name === "AbortError") return;
         setPreviewError(err.message || "Preview failed");
       }
-      setPreviewLoading(false);
+      if (!controller.signal.aborted) setPreviewLoading(false);
     },
     [previewVariableMap],
   );
@@ -3589,7 +3598,7 @@ export default function TemplateEditorPage() {
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     previewTimerRef.current = setTimeout(
       () => compilePreview(htmlForPreview),
-      200,
+      1000,
     );
   }, [
     previewVariableMap,
@@ -3921,11 +3930,11 @@ export default function TemplateEditorPage() {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       previewTimerRef.current = setTimeout(
         () => compilePreview(previewCode),
-        300,
+        1000,
       );
     } else {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-      previewTimerRef.current = setTimeout(() => compilePreview(prev), 300);
+      previewTimerRef.current = setTimeout(() => compilePreview(prev), 1000);
     }
   }, [code, editorMode, hiddenComponents, compilePreview]);
 
@@ -3948,11 +3957,11 @@ export default function TemplateEditorPage() {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       previewTimerRef.current = setTimeout(
         () => compilePreview(previewCode),
-        300,
+        1000,
       );
     } else {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-      previewTimerRef.current = setTimeout(() => compilePreview(next), 300);
+      previewTimerRef.current = setTimeout(() => compilePreview(next), 1000);
     }
   }, [code, editorMode, hiddenComponents, compilePreview]);
 
@@ -4016,7 +4025,7 @@ export default function TemplateEditorPage() {
         if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
         previewTimerRef.current = setTimeout(
           () => compilePreview(previewCode),
-          300,
+          1000,
         );
       }
       return next;
@@ -4393,7 +4402,7 @@ export default function TemplateEditorPage() {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       previewTimerRef.current = setTimeout(
         () => compilePreview(previewCode),
-        200,
+        1000,
       );
 
       setMessage("Version restored");
