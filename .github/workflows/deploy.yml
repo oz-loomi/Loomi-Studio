@@ -24,4 +24,5 @@ jobs:
             git pull origin main
             npm install --legacy-peer-deps
             npm run build
+            set -a && source .env.local && set +a
             pm2 restart loomi-studio --update-env

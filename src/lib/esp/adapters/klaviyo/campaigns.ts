@@ -50,11 +50,13 @@ export async function fetchCampaigns(
 
   const campaigns: EspCampaign[] = [];
   let url: string | null =
-    `${KLAVIYO_BASE}/campaigns/?filter=equals(messages.channel,'email')&sort=-created_at&page[size]=50`;
+    `${KLAVIYO_BASE}/campaigns/?filter=equals(messages.channel,'email')&sort=-created_at`;
 
   while (url) {
     const res: Response = await fetch(url, { headers: klaviyoHeaders(apiKey) });
     if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.error(`[Klaviyo] campaigns fetch failed (${res.status}) for ${locationId}:`, body);
       throw new Error(`Klaviyo campaigns fetch failed (${res.status})`);
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -168,7 +170,7 @@ export async function fetchWorkflows(
   if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
   const flows: EspWorkflow[] = [];
-  let url: string | null = `${KLAVIYO_BASE}/flows/?sort=-created&page[size]=50`;
+  let url: string | null = `${KLAVIYO_BASE}/flows/?sort=-created`;
 
   while (url) {
     const res: Response = await fetch(url, { headers: klaviyoHeaders(apiKey) });
