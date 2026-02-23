@@ -393,7 +393,7 @@ function UserDetailContent() {
           <div className="space-y-4">
             <div>
               <label className={labelClass}>Role</label>
-              <select value={role} onChange={e => setRole(e.target.value)} className={inputClass} disabled={!canEditUsers}>
+              <select value={role} onChange={e => setRole(e.target.value)} className={inputClass}>
                 {currentUserRole === 'developer' && <option value="developer">Developer</option>}
                 <option value="super_admin">Super Admin</option>
                 <option value="admin">Admin</option>

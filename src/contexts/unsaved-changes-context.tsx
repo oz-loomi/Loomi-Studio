@@ -92,6 +92,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     const nextDirty = dirtyElements.size > 0;
     hasUnsavedChangesRef.current = nextDirty;
     setHasUnsavedChanges(nextDirty);
+    return nextDirty;
   }, []);
 
   const markClean = useCallback(() => {
@@ -136,14 +137,15 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const confirmNavigation = useCallback((action: () => void, destination?: string | null) => {
-    if (bypassGuardRef.current || !hasUnsavedChangesRef.current) {
+    const isDirty = syncDirtyState();
+    if (bypassGuardRef.current || !isDirty) {
       action();
       return true;
     }
 
     queueNavigation(action, destination);
     return false;
-  }, [queueNavigation]);
+  }, [queueNavigation, syncDirtyState]);
 
   const handleStay = useCallback(() => {
     setShowPrompt(false);
@@ -180,20 +182,25 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
       updateElementDirtyState(event.target);
     };
 
-    document.addEventListener('focusin', handleFocusIn, true);
-    document.addEventListener('input', handleInputChange, true);
-    document.addEventListener('change', handleInputChange, true);
+    // Use bubble phase (not capture) so React 18's root-level event
+    // delegation processes onChange handlers BEFORE we call setState here.
+    // Capture-phase setState can cause a synchronous flush that resets
+    // controlled component DOM values before React fires its own onChange.
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('input', handleInputChange);
+    document.addEventListener('change', handleInputChange);
 
     return () => {
-      document.removeEventListener('focusin', handleFocusIn, true);
-      document.removeEventListener('input', handleInputChange, true);
-      document.removeEventListener('change', handleInputChange, true);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('input', handleInputChange);
+      document.removeEventListener('change', handleInputChange);
     };
   }, [captureInitialValue, updateElementDirtyState]);
 
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
-      if (!hasUnsavedChangesRef.current || bypassGuardRef.current) return;
+      const isDirty = syncDirtyState();
+      if (!isDirty || bypassGuardRef.current) return;
       if (event.defaultPrevented) return;
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 
@@ -233,7 +240,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener('click', handleDocumentClick, true);
     };
-  }, [queueNavigation, router]);
+  }, [queueNavigation, router, syncDirtyState]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -241,7 +248,8 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
         restoringHistoryRef.current = false;
         return;
       }
-      if (!hasUnsavedChangesRef.current || bypassGuardRef.current) return;
+      const isDirty = syncDirtyState();
+      if (!isDirty || bypassGuardRef.current) return;
 
       restoringHistoryRef.current = true;
       window.history.forward();
@@ -258,7 +266,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [queueNavigation]);
+  }, [queueNavigation, syncDirtyState]);
 
   const contextValue = useMemo<UnsavedChangesContextValue>(() => ({
     hasUnsavedChanges,

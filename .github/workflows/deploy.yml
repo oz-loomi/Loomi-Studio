@@ -20,6 +20,12 @@ jobs:
           script_stop: true
           command_timeout: 10m
           script: |
+            # Ensure nginx allows uploads up to 10MB (default is 1MB)
+            if [ ! -f /etc/nginx/conf.d/client-max-body-size.conf ]; then
+              echo 'client_max_body_size 10m;' > /etc/nginx/conf.d/client-max-body-size.conf
+              nginx -t && systemctl reload nginx
+            fi
+
             cd /var/www/loomi-studio
             git pull origin main
             npm install --legacy-peer-deps
