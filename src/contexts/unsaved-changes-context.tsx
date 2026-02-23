@@ -81,6 +81,8 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   const bypassGuardRef = useRef(false);
   const restoringHistoryRef = useRef(false);
 
+  const rafIdRef = useRef<number>(0);
+
   const syncDirtyState = useCallback(() => {
     const dirtyElements = dirtyElementsRef.current;
     for (const element of Array.from(dirtyElements)) {
@@ -91,7 +93,13 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
 
     const nextDirty = dirtyElements.size > 0;
     hasUnsavedChangesRef.current = nextDirty;
-    setHasUnsavedChanges(nextDirty);
+    // Defer the React state update so it doesn't cause a synchronous flush
+    // during input/change event processing. On <select> elements the browser
+    // fires `input` before `change`; a synchronous setState here would flush
+    // a render that resets the controlled DOM value before React's onChange
+    // handler ever runs, making the dropdown appear "stuck".
+    cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(() => setHasUnsavedChanges(nextDirty));
     return nextDirty;
   }, []);
 
