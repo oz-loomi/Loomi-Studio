@@ -314,7 +314,7 @@ function UserDetailContent() {
         )}
       </div>
 
-      <fieldset disabled={!canEditUsers} className="max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6 disabled:opacity-70 disabled:pointer-events-none">
+      <div className={'max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6' + (!canEditUsers ? ' opacity-70 pointer-events-none' : '')}>
 
         {/* General */}
         <section className={sectionCardClass}>
@@ -443,7 +443,7 @@ function UserDetailContent() {
         </section>
 
         {/* Danger Zone */}
-      </fieldset>
+      </div>
 
       {/* Danger Zone — outside fieldset so it's not disabled */}
       {canEditUsers && (
