@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { AppLogo } from '@/components/app-logo';
+import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 
 interface InvitePreview {
   user: {
@@ -17,6 +18,7 @@ interface InvitePreview {
 export default function OnboardingPage() {
   const searchParams = useSearchParams();
   const token = (searchParams.get('token') || '').trim();
+  const { markClean } = useUnsavedChanges();
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -86,6 +88,7 @@ export default function OnboardingPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Unable to activate your account');
 
+      markClean();
       setSuccess(true);
       setPassword('');
       setConfirmPassword('');

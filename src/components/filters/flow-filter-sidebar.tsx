@@ -325,7 +325,7 @@ export function FlowFilterSidebar({
 
   if (!isOpen) return null;
 
-  const activeCount = [filters.account, filters.status, filters.oem, filters.industry]
+  const activeCount = [filters.account, filters.status, filters.industry]
     .filter((values) => values.length > 0)
     .length;
 
@@ -347,7 +347,7 @@ export function FlowFilterSidebar({
         <div className="p-5 border-b border-[var(--sidebar-border-soft)] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FunnelIcon className="w-5 h-5 text-[var(--primary)]" />
-            <h3 className="text-sm font-bold tracking-tight">Flow Filters</h3>
+            <h3 className="text-sm font-bold tracking-tight">Filters</h3>
           </div>
           {!inline && onClose && (
             <button
@@ -374,16 +374,6 @@ export function FlowFilterSidebar({
               values={filters.status}
               onChange={(values) => setFilter('status', values)}
               options={options.statuses}
-            />
-          )}
-
-          {options.oems.length > 1 && (
-            <PillSection
-              label="Brand"
-              allLabel="All Brands"
-              values={filters.oem}
-              options={options.oems}
-              onChange={(values) => setFilter('oem', values)}
             />
           )}
 

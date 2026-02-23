@@ -332,7 +332,7 @@ export function CampaignFilterSidebar({
 
   if (!isOpen) return null;
 
-  const activeCount = [filters.account, filters.status, filters.oem, filters.industry]
+  const activeCount = [filters.account, filters.status, filters.industry]
     .filter((values) => values.length > 0)
     .length;
 
@@ -381,16 +381,6 @@ export function CampaignFilterSidebar({
               values={filters.status}
               onChange={(values) => setFilter('status', values)}
               options={options.statuses}
-            />
-          )}
-
-          {options.oems.length > 1 && (
-            <PillSection
-              label="Brand"
-              allLabel="All Brands"
-              values={filters.oem}
-              options={options.oems}
-              onChange={(values) => setFilter('oem', values)}
             />
           )}
 

@@ -81,7 +81,7 @@ export function CampaignToolbar({
   onFiltersChange,
   options,
 }: CampaignToolbarProps) {
-  const [openPanel, setOpenPanel] = useState<'account' | 'status' | 'oem' | 'industry' | null>(null);
+  const [openPanel, setOpenPanel] = useState<'account' | 'status' | 'industry' | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -104,7 +104,7 @@ export function CampaignToolbar({
     return () => document.removeEventListener('keydown', handler);
   }, [openPanel]);
 
-  const activeCount = [filters.account, filters.status, filters.oem, filters.industry]
+  const activeCount = [filters.account, filters.status, filters.industry]
     .filter(values => values.length > 0)
     .length;
 
@@ -158,20 +158,6 @@ export function CampaignToolbar({
           panelOptions={options.statuses}
           panelAllLabel="All Statuses"
           onToggleValue={(value) => toggleFilterValue('status', value)}
-        />
-      )}
-
-      {options.oems.length > 1 && (
-        <MultiFilterDropdown
-          label="Brand"
-          values={filters.oem}
-          isOpen={openPanel === 'oem'}
-          onToggle={() => setOpenPanel(openPanel === 'oem' ? null : 'oem')}
-          onClear={() => clearFilter('oem')}
-          panelTitle="Filter by Brand"
-          panelOptions={options.oems}
-          panelAllLabel="All Brands"
-          onToggleValue={(value) => toggleFilterValue('oem', value)}
         />
       )}
 
