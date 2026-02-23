@@ -1,0 +1,27 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: root
+          key: ${{ secrets.DO_SSH_KEY }}
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            cd /var/www/loomi-studio
+            git pull origin main
+            npm install --legacy-peer-deps
+            npm run build
+            pm2 restart loomi-studio --update-env
