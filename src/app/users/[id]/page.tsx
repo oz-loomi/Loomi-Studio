@@ -123,6 +123,8 @@ function UserDetailContent() {
           name: updated.name,
           email: updated.email,
           title: updated.title ?? null,
+          role: updated.role,
+          accountKeys: updated.accountKeys,
         });
       }
       markClean();

@@ -41,6 +41,7 @@ declare module 'next-auth/jwt' {
     role: UserRole;
     accountKeys: string[];
     originalUserId?: string;
+    _roleCheckedAt?: number;
   }
 }
 
@@ -139,6 +140,12 @@ export const authOptions: NextAuthOptions = {
         if (s.title !== undefined) {
           token.title = (s.title as string | null);
         }
+        if (s.role !== undefined) {
+          token.role = s.role as UserRole;
+        }
+        if (s.accountKeys !== undefined) {
+          token.accountKeys = Array.isArray(s.accountKeys) ? (s.accountKeys as string[]) : [];
+        }
 
         // Start impersonation — overwrite token with target user data
         if (s.impersonateAs) {
@@ -174,6 +181,26 @@ export const authOptions: NextAuthOptions = {
           token.role = rev.role;
           token.accountKeys = accountKeys;
           delete token.originalUserId;
+        }
+      }
+
+      // Periodically refresh role & accountKeys from DB so admin-side changes
+      // (e.g. promoting a user) take effect without requiring re-login.
+      const ROLE_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
+      const now = Date.now();
+      if (!token._roleCheckedAt || now - token._roleCheckedAt > ROLE_REFRESH_MS) {
+        token._roleCheckedAt = now;
+        try {
+          const freshUser = await prisma.user.findUnique({
+            where: { id: token.id },
+            select: { role: true, accountKeys: true },
+          });
+          if (freshUser) {
+            token.role = freshUser.role as UserRole;
+            token.accountKeys = parseStoredAccountKeys(freshUser.accountKeys);
+          }
+        } catch {
+          // Swallow — keep existing token values on DB failure
         }
       }
 
