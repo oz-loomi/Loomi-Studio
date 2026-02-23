@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import {
   type EspAuthorizationMode,
   EspAuthorizationError,
@@ -14,7 +15,7 @@ import { parseEspProvider, providerValidationMessage } from '@/lib/esp/provider-
  * If provider is omitted, the account's configured provider is used.
  */
 export async function GET(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   const modeRaw = req.nextUrl.searchParams.get('mode');

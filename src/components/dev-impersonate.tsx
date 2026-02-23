@@ -9,6 +9,7 @@ import {
   MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import { UserAvatar } from '@/components/user-avatar';
+import { roleDisplayName } from '@/lib/roles';
 
 interface UserEntry {
   id: string;
@@ -22,6 +23,7 @@ interface UserEntry {
 
 const roleBadgeColors: Record<string, string> = {
   developer: 'bg-purple-500/10 text-purple-400',
+  super_admin: 'bg-amber-500/10 text-amber-400',
   admin: 'bg-blue-500/10 text-blue-400',
   client: 'bg-emerald-500/10 text-emerald-400',
 };
@@ -99,6 +101,7 @@ export function DevImpersonate() {
 
   // Group users by role
   const grouped: { label: string; role: string; users: UserEntry[] }[] = [
+    { label: 'Super Admins', role: 'super_admin', users: otherUsers.filter((u) => u.role === 'super_admin') },
     { label: 'Admins', role: 'admin', users: otherUsers.filter((u) => u.role === 'admin') },
     { label: 'Clients', role: 'client', users: otherUsers.filter((u) => u.role === 'client') },
     { label: 'Developers', role: 'developer', users: otherUsers.filter((u) => u.role === 'developer') },
@@ -175,7 +178,7 @@ export function DevImpersonate() {
   };
 
   return (
-    <div className="px-3 pb-1">
+    <div className="px-3 pb-3">
       {/* Impersonation banner */}
       {isImpersonating && (
         <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
@@ -186,7 +189,7 @@ export function DevImpersonate() {
             </p>
             <p className="text-[10px] text-amber-300/90 truncate">{session?.user?.title || session?.user?.email}</p>
             <span className={`inline-block text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded mt-0.5 ${roleBadgeColors[session?.user?.role || ''] || 'bg-zinc-500/10 text-zinc-400'}`}>
-              {session?.user?.role}
+              {roleDisplayName(session?.user?.role || '')}
             </span>
           </div>
           <button
@@ -201,7 +204,7 @@ export function DevImpersonate() {
       )}
 
       {/* Custom dropdown trigger + panel (developer, not impersonating) */}
-      {isDeveloper && !isImpersonating && otherUsers.length > 0 && (
+      {isDeveloper && !isImpersonating && (
         <div ref={dropdownRef} className="relative">
           {/* Trigger button */}
           <button
@@ -211,7 +214,7 @@ export function DevImpersonate() {
           >
             <EyeIcon className="w-4 h-4 text-[var(--sidebar-muted-foreground)] flex-shrink-0" />
             <span className="flex-1 text-xs font-medium text-[var(--sidebar-muted-foreground)] truncate">
-              {switching ? 'Switching...' : 'Log in as...'}
+              {switching ? 'Switching...' : 'View as...'}
             </span>
             <ChevronUpDownIcon className="w-3.5 h-3.5 text-[var(--sidebar-muted-foreground)] flex-shrink-0" />
           </button>
@@ -263,7 +266,7 @@ export function DevImpersonate() {
                           </p>
                         </div>
                         <span className={`text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded flex-shrink-0 ${roleBadgeColors[u.role] || 'bg-zinc-500/10 text-zinc-400'}`}>
-                          {u.role}
+                          {roleDisplayName(u.role)}
                         </span>
                       </button>
                     ))}

@@ -8,11 +8,13 @@ import {
   ArrowPathIcon,
   CheckCircleIcon,
   LinkIcon,
+  PencilSquareIcon,
   XMarkIcon,
   ShieldCheckIcon,
   CloudArrowUpIcon,
   TrashIcon,
   ExclamationTriangleIcon,
+  QuestionMarkCircleIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { AdminOnly } from '@/components/route-guard';
@@ -22,6 +24,7 @@ import { ContactsTable } from '@/components/contacts/contacts-table';
 import type { Contact } from '@/components/contacts/contacts-table';
 import type { AccountData } from '@/contexts/account-context';
 import { useAccount } from '@/contexts/account-context';
+import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { getAccountOems, industryHasBrands, brandsForIndustry } from '@/lib/oems';
 import type { EspCapabilities } from '@/lib/esp/types';
 import {
@@ -163,11 +166,13 @@ export default function AccountDetailPage() {
   const searchParams = useSearchParams();
   const key = params.key as string;
   const { refreshAccounts: refreshAccountList } = useAccount();
+  const { markClean } = useUnsavedChanges();
 
   const [activeTab, setActiveTab] = useState<DetailTab>('company');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [account, setAccount] = useState<AccountData | null>(null);
+  const [isEditingDealerName, setIsEditingDealerName] = useState(false);
 
   // Integration detail modals
   const [integrationModal, setIntegrationModal] = useState<string | null>(null);
@@ -251,6 +256,7 @@ export default function AccountDetailPage() {
   // ── Populate from fetched data ──
   function populateFromAccount(accountData: AccountData) {
     setAccount(accountData);
+    setIsEditingDealerName(false);
     setDealer(accountData.dealer || '');
     setCategory(accountData.category || 'General');
     setOems(getAccountOems(accountData));
@@ -770,6 +776,7 @@ export default function AccountDetailPage() {
         setCustomValues(customValuesToSave);
         setSavedCustomValues(customValuesToSave); // Update saved state after successful save
         await refreshAccountList();
+        markClean();
         if (syncWarning) {
           toast.success('Saved locally!');
           toast.warning(syncWarning);
@@ -958,9 +965,10 @@ export default function AccountDetailPage() {
   const inputClass = 'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
   const labelClass = 'block text-xs font-medium text-[var(--muted-foreground)] mb-1.5';
   const sectionHeadingClass = 'text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4';
+  const sectionCardClass = 'glass-section-card rounded-xl p-6';
   const showContactsTab = !pathname.startsWith('/settings/accounts/');
   const visibleTabs = showContactsTab ? TABS : TABS.filter((tab) => tab.key !== 'contacts');
-  const backHref = '/settings/accounts';
+  const backHref = showContactsTab ? '/accounts' : '/settings/account';
   const showBrandsSelector = industryHasBrands(category);
   const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
   const isEcommerceIndustry = category.trim().toLowerCase() === 'ecommerce';
@@ -1016,7 +1024,39 @@ export default function AccountDetailPage() {
             <ArrowLeftIcon className="w-4 h-4" />
           </Link>
           <div className="flex-1 min-w-0">
-            <h2 className="text-2xl font-bold truncate">{dealer || key}</h2>
+            <div className="flex items-center gap-2 min-w-0">
+              {isEditingDealerName ? (
+                <input
+                  type="text"
+                  value={dealer}
+                  onChange={(event) => setDealer(event.target.value)}
+                  onBlur={() => setIsEditingDealerName(false)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      setIsEditingDealerName(false);
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      setDealer(account?.dealer || '');
+                      setIsEditingDealerName(false);
+                    }
+                  }}
+                  className="w-full max-w-2xl min-w-0 bg-transparent border-b border-[var(--border)] text-2xl font-bold text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
+                  autoFocus
+                />
+              ) : (
+                <h2 className="text-2xl font-bold truncate">{dealer || key}</h2>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsEditingDealerName((prev) => !prev)}
+                className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                title="Edit account name"
+              >
+                <PencilSquareIcon className="w-4 h-4" />
+              </button>
+            </div>
             <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
               <span className="font-mono">{key}</span>
               {connectedProviderBadges.map((provider) => (
@@ -1070,46 +1110,63 @@ export default function AccountDetailPage() {
 
         {/* ════════════ COMPANY TAB ════════════ */}
         {activeTab === 'company' && (
-          <div className="max-w-2xl space-y-10">
-            {/* General */}
-            <section>
+          <div className="max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <section className={sectionCardClass}>
               <h3 className={sectionHeadingClass}>General</h3>
-              <div className="space-y-4">
-                <LogoSlot
-                  label="Storefront Image"
-                  variant="storefront"
-                  value={storefrontImage}
-                  onChange={setStorefrontImage}
-                  onUpload={(file) => handleLogoUpload('storefront', file)}
-                  required={false}
-                />
-                <div>
-                  <label className={labelClass}>Account Name</label>
-                  <input type="text" value={dealer} onChange={e => setDealer(e.target.value)} className={inputClass} />
-                </div>
-                <div>
-                  <label className={labelClass}>Industry</label>
-                  <select value={category} onChange={e => setCategory(e.target.value)} className={inputClass}>
-                    {CATEGORY_SUGGESTIONS.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                {showBrandsSelector && (
+              <div className="space-y-5">
+                <div className={`grid grid-cols-1 gap-4 ${showBrandsSelector ? 'md:grid-cols-2' : ''}`}>
                   <div>
-                    <label className={labelClass}>Brands</label>
-                    <OemMultiSelect
-                      value={oems}
-                      onChange={setOems}
-                      options={brandsForIndustry(category)}
-                      placeholder="Select brands..."
-                      maxSelections={8}
-                    />
+                    <label className={labelClass}>Industry</label>
+                    <select value={category} onChange={e => setCategory(e.target.value)} className={inputClass}>
+                      {CATEGORY_SUGGESTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
                   </div>
-                )}
+                  {showBrandsSelector && (
+                    <div>
+                      <label className={labelClass}>Brands</label>
+                      <OemMultiSelect
+                        value={oems}
+                        onChange={setOems}
+                        options={brandsForIndustry(category)}
+                        placeholder="Select brands..."
+                        maxSelections={8}
+                      />
+                    </div>
+                  )}
+                </div>
+
                 <div>
-                  <label className={labelClass}>Account Rep</label>
+                  <div className="mb-1.5 flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-[var(--muted-foreground)]">
+                      Account Rep
+                    </label>
+                    <span className="relative inline-flex items-center group">
+                      <QuestionMarkCircleIcon className="w-4 h-4 text-[var(--muted-foreground)]/80 hover:text-[var(--foreground)] transition-colors cursor-help" />
+                      <span className="absolute bottom-full left-1/2 z-[70] mb-1 hidden -translate-x-1/2 group-hover:block group-focus-within:block">
+                        <span className="relative block w-64 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 shadow-xl">
+                          <span className="block text-[11px] leading-4 text-[var(--foreground)]">
+                            Missing a rep in this list?
+                          </span>
+                          <span className="mt-1 block text-[10px] leading-4 text-[var(--muted-foreground)]">
+                            Go to Users, open that user, and assign this account to them first.
+                          </span>
+                          <Link
+                            href="/settings/users"
+                            className="pointer-events-auto mt-2 inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--muted)] px-2 py-1 text-[10px] font-medium text-[var(--foreground)] hover:bg-[var(--accent)] transition-colors"
+                          >
+                            Manage Users
+                          </Link>
+                          <span className="absolute left-1/2 top-full -translate-x-1/2 w-0 h-0 border-x-[6px] border-x-transparent border-t-[7px] border-t-[var(--background)]" />
+                        </span>
+                      </span>
+                    </span>
+                  </div>
                   {(() => {
                     const assignedUsers = allUsers.filter(
-                      (u) => u.accountKeys?.includes(key) && u.role !== 'developer',
+                      (u) =>
+                        u.role !== 'developer' &&
+                        (u.accountKeys?.includes(key) ||
+                          (u.role === 'super_admin' && (!u.accountKeys || u.accountKeys.length === 0))),
                     );
                     if (assignedUsers.length === 0) {
                       return (
@@ -1174,8 +1231,7 @@ export default function AccountDetailPage() {
               </div>
             </section>
 
-            {/* Business Details */}
-            <section>
+            <section className={sectionCardClass}>
               <h3 className={sectionHeadingClass}>Business Details</h3>
               <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
                 {activeProviderConnected && activeProviderSupportsBusinessDetailsSync
@@ -1185,7 +1241,7 @@ export default function AccountDetailPage() {
                     : 'Connect an integration to sync these details. Until then, changes are saved locally in Loomi.'}
               </p>
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className={labelClass}>{isEcommerceIndustry ? 'Support Email' : 'Email'}</label>
                     <input type="email" value={bizEmail} onChange={e => setBizEmail(e.target.value)} className={inputClass} placeholder={isEcommerceIndustry ? 'support@store.com' : 'info@dealer.com'} />
@@ -1196,7 +1252,7 @@ export default function AccountDetailPage() {
                   </div>
                 </div>
                 {isAutomotiveIndustry && (
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label className={labelClass}>Sales Phone</label>
                       <input type="tel" value={bizPhoneSales} onChange={e => setBizPhoneSales(e.target.value)} className={inputClass} placeholder="(801) 555-1001" />
@@ -1217,7 +1273,7 @@ export default function AccountDetailPage() {
                       <label className={labelClass}>Street Address</label>
                       <input type="text" value={bizAddress} onChange={e => setBizAddress(e.target.value)} className={inputClass} placeholder="1234 Main St" />
                     </div>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
                         <label className={labelClass}>City</label>
                         <input type="text" value={bizCity} onChange={e => setBizCity(e.target.value)} className={inputClass} placeholder="Ogden" />
@@ -1233,7 +1289,7 @@ export default function AccountDetailPage() {
                     </div>
                   </>
                 )}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className={labelClass}>{isEcommerceIndustry ? 'Store URL' : 'Website'}</label>
                     <input type="url" value={bizWebsite} onChange={e => setBizWebsite(e.target.value)} className={inputClass} placeholder={isEcommerceIndustry ? 'https://store.com' : 'https://dealer.com'} />
@@ -1254,10 +1310,9 @@ export default function AccountDetailPage() {
               </div>
             </section>
 
-            {/* Danger Zone */}
-            <section className="border-t border-red-500/20 pt-6">
+            <section className="lg:col-span-2 glass-section-card rounded-xl p-6 border border-red-500/20">
               <h3 className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-3">Danger Zone</h3>
-              <div className="flex items-center justify-between p-4 border border-red-500/20 rounded-xl">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between p-4 border border-red-500/20 rounded-xl">
                 <div>
                   <p className="text-sm font-medium">Delete this account</p>
                   <p className="text-xs text-[var(--muted-foreground)]">
@@ -1277,13 +1332,23 @@ export default function AccountDetailPage() {
 
         {/* ════════════ BRANDING TAB ════════════ */}
         {activeTab === 'branding' && (
-          <div className="max-w-2xl space-y-6">
-            <section>
+          <div className="max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <section className={`${sectionCardClass} lg:col-span-2`}>
               <h3 className={sectionHeadingClass}>Logo Variants</h3>
               <p className="text-[11px] text-[var(--muted-foreground)] mb-6 -mt-2">
                 Upload or paste URLs for each logo variant. Used in email templates and previews.
               </p>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="mb-6">
+                <LogoSlot
+                  label="Storefront Image"
+                  variant="storefront"
+                  value={storefrontImage}
+                  onChange={setStorefrontImage}
+                  onUpload={(file) => handleLogoUpload('storefront', file)}
+                  required={false}
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {([
                   { label: 'Light Logo', variant: 'light' as const, value: logoLight, setter: setLogoLight, required: true },
                   { label: 'Dark Logo', variant: 'dark' as const, value: logoDark, setter: setLogoDark, required: true },
@@ -1303,12 +1368,12 @@ export default function AccountDetailPage() {
               </div>
             </section>
 
-            <section>
+            <section className={sectionCardClass}>
               <h3 className={sectionHeadingClass}>Brand Colors</h3>
               <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
                 Set reusable color values for this account. These are available as custom value fallbacks in previews.
               </p>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {([
                   { label: 'Primary', value: brandPrimaryColor, onChange: setBrandPrimaryColor, fallback: '#2563eb' },
                   { label: 'Secondary', value: brandSecondaryColor, onChange: setBrandSecondaryColor, fallback: '#1d4ed8' },
@@ -1338,12 +1403,12 @@ export default function AccountDetailPage() {
               </div>
             </section>
 
-            <section>
+            <section className={sectionCardClass}>
               <h3 className={sectionHeadingClass}>Websafe Fonts</h3>
               <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
                 Choose fallback-safe font stacks for headings and body copy.
               </p>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className={labelClass}>Heading Font</label>
                   <select value={brandHeadingFont} onChange={(e) => setBrandHeadingFont(e.target.value)} className={inputClass}>
@@ -1375,7 +1440,7 @@ export default function AccountDetailPage() {
 
         {/* ════════════ INTEGRATIONS TAB ════════════ */}
         {activeTab === 'integration' && (
-          <div className="max-w-3xl space-y-6">
+          <div className="max-w-7xl space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
               {providerCards.map((provider) => {
@@ -1873,10 +1938,10 @@ export default function AccountDetailPage() {
 
         {/* ════════════ CUSTOM VALUES TAB ════════════ */}
         {activeTab === 'custom-values' && (
-          <div className="max-w-2xl space-y-6">
+          <div className="max-w-7xl grid grid-cols-1 gap-6">
 
             {/* ── Custom Values Sync ── */}
-            <section>
+            <section className={sectionCardClass}>
               <h3 className={sectionHeadingClass}>Custom Values</h3>
               <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
                 Fill in values for this account. Filled values are automatically synced to the connected ESP when supported.

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import { listAgencyLocations } from '@/lib/esp/adapters/ghl/oauth';
 
 /**
@@ -8,7 +9,7 @@ import { listAgencyLocations } from '@/lib/esp/adapters/ghl/oauth';
  * Lists locations available to the connected GHL agency credential.
  */
 export async function GET(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   const search = req.nextUrl.searchParams.get('search')?.trim() || '';

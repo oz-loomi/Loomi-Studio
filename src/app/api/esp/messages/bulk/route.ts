@@ -55,7 +55,7 @@ function normalizeMediaUrls(value: unknown): string[] {
  * Lists recent bulk outbound message campaigns.
  */
 export async function GET(req: NextRequest) {
-  const { session, error } = await requireRole('developer', 'admin', 'client');
+  const { session, error } = await requireRole('developer', 'super_admin', 'admin', 'client');
   if (error) return error;
 
   const limitRaw = Number(req.nextUrl.searchParams.get('limit') || '20');
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
  * Creates a bulk outbound message campaign and optionally processes it immediately.
  */
 export async function POST(req: NextRequest) {
-  const { session, error } = await requireRole('developer', 'admin', 'client');
+  const { session, error } = await requireRole('developer', 'super_admin', 'admin', 'client');
   if (error) return error;
 
   const body = await req.json().catch(() => ({}));

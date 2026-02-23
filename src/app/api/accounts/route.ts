@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { ELEVATED_ROLES } from '@/lib/auth';
 import { normalizeOems } from '@/lib/oems';
 import * as accountService from '@/lib/services/accounts';
 import { buildAccountConnectionMetadata } from '@/lib/esp/account-connection-metadata';
@@ -104,7 +105,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...ELEVATED_ROLES);
   if (error) return error;
   try {
     const payload = await req.json() as Record<string, unknown>;
@@ -127,6 +128,7 @@ export async function POST(req: NextRequest) {
       website,
       timezone,
       espProvider,
+      accountRepId,
     } = payload as {
       key?: string;
       dealer?: string;
@@ -145,6 +147,7 @@ export async function POST(req: NextRequest) {
       website?: string;
       timezone?: string;
       espProvider?: string;
+      accountRepId?: string;
     };
     if (!key || !dealer) {
       return NextResponse.json({ error: 'Missing key and dealer' }, { status: 400 });
@@ -189,6 +192,7 @@ export async function POST(req: NextRequest) {
     if (postalCode) accountData.postalCode = postalCode;
     if (website) accountData.website = website;
     if (timezone) accountData.timezone = timezone;
+    if (accountRepId) accountData.accountRepId = accountRepId;
 
     const account = await accountService.createAccount(accountData);
     return NextResponse.json({ key: account.key, dealer: account.dealer });
@@ -198,7 +202,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...ELEVATED_ROLES);
   if (error) return error;
   try {
     const key = req.nextUrl.searchParams.get('key');

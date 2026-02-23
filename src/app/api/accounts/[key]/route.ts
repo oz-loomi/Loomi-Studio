@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import { normalizeOems } from '@/lib/oems';
 import * as accountService from '@/lib/services/accounts';
 import '@/lib/esp/init';
@@ -58,11 +59,17 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error, session } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {
     const { key } = await params;
+
+    // Admin can only edit assigned accounts
+    if (session!.user.role === 'admin' && !session!.user.accountKeys.includes(key)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const existing = await accountService.getAccount(key);
 
     if (!existing) {
@@ -253,11 +260,17 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error, session } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {
     const { key } = await params;
+
+    // Admin can only view assigned accounts
+    if (session!.user.role === 'admin' && !session!.user.accountKeys.includes(key)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const account = await accountService.getAccount(key);
 
     if (!account) {

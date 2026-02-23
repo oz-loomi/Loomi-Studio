@@ -132,7 +132,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   const filterAccountsForCurrentUser = useCallback(
     (allAccounts: Record<string, AccountData>) => {
-      if (userRole === 'developer') return allAccounts;
+      if (userRole === 'developer' || userRole === 'super_admin') return allAccounts;
       if (userRole === 'admin' && userAccountKeys.length === 0) return allAccounts;
 
       const filtered: Record<string, AccountData> = {};

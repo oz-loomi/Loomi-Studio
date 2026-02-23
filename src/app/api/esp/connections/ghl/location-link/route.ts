@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import * as accountService from '@/lib/services/accounts';
 import { getAccountProviderLink } from '@/lib/esp/account-provider-links';
 import {
@@ -13,7 +14,7 @@ import {
  * Returns account -> GHL location link for one account.
  */
 export async function GET(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   const accountKey = req.nextUrl.searchParams.get('accountKey')?.trim() || '';
@@ -48,7 +49,7 @@ export async function GET(req: NextRequest) {
  * Body: { accountKey: string, locationId: string, locationName?: string }
  */
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   let body: { accountKey?: string; locationId?: string; locationName?: string };
@@ -102,7 +103,7 @@ export async function POST(req: NextRequest) {
  * Body: { accountKey: string }
  */
 export async function DELETE(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   let body: { accountKey?: string };

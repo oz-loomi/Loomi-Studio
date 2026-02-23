@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import * as templateService from '@/lib/services/templates';
 import * as versionService from '@/lib/services/template-versions';
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {

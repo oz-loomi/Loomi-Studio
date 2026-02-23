@@ -33,7 +33,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole('developer');
   if (error) return error;
 
   try {
@@ -102,7 +102,7 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole('developer');
   if (error) return error;
 
   try {

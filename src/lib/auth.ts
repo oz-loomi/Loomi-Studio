@@ -3,7 +3,10 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import bcryptjs from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 
-export type UserRole = 'developer' | 'admin' | 'client';
+// Re-export client-safe role types/constants so server code can import from either file
+export type { UserRole } from '@/lib/roles';
+export { ELEVATED_ROLES, MANAGEMENT_ROLES, ALL_ROLES, roleDisplayName } from '@/lib/roles';
+import type { UserRole } from '@/lib/roles';
 
 declare module 'next-auth' {
   interface Session {
@@ -78,6 +81,16 @@ export const authOptions: NextAuthOptions = {
 
         const isValid = await bcryptjs.compare(credentials.password, user.password);
         if (!isValid) return null;
+
+        const loginTimestamp = new Date();
+        try {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { lastLoginAt: loginTimestamp },
+          });
+        } catch {
+          // Do not block sign-in if audit metadata update fails.
+        }
 
         const accountKeys = parseStoredAccountKeys(user.accountKeys);
         return {
@@ -168,8 +181,8 @@ export const authOptions: NextAuthOptions = {
         token.accountKeys = [];
       }
 
-      // Admins with no explicit account assignments are treated as full access.
-      if (token.role === 'admin' && token.accountKeys.length === 0) {
+      // Admins / super-admins with no explicit account assignments get full access.
+      if ((token.role === 'admin' || token.role === 'super_admin') && token.accountKeys.length === 0) {
         token.accountKeys = await getAllAccountKeys();
       }
 

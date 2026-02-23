@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 function parseAccountKeys(raw: string): string[] {
@@ -15,7 +16,7 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   const { id } = await params;

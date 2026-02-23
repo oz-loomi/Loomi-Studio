@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import '@/lib/esp/init';
 import { getAdapter } from '@/lib/esp/registry';
 import {
@@ -14,7 +15,7 @@ import { unsupportedCapabilityPayload } from '@/lib/esp/unsupported';
  * Provider-agnostic required OAuth scopes endpoint.
  */
 export async function GET(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   const providerRaw = req.nextUrl.searchParams.get('provider');

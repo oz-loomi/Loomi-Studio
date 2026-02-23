@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import * as accountService from '@/lib/services/accounts';
 import { getAdapterForAccount } from '@/lib/esp/registry';
 import { withConcurrencyLimit } from '@/lib/esp/utils';
@@ -11,7 +12,7 @@ import '@/lib/esp/init';
  * Provider-agnostic contact count stats across all accounts.
  */
 export async function GET() {
-  const { session, error } = await requireRole('developer', 'admin');
+  const { session, error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {

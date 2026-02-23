@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import * as accountService from '@/lib/services/accounts';
 import { linkAccountToLocation } from '@/lib/esp/adapters/ghl/oauth';
 
@@ -27,7 +28,7 @@ type BulkLocationLinkResultRow = {
  * }
  */
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   let body: { mappings?: BulkLocationLinkMappingInput[] };

@@ -13,6 +13,7 @@ import {
   MoonIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
+import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { useTheme } from '@/contexts/theme-context';
 import { SectionsIcon, FlowIcon } from '@/components/icon-map';
 import { AccountSwitcher } from '@/components/account-switcher';
@@ -40,11 +41,13 @@ const clientNavItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { isAdmin, isAccount, userRole } = useAccount();
+  const { userRole, isAccount } = useAccount();
+  const { confirmNavigation } = useUnsavedChanges();
   const { theme, toggleTheme } = useTheme();
 
-  const navItems = isAdmin ? adminNavItems : clientNavItems;
-  const settingsHref = userRole === 'client' ? '/settings/account' : '/settings/accounts';
+  const isClientRole = userRole === 'client';
+  const navItems = isClientRole ? clientNavItems : adminNavItems;
+  const settingsHref = isClientRole ? '/settings/account' : (isAccount ? '/settings/account' : '/settings/accounts');
 
   const settingsActive = pathname === '/settings' || pathname.startsWith('/settings') || pathname.startsWith('/users') || pathname.startsWith('/accounts');
 
@@ -55,7 +58,11 @@ export function Sidebar() {
         <div className="mb-3">
           <AppLogo className="h-8 w-auto max-w-[150px] object-contain" />
         </div>
-        <AccountSwitcher onSwitch={() => router.push('/')} />
+        <AccountSwitcher
+          onSwitch={() => {
+            confirmNavigation(() => router.push('/'), '/');
+          }}
+        />
       </div>
 
       {/* Navigation */}
@@ -85,7 +92,7 @@ export function Sidebar() {
 
       {/* Settings / Theme Toggle */}
       <div className="p-3 border-t border-[var(--sidebar-border)]">
-        {isAccount ? (
+        {isClientRole ? (
           <button
             type="button"
             onClick={toggleTheme}

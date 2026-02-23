@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES, ELEVATED_ROLES } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import bcryptjs from 'bcryptjs';
 import crypto from 'crypto';
@@ -29,22 +30,56 @@ function withAccountKeys<T extends { accountKeys: string }>(user: T): Omit<T, 'a
 }
 
 export async function GET() {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
-  const users = await prisma.user.findMany({
-    select: {
-      id: true,
-      name: true,
-      title: true,
-      email: true,
-      avatarUrl: true,
-      role: true,
-      accountKeys: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  let users: Array<{
+    id: string;
+    name: string;
+    title: string | null;
+    email: string;
+    avatarUrl: string | null;
+    role: string;
+    accountKeys: string;
+    lastLoginAt: Date | null;
+    createdAt: Date;
+  }>;
+
+  try {
+    users = await prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        title: true,
+        email: true,
+        avatarUrl: true,
+        role: true,
+        accountKeys: true,
+        lastLoginAt: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  } catch {
+    const fallbackUsers = await prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        title: true,
+        email: true,
+        avatarUrl: true,
+        role: true,
+        accountKeys: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    users = fallbackUsers.map((user) => ({
+      ...user,
+      lastLoginAt: null,
+    }));
+  }
 
   const formatted = users.map(u => ({
     ...withAccountKeys(u),
@@ -54,7 +89,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const { error, session } = await requireRole('developer', 'admin');
+  const { error, session } = await requireRole(...ELEVATED_ROLES);
   if (error) return error;
 
   const { name, title, email, password, role, accountKeys, sendInvite } = await req.json();
@@ -70,8 +105,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Password is required when invite is disabled' }, { status: 400 });
   }
 
-  if (!['developer', 'admin', 'client'].includes(role)) {
+  if (!['developer', 'super_admin', 'admin', 'client'].includes(role)) {
     return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+  }
+
+  // Super admins cannot assign the developer role
+  if (session!.user.role === 'super_admin' && role === 'developer') {
+    return NextResponse.json({ error: 'Super admins cannot assign the developer role' }, { status: 403 });
   }
 
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
@@ -139,7 +179,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error, session } = await requireRole(...ELEVATED_ROLES);
   if (error) return error;
 
   const { id, name, title, email, role, accountKeys, password } = await req.json();
@@ -153,8 +193,12 @@ export async function PUT(req: NextRequest) {
   if (title !== undefined) data.title = typeof title === 'string' && title.trim() ? title.trim() : null;
   if (email !== undefined) data.email = email;
   if (role !== undefined) {
-    if (!['developer', 'admin', 'client'].includes(role)) {
+    if (!['developer', 'super_admin', 'admin', 'client'].includes(role)) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+    }
+    // Super admins cannot assign the developer role
+    if (session!.user.role === 'super_admin' && role === 'developer') {
+      return NextResponse.json({ error: 'Super admins cannot assign the developer role' }, { status: 403 });
     }
     data.role = role;
   }
@@ -182,7 +226,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const { error, session } = await requireRole('developer', 'admin');
+  const { error, session } = await requireRole(...ELEVATED_ROLES);
   if (error) return error;
 
   const id = req.nextUrl.searchParams.get('id');

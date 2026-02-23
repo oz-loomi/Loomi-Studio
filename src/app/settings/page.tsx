@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useAccount } from '@/contexts/account-context';
+import { useAccount, type AccountData } from '@/contexts/account-context';
+import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { useTheme } from '@/contexts/theme-context';
 import {
   PlusIcon, SunIcon, MoonIcon, BuildingStorefrontIcon,
   UsersIcon, SwatchIcon, BookOpenIcon, SparklesIcon,
   XMarkIcon, ArrowPathIcon, MagnifyingGlassIcon,
-  CheckCircleIcon, AdjustmentsHorizontalIcon,
+  CheckCircleIcon, AdjustmentsHorizontalIcon, LinkIcon,
   TrashIcon, ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from 'sonner';
@@ -16,8 +17,10 @@ import { CodeEditor } from '@/components/code-editor';
 import { AccountsList } from '@/components/accounts-list';
 import { OemMultiSelect } from '@/components/oem-multi-select';
 import { UserAvatar } from '@/components/user-avatar';
+import { AccountAvatar } from '@/components/account-avatar';
+import { roleDisplayName } from '@/lib/roles';
 import { getAccountOems, industryHasBrands, brandsForIndustry } from '@/lib/oems';
-import { resolveAccountLocationId } from '@/lib/account-resolvers';
+import { formatAccountCityState, resolveAccountLocationId } from '@/lib/account-resolvers';
 import { providerDisplayName, providerUnsupportedMessage } from '@/lib/esp/provider-display';
 import {
   extractProviderCatalog,
@@ -33,7 +36,7 @@ import { fetchRequiredScopesByCatalogUrl } from '@/lib/esp/provider-scopes';
 
 const CATEGORY_SUGGESTIONS = ['Automotive', 'Powersports', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
 
-type Tab = 'accounts' | 'account' | 'users' | 'custom-values' | 'knowledge' | 'appearance';
+type Tab = 'accounts' | 'account' | 'users' | 'integrations' | 'custom-values' | 'knowledge' | 'appearance';
 
 // ─── User list types ───
 interface User {
@@ -44,17 +47,19 @@ interface User {
   avatarUrl: string | null;
   role: string;
   accountKeys: string[];
+  lastLoginAt: string | null;
   createdAt: string;
 }
 
 const roleColors: Record<string, string> = {
   developer: 'text-purple-400 bg-purple-500/10',
+  super_admin: 'text-amber-400 bg-amber-500/10',
   admin: 'text-blue-400 bg-blue-500/10',
   client: 'text-green-400 bg-green-500/10',
 };
 
 const USERS_PAGE_SIZE = 10;
-type UserSortField = 'name' | 'email' | 'role' | 'accounts';
+type UserSortField = 'name' | 'email' | 'role' | 'accounts' | 'lastLogin';
 type UserSortDirection = 'asc' | 'desc';
 
 function getVisiblePages(currentPage: number, totalPages: number, maxVisible = 5): number[] {
@@ -74,20 +79,46 @@ function getVisiblePages(currentPage: number, totalPages: number, maxVisible = 5
   return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
+function formatLastLoginDate(value: string | null): string {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Never';
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+function resolveAccountSummary(accountKey: string, account: AccountData | null | undefined): {
+  dealer: string;
+  cityState: string;
+  industry: string;
+} {
+  const dealer = typeof account?.dealer === 'string' && account.dealer.trim()
+    ? account.dealer.trim()
+    : accountKey;
+  const cityState = formatAccountCityState(account)
+    || 'Location unavailable';
+  const industry = typeof account?.category === 'string' && account.category.trim()
+    ? account.category.trim()
+    : 'Unknown industry';
+
+  return { dealer, cityState, industry };
+}
+
 export default function SettingsPage() {
   const { isAdmin, isAccount, userRole } = useAccount();
+  const { confirmNavigation } = useUnsavedChanges();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   // Determine available tabs based on role/mode
   const tabs: { key: Tab; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }[] = [];
-  if (userRole === 'developer' || userRole === 'admin') tabs.push({ key: 'accounts', label: 'Accounts', icon: BuildingStorefrontIcon });
+  const hasAdminAccess = userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
+  if (hasAdminAccess && isAdmin) tabs.push({ key: 'accounts', label: 'Accounts', icon: BuildingStorefrontIcon });
   if (isAccount) tabs.push({ key: 'account', label: 'Account', icon: BuildingStorefrontIcon });
-  if (userRole === 'developer' || userRole === 'admin') tabs.push({ key: 'users', label: 'Users', icon: UsersIcon });
-  // Integrations moved to per-account detail pages
-  if (userRole === 'developer') tabs.push({ key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon });
-  if (userRole === 'developer') tabs.push({ key: 'knowledge', label: 'Knowledge Base', icon: BookOpenIcon });
+  if (hasAdminAccess) tabs.push({ key: 'users', label: 'Users', icon: UsersIcon });
+  if (isAccount && hasAdminAccess) tabs.push({ key: 'integrations', label: 'Integrations', icon: LinkIcon });
+  if (hasAdminAccess) tabs.push({ key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon });
+  if (hasAdminAccess && isAdmin) tabs.push({ key: 'knowledge', label: 'Knowledge Base', icon: BookOpenIcon });
   tabs.push({ key: 'appearance', label: 'Appearance', icon: SwatchIcon });
 
   const routeTab = pathname.startsWith('/settings/')
@@ -138,7 +169,9 @@ export default function SettingsPage() {
         {tabs.map(tab => (
           <button
             key={tab.key}
-            onClick={() => router.push(`/settings/${tab.key}`)}
+            onClick={() => {
+              confirmNavigation(() => router.push(`/settings/${tab.key}`), `/settings/${tab.key}`);
+            }}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors relative ${
               activeTab === tab.key
                 ? 'text-[var(--foreground)]'
@@ -158,10 +191,39 @@ export default function SettingsPage() {
       {activeTab === 'accounts' && <AccountsList listPath="/settings/accounts" detailBasePath="/settings/accounts" />}
       {activeTab === 'account' && <AccountSettingsTab />}
       {activeTab === 'users' && <UsersTab />}
-      {/* Integrations tab removed — managed per-account */}
-      {activeTab === 'custom-values' && userRole === 'developer' && <CustomValuesTab />}
-      {activeTab === 'knowledge' && <KnowledgeBaseTab />}
+      {activeTab === 'integrations' && <AccountDetailTabRedirect targetTab="integration" />}
+      {activeTab === 'custom-values' && (
+        isAccount
+          ? <AccountDetailTabRedirect targetTab="custom-values" />
+          : <CustomValuesTab />
+      )}
+      {activeTab === 'knowledge' && hasAdminAccess && isAdmin && <KnowledgeBaseTab />}
       {activeTab === 'appearance' && <AppearanceTab />}
+    </div>
+  );
+}
+
+function AccountDetailTabRedirect({ targetTab }: { targetTab: 'integration' | 'custom-values' }) {
+  const { isAccount, accountKey } = useAccount();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isAccount || !accountKey) return;
+    router.replace(`/settings/accounts/${encodeURIComponent(accountKey)}?tab=${targetTab}`);
+  }, [isAccount, accountKey, targetTab, router]);
+
+  if (!isAccount || !accountKey) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-[var(--muted-foreground)] text-sm">Select an account to manage this section.</p>
+        <p className="text-[var(--muted-foreground)] text-xs mt-1">Use the Account switcher in the sidebar.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-center py-16">
+      <p className="text-[var(--muted-foreground)] text-sm">Opening account settings...</p>
     </div>
   );
 }
@@ -175,6 +237,7 @@ function AccountSettingsTab() {
     accountData,
     refreshAccounts,
   } = useAccount();
+  const { markClean } = useUnsavedChanges();
 
   const [dealer, setDealer] = useState('');
   const [category, setCategory] = useState('');
@@ -232,6 +295,7 @@ function AccountSettingsTab() {
 
       if (res.ok) {
         await refreshAccounts();
+        markClean();
         toast.success('Settings saved!');
       } else {
         toast.error('Failed to save settings');
@@ -245,47 +309,56 @@ function AccountSettingsTab() {
   const inputClass = 'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
   const labelClass = 'block text-xs font-medium text-[var(--muted-foreground)] mb-1.5';
   const showBrandsSelector = industryHasBrands(category);
+  const sectionCardClass = 'glass-section-card rounded-xl p-6';
+  const sectionHeadingClass = 'text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4';
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div>
-        <label className={labelClass}>Account Key</label>
-        <div className="px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
-          {accountKey}
+    <div className="max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <section className={sectionCardClass}>
+        <h3 className={sectionHeadingClass}>General</h3>
+        <div className="space-y-4">
+          <div>
+            <label className={labelClass}>Account Key</label>
+            <div className="px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+              {accountKey}
+            </div>
+          </div>
+
+          <div className={`grid grid-cols-1 gap-4 ${showBrandsSelector ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+            <div>
+              <label className={labelClass}>Dealer Name</label>
+              <input type="text" value={dealer} onChange={e => setDealer(e.target.value)} className={inputClass} />
+            </div>
+
+            <div>
+              <label className={labelClass}>Industry</label>
+              <select value={category} onChange={e => setCategory(e.target.value)} className={inputClass}>
+                <option value="">Select industry...</option>
+                {CATEGORY_SUGGESTIONS.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+
+            {showBrandsSelector && (
+              <div>
+                <label className={labelClass}>Brands</label>
+                <OemMultiSelect
+                  value={oems}
+                  onChange={setOems}
+                  options={brandsForIndustry(category)}
+                  placeholder="Select brands..."
+                  maxSelections={8}
+                />
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div>
-        <label className={labelClass}>Dealer Name</label>
-        <input type="text" value={dealer} onChange={e => setDealer(e.target.value)} className={inputClass} />
-      </div>
-
-      <div>
-        <label className={labelClass}>Industry</label>
-        <select value={category} onChange={e => setCategory(e.target.value)} className={inputClass}>
-          <option value="">Select industry...</option>
-          {CATEGORY_SUGGESTIONS.map(cat => (
-            <option key={cat} value={cat}>{cat}</option>
-          ))}
-        </select>
-      </div>
-
-      {showBrandsSelector && (
-        <div>
-          <label className={labelClass}>Brands</label>
-          <OemMultiSelect
-            value={oems}
-            onChange={setOems}
-            options={brandsForIndustry(category)}
-            placeholder="Select brands..."
-            maxSelections={8}
-          />
-        </div>
-      )}
-
-      <div>
-        <label className={labelClass}>Logos</label>
-        <div className="grid grid-cols-2 gap-3">
+      <section className={sectionCardClass}>
+        <h3 className={sectionHeadingClass}>Logos</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
             { label: 'Light Logo URL', value: logoLight, setter: setLogoLight },
             { label: 'Dark Logo URL', value: logoDark, setter: setLogoDark },
@@ -304,9 +377,9 @@ function AccountSettingsTab() {
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
-      <div className="flex items-center gap-3 pt-2">
+      <div className="lg:col-span-2 flex items-center justify-end gap-3">
         <button
           onClick={handleSave}
           disabled={saving}
@@ -324,6 +397,8 @@ function AccountSettingsTab() {
 // ════════════════════════════════════════
 function UsersTab() {
   const router = useRouter();
+  const { isAccount, accountKey, accounts, userRole } = useAccount();
+  const canEditUsers = userRole === 'developer' || userRole === 'super_admin';
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -351,17 +426,26 @@ function UsersTab() {
       .finally(() => setLoading(false));
   }, []);
 
+  const scopedUsers = useMemo(() => {
+    if (!isAccount || !accountKey) return users;
+    return users.filter((user) => user.accountKeys.includes(accountKey));
+  }, [users, isAccount, accountKey]);
+
+  const scopedAccountLabel = isAccount && accountKey
+    ? (accounts[accountKey]?.dealer || accountKey)
+    : null;
+
   const filteredUsers = useMemo(() => {
-    if (!search) return users;
+    if (!search) return scopedUsers;
 
     const q = search.toLowerCase();
-    return users.filter((u) => (
+    return scopedUsers.filter((u) => (
       u.name.toLowerCase().includes(q) ||
       u.email.toLowerCase().includes(q) ||
       u.role.toLowerCase().includes(q) ||
       (u.title || '').toLowerCase().includes(q)
     ));
-  }, [users, search]);
+  }, [scopedUsers, search]);
 
   const sortedUsers = useMemo(() => {
     const direction = sortDirection === 'asc' ? 1 : -1;
@@ -378,6 +462,10 @@ function UsersTab() {
         compareValue = a.role.toLowerCase().localeCompare(b.role.toLowerCase());
       } else if (sortField === 'accounts') {
         compareValue = a.accountKeys.length - b.accountKeys.length;
+      } else if (sortField === 'lastLogin') {
+        const aLastLogin = a.lastLoginAt ? new Date(a.lastLoginAt).getTime() : 0;
+        const bLastLogin = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0;
+        compareValue = aLastLogin - bLastLogin;
       }
 
       if (compareValue === 0) {
@@ -424,6 +512,7 @@ function UsersTab() {
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-[var(--muted-foreground)]">
           {sortedUsers.length} user{sortedUsers.length !== 1 ? 's' : ''}{search ? ' found' : ''}
+          {scopedAccountLabel ? ` in ${scopedAccountLabel}` : ''}
         </p>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -436,45 +525,55 @@ function UsersTab() {
                 setPage(1);
               }}
               placeholder="Search users..."
-              className="w-48 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
+              className="w-52 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
             />
           </div>
-          <button
-            onClick={() => router.push('/settings/users/new')}
-            className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            <PlusIcon className="w-4 h-4" />
-            Add User
-          </button>
+          {canEditUsers && (
+            <button
+              onClick={() => router.push('/settings/users/new')}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+            >
+              <PlusIcon className="w-4 h-4" />
+              Add User
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="glass-table">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-[var(--border)]">
-              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+      <div className="glass-table account-tooltip-table">
+        <div className="users-table-scroll">
+        <table className="w-full min-w-[900px]">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+              <th className="w-12 px-3 py-2"></th>
+              <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                 <button type="button" onClick={() => toggleSort('name')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
                   Name
                   <span className="text-[10px]">{sortIndicator('name')}</span>
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+              <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                 <button type="button" onClick={() => toggleSort('email')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
                   Email
                   <span className="text-[10px]">{sortIndicator('email')}</span>
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+              <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                 <button type="button" onClick={() => toggleSort('role')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
                   Role
                   <span className="text-[10px]">{sortIndicator('role')}</span>
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+              <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                 <button type="button" onClick={() => toggleSort('accounts')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
                   Accounts
                   <span className="text-[10px]">{sortIndicator('accounts')}</span>
+                </button>
+              </th>
+              <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                <button type="button" onClick={() => toggleSort('lastLogin')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                  Last Login
+                  <span className="text-[10px]">{sortIndicator('lastLogin')}</span>
                 </button>
               </th>
             </tr>
@@ -482,57 +581,117 @@ function UsersTab() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">Loading...</td>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">Loading...</td>
               </tr>
             ) : sortedUsers.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">
-                  {search ? 'No users match your search' : 'No users found'}
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">
+                  {search
+                    ? 'No users match your search'
+                    : isAccount
+                      ? 'No users are assigned to this account'
+                      : 'No users found'}
                 </td>
               </tr>
             ) : (
               pagedUsers.map(user => (
                 <tr
                   key={user.id}
-                  onClick={() => router.push(`/settings/users/${user.id}`)}
-                  className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--muted)] cursor-pointer transition-colors"
+                  onClick={canEditUsers ? () => router.push(`/settings/users/${user.id}`) : undefined}
+                  className={`border-b border-[var(--border)] last:border-b-0 transition-colors ${canEditUsers ? 'hover:bg-[var(--muted)]/50 cursor-pointer' : ''}`}
                 >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
+                  <td className="px-3 py-2 align-middle">
+                    <div className="flex items-center justify-center h-full">
                       <UserAvatar
                         name={user.name}
                         email={user.email}
                         avatarUrl={user.avatarUrl}
                         size={36}
-                        className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                        className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-[var(--border)]"
                       />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-[var(--foreground)] truncate">{user.name}</p>
-                        {user.title && (
-                          <p className="text-xs text-[var(--muted-foreground)] truncate">{user.title}</p>
-                        )}
-                      </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-[var(--muted-foreground)]">{user.email}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-2 align-middle">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-[var(--foreground)] truncate">{user.name}</p>
+                      {user.title && (
+                        <p className="text-xs text-[var(--muted-foreground)] truncate">{user.title}</p>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 align-middle text-sm text-[var(--muted-foreground)]">{user.email}</td>
+                  <td className="px-3 py-2 align-middle">
                     <span className={`text-[10px] font-medium uppercase tracking-wider rounded px-1.5 py-0.5 ${roleColors[user.role] || ''}`}>
-                      {user.role}
+                      {roleDisplayName(user.role)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-[var(--muted-foreground)]">
-                    {user.accountKeys.length === 0
-                      ? <span className="text-xs opacity-50">All</span>
-                      : user.accountKeys.map(k => (
-                          <span key={k} className="inline-block text-xs bg-[var(--muted)] rounded px-1.5 py-0.5 mr-1 mb-0.5">{k}</span>
-                        ))
-                    }
+                  <td className="px-3 py-2 align-middle text-sm text-[var(--muted-foreground)]">
+                    {user.accountKeys.length === 0 ? (
+                      <span className="text-xs opacity-50">All accounts</span>
+                    ) : (
+                      <div className="account-avatar-stack flex items-center pl-2">
+                        {user.accountKeys.slice(0, 4).map((accountKey) => {
+                          const account = accounts[accountKey] || null;
+                          const summary = resolveAccountSummary(accountKey, account);
+
+                          return (
+                            <span
+                              key={accountKey}
+                              aria-label={`${summary.dealer} • ${summary.cityState} • ${summary.industry} • Key: ${accountKey}`}
+                              className="relative inline-flex items-center group account-avatar-stack-item"
+                            >
+                              <span className="pointer-events-none absolute bottom-full left-1/2 z-[90] mb-2 hidden -translate-x-1/2 group-hover:block">
+                                <span className="relative block account-tooltip-popover rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 shadow-xl whitespace-nowrap">
+                                  <span className="block text-[11px] font-medium leading-4 text-[var(--foreground)]">
+                                    {summary.dealer}
+                                  </span>
+                                  <span className="block text-[10px] leading-4 text-[var(--muted-foreground)]">
+                                    {summary.cityState}
+                                  </span>
+                                  <span className="block text-[10px] leading-4 text-[var(--muted-foreground)]">
+                                    {summary.industry}
+                                  </span>
+                                  <span className="mt-1 block text-[10px] font-mono leading-4 text-[var(--muted-foreground)]">
+                                    Key: {accountKey}
+                                  </span>
+                                  <span className="absolute left-1/2 top-full -translate-x-1/2 w-0 h-0 border-x-[6px] border-x-transparent border-t-[7px] border-t-[var(--background)]" />
+                                </span>
+                              </span>
+
+                              <span className="inline-flex rounded-full bg-[var(--background)] p-[1px] shadow-sm">
+                                <AccountAvatar
+                                  name={summary.dealer}
+                                  accountKey={accountKey}
+                                  storefrontImage={account?.storefrontImage || null}
+                                  size={32}
+                                  className="rounded-full"
+                                  alt={`${summary.dealer} (${accountKey})`}
+                                />
+                              </span>
+                            </span>
+                          );
+                        })}
+
+                        {user.accountKeys.length > 4 && (
+                          <span
+                            title={`${user.accountKeys.length - 4} more account${user.accountKeys.length - 4 === 1 ? '' : 's'}`}
+                            className="account-avatar-stack-item inline-flex items-center justify-center w-[34px] h-[34px] rounded-full border border-[var(--background)] bg-[var(--background)] text-[10px] font-medium text-[var(--muted-foreground)] shadow-sm"
+                          >
+                            +{user.accountKeys.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-sm text-[var(--muted-foreground)]">
+                    {formatLastLoginDate(user.lastLoginAt)}
                   </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {!loading && sortedUsers.length > 0 && (
@@ -595,9 +754,10 @@ function UsersTab() {
 }
 
 // ════════════════════════════════════════
-// Knowledge Base Tab (Developer only)
+// Knowledge Base Tab
 // ════════════════════════════════════════
 function KnowledgeBaseTab() {
+  const { markClean, markDirty } = useUnsavedChanges();
   const [content, setContent] = useState('');
   const [savedContent, setSavedContent] = useState('');
   const [loading, setLoading] = useState(true);
@@ -605,6 +765,14 @@ function KnowledgeBaseTab() {
   const [showPreview, setShowPreview] = useState(false);
 
   const hasChanges = content !== savedContent;
+
+  useEffect(() => {
+    if (hasChanges) {
+      markDirty();
+      return;
+    }
+    markClean();
+  }, [hasChanges, markClean, markDirty]);
 
   useEffect(() => {
     fetch('/api/knowledge')
@@ -628,6 +796,7 @@ function KnowledgeBaseTab() {
       });
       if (res.ok) {
         setSavedContent(content);
+        markClean();
         toast.success('Knowledge base saved! AI will use the updated content immediately.');
       } else {
         toast.error('Failed to save knowledge base');
@@ -646,77 +815,80 @@ function KnowledgeBaseTab() {
     );
   }
 
+  const sectionCardClass = 'glass-section-card rounded-xl p-5';
+
   return (
-    <div className="space-y-4">
-      {/* Info banner */}
-      <div className="flex items-start gap-3 p-3 rounded-xl border border-[var(--border)] bg-[var(--primary)]/5">
-        <SparklesIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-medium text-[var(--foreground)]">AI Knowledge Base</p>
-          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-            This markdown file powers both AI assistants (the global Loomi bubble and the template editor sidebar). Edit it to update what the AI knows about your platform, processes, and conventions. Changes take effect immediately.
-          </p>
-        </div>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowPreview(false)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-              !showPreview
-                ? 'bg-[var(--primary)] text-white'
-                : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)]'
-            }`}
-          >
-            Editor
-          </button>
-          <button
-            onClick={() => setShowPreview(true)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-              showPreview
-                ? 'bg-[var(--primary)] text-white'
-                : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)]'
-            }`}
-          >
-            Preview
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          {hasChanges && (
-            <span className="text-xs text-amber-500 font-medium">Unsaved changes</span>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={saving || !hasChanges}
-            className="px-5 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-      </div>
-
-      {/* Editor / Preview */}
-      {!showPreview ? (
-        <div className="rounded-xl overflow-hidden border border-[var(--border)]" style={{ height: 'calc(100vh - 340px)', minHeight: '400px' }}>
-          <CodeEditor
-            value={content}
-            onChange={setContent}
-            language="markdown"
-            onSave={handleSave}
-          />
-        </div>
-      ) : (
-        <div
-          className="rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-auto p-6"
-          style={{ height: 'calc(100vh - 340px)', minHeight: '400px' }}
-        >
-          <div className="prose prose-sm dark:prose-invert max-w-none">
-            <MarkdownPreview content={content} />
+    <div className="max-w-7xl grid grid-cols-1 gap-6">
+      <section className={sectionCardClass}>
+        <div className="flex items-start gap-3 p-3 rounded-xl border border-[var(--border)] bg-[var(--primary)]/5">
+          <SparklesIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-[var(--foreground)]">AI Knowledge Base</p>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+              This markdown file powers both AI assistants (the global Loomi bubble and the template editor sidebar). Edit it to update what the AI knows about your platform, processes, and conventions. Changes take effect immediately.
+            </p>
           </div>
         </div>
-      )}
+
+        <div className="mt-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowPreview(false)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                !showPreview
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)]'
+              }`}
+            >
+              Editor
+            </button>
+            <button
+              onClick={() => setShowPreview(true)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                showPreview
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)]'
+              }`}
+            >
+              Preview
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            {hasChanges && (
+              <span className="text-xs text-amber-500 font-medium">Unsaved changes</span>
+            )}
+            <button
+              onClick={handleSave}
+              disabled={saving || !hasChanges}
+              className="px-5 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="glass-section-card rounded-xl p-0 overflow-hidden">
+        {!showPreview ? (
+          <div style={{ height: 'calc(100vh - 340px)', minHeight: '400px' }}>
+            <CodeEditor
+              value={content}
+              onChange={setContent}
+              language="markdown"
+              onSave={handleSave}
+            />
+          </div>
+        ) : (
+          <div
+            className="overflow-auto p-6"
+            style={{ height: 'calc(100vh - 340px)', minHeight: '400px' }}
+          >
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <MarkdownPreview content={content} />
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -945,6 +1117,7 @@ interface GhlBulkLinkResult {
 
 function CustomValuesTab() {
   const { accounts } = useAccount();
+  const { markClean } = useUnsavedChanges();
 
   // ── Global Defaults state ──
   const [defaults, setDefaults] = useState<Record<string, CustomValueDef>>({});
@@ -1296,6 +1469,7 @@ function CustomValuesTab() {
       });
       if (res.ok) {
         setSavedDefaults({ ...defaults });
+        markClean();
         toast.success('Custom value defaults saved');
       } else {
         toast.error('Failed to save defaults');
@@ -1459,11 +1633,12 @@ function CustomValuesTab() {
   const bulkPreviewInvalidRows = bulkLinkPreview.filter((row) => row.error);
   const allSelected = connectedAccounts.length > 0 && connectedAccounts.every(a => selectedKeys.has(a.key));
   const inputClass = 'w-full px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
+  const sectionCardClass = 'glass-section-card rounded-xl p-6';
 
   return (
-    <div className="max-w-4xl space-y-10">
+    <div className="max-w-7xl grid grid-cols-1 gap-6">
       {/* ── Section 1: Global Defaults ── */}
-      <section>
+      <section className={sectionCardClass}>
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm font-semibold text-[var(--foreground)]">Global Default Values</h3>
@@ -1611,7 +1786,7 @@ function CustomValuesTab() {
       </section>
 
       {/* ── Section 2: Account Sync ── */}
-      <section className="border-t border-[var(--border)] pt-8">
+      <section className={sectionCardClass}>
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm font-semibold text-[var(--foreground)]">Push to Connected ESP Accounts</h3>
@@ -2011,41 +2186,45 @@ function AppearanceTab() {
     { value: 'dark', label: 'Dark', icon: MoonIcon, description: 'Dark background with light text' },
     { value: 'light', label: 'Light', icon: SunIcon, description: 'Light background with dark text' },
   ];
+  const sectionCardClass = 'glass-section-card rounded-xl p-6';
 
   return (
-    <div className="max-w-2xl">
-      <p className="text-sm text-[var(--muted-foreground)] mb-6">
-        Choose how Loomi Studio looks to you.
-      </p>
+    <div className="max-w-4xl">
+      <section className={sectionCardClass}>
+        <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">Theme</h3>
+        <p className="text-sm text-[var(--muted-foreground)] mb-6">
+          Choose how Loomi Studio looks to you.
+        </p>
 
-      <div className="grid grid-cols-2 gap-4">
-        {options.map(opt => {
-          const isActive = theme === opt.value;
-          return (
-            <button
-              key={opt.value}
-              onClick={() => setTheme(opt.value)}
-              className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all text-left ${
-                isActive
-                  ? 'border-[var(--primary)] bg-[var(--primary)]/5'
-                  : 'border-[var(--border)] hover:border-[var(--muted-foreground)]'
-              }`}
-            >
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                isActive ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
-              }`}>
-                <opt.icon className="w-5 h-5" />
-              </div>
-              <div>
-                <p className={`text-sm font-medium ${isActive ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>
-                  {opt.label}
-                </p>
-                <p className="text-xs text-[var(--muted-foreground)]">{opt.description}</p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {options.map(opt => {
+            const isActive = theme === opt.value;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => setTheme(opt.value)}
+                className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all text-left ${
+                  isActive
+                    ? 'border-[var(--primary)] bg-[var(--primary)]/5'
+                    : 'border-[var(--border)] hover:border-[var(--muted-foreground)]'
+                }`}
+              >
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                  isActive ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'bg-[var(--muted)] text-[var(--muted-foreground)]'
+                }`}>
+                  <opt.icon className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className={`text-sm font-medium ${isActive ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>
+                    {opt.label}
+                  </p>
+                  <p className="text-xs text-[var(--muted-foreground)]">{opt.description}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

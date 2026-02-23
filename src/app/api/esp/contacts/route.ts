@@ -9,7 +9,7 @@ import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-he
  * espProvider and delegates to the correct contacts adapter.
  */
 export async function GET(req: NextRequest) {
-  const { session, error } = await requireRole('developer', 'admin', 'client');
+  const { session, error } = await requireRole('developer', 'super_admin', 'admin', 'client');
   if (error) return error;
 
   try {

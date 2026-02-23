@@ -30,7 +30,7 @@ export async function GET(
   req: NextRequest,
   { params }: RouteContext,
 ) {
-  const { session, error } = await requireRole('developer', 'admin', 'client');
+  const { session, error } = await requireRole('developer', 'super_admin', 'admin', 'client');
   if (error) return error;
 
   const { contactId } = await params;
@@ -123,7 +123,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: RouteContext,
 ) {
-  const { session, error } = await requireRole('developer', 'admin', 'client');
+  const { session, error } = await requireRole('developer', 'super_admin', 'admin', 'client');
   if (error) return error;
 
   const { contactId } = await params;

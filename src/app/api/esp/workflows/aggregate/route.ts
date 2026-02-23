@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import { getAdapterForAccount } from '@/lib/esp/registry';
 import { readAccounts, withConcurrencyLimit } from '@/lib/esp/utils';
 import type { EspWorkflow } from '@/lib/esp/types';
@@ -11,7 +12,7 @@ import '@/lib/esp/init';
  * Provider-agnostic aggregate workflows/flows across ALL connected accounts.
  */
 export async function GET() {
-  const { session, error } = await requireRole('developer', 'admin');
+  const { session, error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {

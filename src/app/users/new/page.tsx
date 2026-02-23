@@ -3,23 +3,24 @@
 import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { AdminOnly } from '@/components/route-guard';
+import { ElevatedOnly } from '@/components/route-guard';
+import { AccountAssignmentManager } from '@/components/account-assignment-manager';
 import { useAccount } from '@/contexts/account-context';
 import { toast } from '@/lib/toast';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 
 export default function NewUserPage() {
   return (
-    <AdminOnly>
+    <ElevatedOnly>
       <NewUserContent />
-    </AdminOnly>
+    </ElevatedOnly>
   );
 }
 
 function NewUserContent() {
   const router = useRouter();
   const pathname = usePathname();
-  const { accounts, accountsLoaded } = useAccount();
+  const { accounts, accountsLoaded, userRole } = useAccount();
   const usersBasePath = pathname.startsWith('/settings/users') ? '/settings/users' : '/users';
 
   const [saving, setSaving] = useState(false);
@@ -30,12 +31,6 @@ function NewUserContent() {
   const [sendInvite, setSendInvite] = useState(true);
   const [role, setRole] = useState('client');
   const [accountKeys, setAccountKeys] = useState<string[]>([]);
-
-  const toggleAccountKey = (key: string) => {
-    setAccountKeys(prev =>
-      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
-    );
-  };
 
   const handleCreate = async () => {
     if (!sendInvite && !password) {
@@ -84,6 +79,7 @@ function NewUserContent() {
   const inputClass = 'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
   const labelClass = 'block text-xs font-medium text-[var(--muted-foreground)] mb-1.5';
   const sectionHeadingClass = 'text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4';
+  const sectionCardClass = 'glass-section-card rounded-xl p-6';
 
   return (
     <div>
@@ -108,10 +104,10 @@ function NewUserContent() {
         </button>
       </div>
 
-      <div className="max-w-2xl space-y-10">
+      <div className="max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* General */}
-        <section>
+        <section className={sectionCardClass}>
           <h3 className={sectionHeadingClass}>General</h3>
           <div className="space-y-4">
             <div>
@@ -165,13 +161,14 @@ function NewUserContent() {
         </section>
 
         {/* Role & Access */}
-        <section>
+        <section className={sectionCardClass}>
           <h3 className={sectionHeadingClass}>Role & Access</h3>
           <div className="space-y-4">
             <div>
               <label className={labelClass}>Role</label>
               <select value={role} onChange={e => setRole(e.target.value)} className={inputClass}>
-                <option value="developer">Developer</option>
+                {userRole === 'developer' && <option value="developer">Developer</option>}
+                <option value="super_admin">Super Admin</option>
                 <option value="admin">Admin</option>
                 <option value="client">Client</option>
               </select>
@@ -180,35 +177,13 @@ function NewUserContent() {
             {(role === 'admin' || role === 'client') && (
               <div>
                 <label className={labelClass}>Assigned Accounts</label>
-                <p className="text-xs text-[var(--muted-foreground)] mb-2">
-                  {role === 'admin' ? 'Admin can switch between these accounts' : 'Client will be locked to these'}
-                </p>
-                {accountsLoaded ? (
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(accounts).map(([key, account]) => {
-                      const selected = accountKeys.includes(key);
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => toggleAccountKey(key)}
-                          className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
-                            selected
-                              ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
-                              : 'bg-[var(--input)] text-[var(--muted-foreground)] border-[var(--border)] hover:border-[var(--primary)]'
-                          }`}
-                        >
-                          {account.dealer || key}
-                        </button>
-                      );
-                    })}
-                    {Object.keys(accounts).length === 0 && (
-                      <p className="text-xs text-[var(--muted-foreground)]">No accounts available</p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-xs text-[var(--muted-foreground)]">Loading accounts...</p>
-                )}
+                <AccountAssignmentManager
+                  accounts={accounts}
+                  accountsLoaded={accountsLoaded}
+                  selectedKeys={accountKeys}
+                  onChange={setAccountKeys}
+                  description={role === 'admin' ? 'Admin can switch between these accounts' : 'Client will be locked to these accounts'}
+                />
               </div>
             )}
           </div>

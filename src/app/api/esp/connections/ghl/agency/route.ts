@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import {
   disconnectAgencyConnection,
   getAgencyConnectionStatus,
@@ -11,7 +12,7 @@ import {
  * Returns GHL agency OAuth connection status.
  */
 export async function GET() {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {
@@ -33,7 +34,7 @@ export async function GET() {
  * Disconnects stored GHL agency OAuth credentials.
  */
 export async function DELETE() {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {

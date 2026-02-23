@@ -38,6 +38,7 @@ import {
 import { toast } from "sonner";
 import Link from "next/link";
 import { useAccount } from "@/contexts/account-context";
+import { useUnsavedChanges } from "@/contexts/unsaved-changes-context";
 import {
   componentSchemas,
   getAvailableComponents,
@@ -3103,6 +3104,7 @@ export default function TemplateEditorPage() {
   const accountKeyParam = searchParams.get("accountKey") || "";
   const libraryTemplateSlug = searchParams.get("libraryTemplate") || "";
   const { isAdmin, isAccount, accountKey, accountData } = useAccount();
+  const { markClean, markDirty } = useUnsavedChanges();
   const effectiveAccountKey = accountKeyParam || accountKey;
   const builderMode = searchParams.get("builder");
   const isHtmlOnlyBuilder = builderMode === "html";
@@ -3492,6 +3494,14 @@ export default function TemplateEditorPage() {
   useEffect(() => {
     setHasChanges(code !== originalCode);
   }, [code, originalCode]);
+
+  useEffect(() => {
+    if (hasChanges) {
+      markDirty();
+      return;
+    }
+    markClean();
+  }, [hasChanges, markClean, markDirty]);
 
   // ── Auto-save (3s after last change) ──
   useEffect(() => {

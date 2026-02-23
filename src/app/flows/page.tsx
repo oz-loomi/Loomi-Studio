@@ -1,8 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAccount } from '@/contexts/account-context';
 import { AdminOnly } from '@/components/route-guard';
 import { FlowAnalytics } from '@/components/flows/flow-analytics';
 import { FlowList, type AccountMeta } from '@/components/flows/flow-list';
@@ -415,17 +413,6 @@ function AdminFlowsPage() {
 }
 
 export default function FlowsPage() {
-  const { isAdmin } = useAccount();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!isAdmin) {
-      router.replace('/');
-    }
-  }, [isAdmin, router]);
-
-  if (!isAdmin) return null;
-
   return (
     <AdminOnly>
       <AdminFlowsPage />

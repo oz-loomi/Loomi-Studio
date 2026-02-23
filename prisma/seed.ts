@@ -34,6 +34,9 @@ async function main() {
       role: 'developer',
       accountKeys: '[]',
     },
+    select: {
+      email: true,
+    },
   });
 
   console.log('Seeded developer user:', user.email);
@@ -87,9 +90,57 @@ async function main() {
       where: { key: account.key },
       update: {},
       create: account,
+      select: {
+        dealer: true,
+        category: true,
+      },
     });
     console.log(`Seeded account: ${result.dealer} (${result.category})`);
   }
+
+  // ── Seed client test users ──
+  const clientPassword = await bcryptjs.hash('client123', 12);
+  const clientUsers = [
+    {
+      name: 'Alex Rivera',
+      title: 'Service Manager',
+      email: 'alex.client@ozmktg.com',
+      accountKeys: [accounts[0].key],
+    },
+    {
+      name: 'Jamie Brooks',
+      title: 'Marketing Coordinator',
+      email: 'jamie.client@ozmktg.com',
+      accountKeys: [accounts[1].key],
+    },
+  ];
+
+  for (const clientUser of clientUsers) {
+    const result = await prisma.user.upsert({
+      where: { email: clientUser.email },
+      update: {
+        name: clientUser.name,
+        title: clientUser.title,
+        password: clientPassword,
+        role: 'client',
+        accountKeys: JSON.stringify(clientUser.accountKeys),
+      },
+      create: {
+        name: clientUser.name,
+        title: clientUser.title,
+        email: clientUser.email,
+        password: clientPassword,
+        role: 'client',
+        accountKeys: JSON.stringify(clientUser.accountKeys),
+      },
+      select: {
+        email: true,
+      },
+    });
+    console.log(`Seeded client user: ${result.email} -> ${clientUser.accountKeys.join(', ')}`);
+  }
+
+  console.log('Client seed password: client123');
 }
 
 main()

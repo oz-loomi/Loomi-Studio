@@ -3,6 +3,7 @@
 import { SessionProvider } from 'next-auth/react';
 import { AccountProvider } from '@/contexts/account-context';
 import { ThemeProvider, useTheme } from '@/contexts/theme-context';
+import { UnsavedChangesProvider } from '@/contexts/unsaved-changes-context';
 import { Toaster } from 'sonner';
 import { AiBubble } from '@/components/ai-bubble';
 
@@ -55,10 +56,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <SessionProvider>
       <ThemeProvider>
         <AccountProvider>
-          {children}
-          <ThemedToaster />
-          <AiBubble />
-          <DevThemeToggle />
+          <UnsavedChangesProvider>
+            {children}
+            <ThemedToaster />
+            <AiBubble />
+            <DevThemeToggle />
+          </UnsavedChangesProvider>
         </AccountProvider>
       </ThemeProvider>
     </SessionProvider>

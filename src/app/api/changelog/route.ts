@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 /**
@@ -31,7 +32,7 @@ export async function GET() {
  * Body: { title, content, type?, createdBy? }
  */
 export async function POST(req: NextRequest) {
-  const { session, error } = await requireRole('developer', 'admin');
+  const { session, error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {

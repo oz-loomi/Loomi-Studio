@@ -8,11 +8,15 @@ import {
   ArrowRightStartOnRectangleIcon,
   BugAntIcon,
   ClockIcon,
+  MoonIcon,
   QuestionMarkCircleIcon,
+  SunIcon,
   UserCircleIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
+import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
+import { useTheme } from '@/contexts/theme-context';
 import { UserAvatar } from '@/components/user-avatar';
 import { AI_ASSIST_OPEN_EVENT } from '@/lib/ui-events';
 import { ChangelogPanel } from '@/components/changelog-panel';
@@ -42,9 +46,13 @@ function UtilityIconButton({
 export function TopUtilityBar() {
   const pathname = usePathname();
   const { userName, userTitle, userEmail, userAvatarUrl, userRole } = useAccount();
+  const { confirmNavigation } = useUnsavedChanges();
+  const { theme, toggleTheme } = useTheme();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const userSecondaryLabel = userTitle || userEmail || 'No email';
+  const canViewRoleBadges =
+    userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
 
   // Changelog
   const [showChangelog, setShowChangelog] = useState(false);
@@ -138,7 +146,7 @@ export function TopUtilityBar() {
                     <p className="text-xs text-[var(--muted-foreground)] truncate">
                       {userSecondaryLabel}
                     </p>
-                    {userRole && (
+                    {userRole && canViewRoleBadges && (
                       <span className="inline-block mt-1 text-[10px] font-medium uppercase tracking-wider text-[var(--primary)] bg-[var(--primary)]/10 rounded px-1.5 py-0.5">
                         {userRole}
                       </span>
@@ -158,7 +166,21 @@ export function TopUtilityBar() {
                 </Link>
                 <button
                   type="button"
-                  onClick={() => signOut({ callbackUrl: '/login' })}
+                  onClick={toggleTheme}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                >
+                  {theme === 'dark' ? (
+                    <SunIcon className="w-4 h-4" />
+                  ) : (
+                    <MoonIcon className="w-4 h-4" />
+                  )}
+                  {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    confirmNavigation(() => signOut({ callbackUrl: '/login' }), '/login');
+                  }}
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
                 >
                   <ArrowRightStartOnRectangleIcon className="w-4 h-4" />

@@ -14,6 +14,7 @@ import {
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { toast } from '@/lib/toast';
+import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { componentSchemas, type PropSchema } from '@/lib/component-schemas';
 import { AdminOnly } from '@/components/route-guard';
 import { CodeEditor } from '@/components/code-editor';
@@ -294,6 +295,7 @@ function PropField({
 export default function ComponentEditorPage() {
   const params = useParams();
   const name = params.name as string;
+  const { markDirty, markClean } = useUnsavedChanges();
 
   const [code, setCode] = useState('');
   const [originalCode, setOriginalCode] = useState('');
@@ -342,6 +344,14 @@ export default function ComponentEditorPage() {
   }, [schema]);
 
   useEffect(() => { setHasChanges(code !== originalCode); }, [code, originalCode]);
+
+  useEffect(() => {
+    if (hasChanges) {
+      markDirty();
+      return;
+    }
+    markClean();
+  }, [hasChanges, markClean, markDirty]);
 
   // Build a preview wrapper that uses this component with current prop values
   const buildPreviewTemplate = useCallback(() => {

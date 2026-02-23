@@ -13,7 +13,7 @@ import {
  * Intended for optional cron/manual execution of scheduled sends.
  */
 export async function POST(req: NextRequest) {
-  const { session, error } = await requireRole('developer', 'admin', 'client');
+  const { session, error } = await requireRole('developer', 'super_admin', 'admin', 'client');
   if (error) return error;
 
   const body = await req.json().catch(() => ({}));

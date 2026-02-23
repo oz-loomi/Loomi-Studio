@@ -347,6 +347,7 @@ main[data-scrolled='true'] .page-sticky-header {
 @supports selector(:has(*)) {
   .glass-modal:has(.glass-dropdown),
   .glass-table:has(.glass-dropdown),
+  .glass-table:has(.account-tooltip-popover),
   .overflow-hidden:has(.glass-dropdown),
   [class*='overflow-hidden']:has(.glass-dropdown) {
     overflow: visible;
@@ -377,6 +378,21 @@ main[data-scrolled='true'] .page-sticky-header {
 [data-theme='light'] .glass-card:hover {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08),
     0 0 0 1px rgba(37, 99, 235, 0.08),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* ── Glass section card ── non-lifting frosted cards for form sections */
+.glass-section-card {
+  background: var(--card);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.04);
+}
+
+[data-theme='light'] .glass-section-card {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04),
     inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
 }
 
@@ -417,6 +433,37 @@ main[data-scrolled='true'] .page-sticky-header {
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   overflow: hidden;
+}
+
+.glass-table.account-tooltip-table {
+  overflow: visible;
+}
+
+.account-avatar-stack .account-avatar-stack-item {
+  margin-left: -0.5rem;
+  transition: margin-left 0.18s ease;
+}
+
+.account-avatar-stack .account-avatar-stack-item:first-child {
+  margin-left: 0;
+}
+
+.account-avatar-stack:hover .account-avatar-stack-item {
+  margin-left: 0.15rem;
+}
+
+.account-avatar-stack:hover .account-avatar-stack-item:first-child {
+  margin-left: 0;
+}
+
+.users-table-scroll {
+  overflow: visible;
+}
+
+@media (max-width: 900px) {
+  .users-table-scroll {
+    overflow-x: auto;
+  }
 }
 
 /* ── Glass action bar ── fixed bottom bulk-action bars */
@@ -764,4 +811,54 @@ input, select, textarea {
 [data-theme='light'] [data-sonner-toast][data-type='info'] {
   background: #eff6ff !important;
   border-color: rgba(99, 102, 241, 0.4) !important;
+}
+
+/* ── Toast icon colors — match type primary color ── */
+
+[data-sonner-toast][data-type='success'] [data-icon] svg {
+  color: #10b981 !important;
+}
+[data-sonner-toast][data-type='error'] [data-icon] svg {
+  color: #ef4444 !important;
+}
+[data-sonner-toast][data-type='warning'] [data-icon] svg {
+  color: #f59e0b !important;
+}
+[data-sonner-toast][data-type='info'] [data-icon] svg {
+  color: #6366f1 !important;
+}
+
+/* ── Toast close button — plain X inside card, top-right ── */
+
+[data-sonner-toast] [data-close-button] {
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
+  left: auto !important;
+  transform: none !important;
+  background: transparent !important;
+  border: none !important;
+  color: currentColor !important;
+  opacity: 0.4 !important;
+  width: 16px !important;
+  height: 16px !important;
+  padding: 0 !important;
+  cursor: pointer !important;
+}
+[data-sonner-toast] [data-close-button]:hover {
+  opacity: 0.8 !important;
+  background: transparent !important;
+}
+
+[data-sonner-toast][data-type='success'] [data-close-button] {
+  color: #10b981 !important;
+}
+[data-sonner-toast][data-type='error'] [data-close-button] {
+  color: #ef4444 !important;
+}
+[data-sonner-toast][data-type='warning'] [data-close-button] {
+  color: #f59e0b !important;
+}
+[data-sonner-toast][data-type='info'] [data-close-button] {
+  color: #6366f1 !important;
 }

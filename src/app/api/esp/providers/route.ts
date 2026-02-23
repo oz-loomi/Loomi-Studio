@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import '@/lib/esp/init';
 import { getAdapter, getRegisteredProviders } from '@/lib/esp/registry';
 import { getEspConnectionsStatus } from '@/lib/esp/connections';
@@ -15,7 +16,7 @@ import { getGhlOAuthMode } from '@/lib/esp/adapters/ghl/oauth';
  * for that account, plus provider webhook endpoints by supported family.
  */
 export async function GET(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {

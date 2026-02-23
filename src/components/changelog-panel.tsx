@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import {
   XMarkIcon,
   PlusIcon,
@@ -8,46 +9,16 @@ import {
   PencilIcon,
   TrashIcon,
   SparklesIcon,
-  WrenchScrewdriverIcon,
-  BugAntIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
-
-// ── Types ──
-
-interface ChangelogEntry {
-  id: string;
-  title: string;
-  content: string;
-  type: string; // feature | improvement | fix
-  publishedAt: string;
-  createdBy: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-type EntryType = 'feature' | 'improvement' | 'fix';
-
-const TYPE_META: Record<EntryType, { label: string; color: string; bg: string; Icon: React.ComponentType<{ className?: string }> }> = {
-  feature: { label: 'Feature', color: '#10b981', bg: '#10b98120', Icon: SparklesIcon },
-  improvement: { label: 'Improvement', color: '#3b82f6', bg: '#3b82f620', Icon: WrenchScrewdriverIcon },
-  fix: { label: 'Fix', color: '#f59e0b', bg: '#f59e0b20', Icon: BugAntIcon },
-};
-
-// ── Helpers ──
-
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return '';
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const days = Math.floor(diff / 86_400_000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return `${days} days ago`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
-}
+import {
+  type ChangelogEntry,
+  type EntryType,
+  TYPE_META,
+  ENTRY_TYPES,
+  formatChangelogDate,
+} from '@/lib/changelog';
 
 // ── Component ──
 
@@ -236,7 +207,7 @@ export function ChangelogPanel({ onClose }: ChangelogPanelProps) {
       />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          {(Object.keys(TYPE_META) as EntryType[]).map((t) => {
+          {ENTRY_TYPES.map((t) => {
             const meta = TYPE_META[t];
             const isSelected = type === t;
             return (
@@ -286,9 +257,18 @@ export function ChangelogPanel({ onClose }: ChangelogPanelProps) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
           <div>
             <h2 className="text-base font-semibold">Changelog</h2>
-            <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
-              {entries.length} update{entries.length !== 1 ? 's' : ''}
-            </p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-[10px] text-[var(--muted-foreground)]">
+                {entries.length} update{entries.length !== 1 ? 's' : ''}
+              </p>
+              <Link
+                href="/changelog"
+                onClick={onClose}
+                className="text-[10px] text-[var(--primary)] hover:underline"
+              >
+                View all
+              </Link>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {canEdit && !showCreate && (
@@ -377,7 +357,7 @@ export function ChangelogPanel({ onClose }: ChangelogPanelProps) {
                       {meta.label}
                     </span>
                     <span className="text-[10px] text-[var(--muted-foreground)]">
-                      {formatDate(entry.publishedAt)}
+                      {formatChangelogDate(entry.publishedAt)}
                     </span>
                   </div>
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   PlusIcon,
@@ -13,11 +14,12 @@ import {
 } from '@heroicons/react/24/outline';
 import { toast } from 'sonner';
 import { AccountAvatar } from '@/components/account-avatar';
-import { OemMultiSelect } from '@/components/oem-multi-select';
+import { UserAvatar } from '@/components/user-avatar';
 import { UserPicker, type UserPickerUser } from '@/components/user-picker';
+import { OemMultiSelect } from '@/components/oem-multi-select';
 import { formatAccountCityState } from '@/lib/account-resolvers';
 import { industryHasBrands, brandsForIndustry } from '@/lib/oems';
-import type { AccountData } from '@/contexts/account-context';
+import { useAccount, type AccountData } from '@/contexts/account-context';
 import { providerDisplayName, providerIcon } from '@/lib/esp/provider-display';
 
 type CreateMode = null | 'choose' | 'manual';
@@ -83,8 +85,9 @@ export function AccountsList({
 }: AccountsListProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { userRole } = useAccount();
+  const canManageAccounts = userRole === 'developer' || userRole === 'super_admin';
   const [accounts, setAccounts] = useState<Record<string, AccountData> | null>(null);
-  const [users, setUsers] = useState<UserPickerUser[]>([]);
   const [search, setSearch] = useState('');
   const [sortField, setSortField] = useState<AccountSortField>('dealer');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -96,18 +99,34 @@ export function AccountsList({
   const [newDealer, setNewDealer] = useState('');
   const [newCategory, setNewCategory] = useState('General');
   const [newOems, setNewOems] = useState<string[]>([]);
+  const [newRepId, setNewRepId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+
+  // Users for account rep picker (fetched when creation modal opens)
+  const [repUsers, setRepUsers] = useState<UserPickerUser[]>([]);
 
   useEffect(() => {
     fetch('/api/accounts')
       .then(r => r.json())
       .then(data => setAccounts(data))
       .catch(err => console.error(err));
-    fetch('/api/users')
-      .then(r => r.ok ? r.json() : [])
-      .then((data: UserPickerUser[]) => setUsers(data))
-      .catch(() => {});
   }, []);
+
+  // Fetch users for rep picker when creation modal opens
+  useEffect(() => {
+    if (createMode) {
+      fetch('/api/users')
+        .then(r => r.json())
+        .then((data: Array<{ id: string; name: string; title?: string | null; email: string; avatarUrl?: string | null; role?: string }>) => {
+          // Exclude developers from rep list (they shouldn't be account reps)
+          const eligible = data
+            .filter(u => u.role !== 'developer')
+            .map(u => ({ id: u.id, name: u.name, title: u.title, email: u.email, avatarUrl: u.avatarUrl }));
+          setRepUsers(eligible);
+        })
+        .catch(() => setRepUsers([]));
+    }
+  }, [createMode]);
 
   // Handle OAuth error from redirect.
   useEffect(() => {
@@ -126,6 +145,7 @@ export function AccountsList({
     setNewDealer('');
     setNewCategory('General');
     setNewOems([]);
+    setNewRepId(null);
     setCreating(false);
   };
 
@@ -142,6 +162,7 @@ export function AccountsList({
         category: newCategory,
         oems: selectedOems.length > 0 ? selectedOems : undefined,
         oem: selectedOems[0] || undefined,
+        accountRepId: newRepId || undefined,
       };
 
       const res = await fetch('/api/accounts', {
@@ -176,24 +197,6 @@ export function AccountsList({
       });
     } catch {
       toast.error('Failed to delete account');
-    }
-  };
-
-  const handleRepChange = async (key: string, userId: string | null) => {
-    try {
-      const res = await fetch(`/api/accounts/${encodeURIComponent(key)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountRepId: userId }),
-      });
-      if (!res.ok) { toast.error('Failed to update rep'); return; }
-      const updated = await res.json();
-      setAccounts(prev => {
-        if (!prev) return prev;
-        return { ...prev, [key]: { ...prev[key], accountRepId: updated.accountRepId, accountRep: updated.accountRep } };
-      });
-    } catch {
-      toast.error('Failed to update rep');
     }
   };
 
@@ -297,12 +300,14 @@ export function AccountsList({
               className="w-52 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
             />
           </div>
-          <button
-            onClick={() => setCreateMode('choose')}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            <PlusIcon className="w-4 h-4" /> New Account
-          </button>
+          {canManageAccounts && (
+            <button
+              onClick={() => setCreateMode('choose')}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+            >
+              <PlusIcon className="w-4 h-4" /> New Account
+            </button>
+          )}
         </div>
       </div>
 
@@ -407,6 +412,41 @@ export function AccountsList({
                       />
                     </div>
                   )}
+
+                  {/* Account Rep picker */}
+                  <div>
+                    <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Account Rep</label>
+                    <div className="flex items-center gap-2">
+                      <UserPicker
+                        value={newRepId}
+                        onChange={setNewRepId}
+                        users={repUsers}
+                        placeholder="Assign a rep..."
+                      />
+                    </div>
+                    {repUsers.length === 0 && (
+                      <p className="text-[10px] text-[var(--muted-foreground)] mt-1">
+                        No eligible users found.{' '}
+                        <Link
+                          href="/users/new"
+                          className="text-[var(--primary)] hover:underline"
+                        >
+                          Create a new user
+                        </Link>
+                      </p>
+                    )}
+                    {repUsers.length > 0 && !newRepId && (
+                      <p className="text-[10px] text-[var(--muted-foreground)] mt-1">
+                        Don&apos;t see the right person?{' '}
+                        <Link
+                          href="/users/new"
+                          className="text-[var(--primary)] hover:underline"
+                        >
+                          Create a new user
+                        </Link>
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <p className="text-[11px] text-[var(--muted-foreground)] mt-4">
@@ -432,15 +472,17 @@ export function AccountsList({
       {/* ─── Account Table ─── */}
       {sortedEntries.length === 0 ? (
         <div className="text-center py-16 text-[var(--muted-foreground)]">
-          <p className="text-sm">No accounts yet.</p>
-          <p className="text-xs mt-1">Click &quot;New Account&quot; to get started.</p>
+          <p className="text-sm">{search ? 'No accounts match your search.' : 'No accounts yet.'}</p>
+          <p className="text-xs mt-1">
+            {search ? 'Try a different search term.' : 'Click &quot;New Account&quot; to get started.'}
+          </p>
         </div>
       ) : (
         <div className="overflow-x-auto glass-table">
           <table className="w-full min-w-[700px]">
             <thead className="sticky top-0 z-10">
               <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
-                <th className="w-10 px-3 py-2"></th>
+                <th className="w-12 px-3 py-2"></th>
                 <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                   <button type="button" onClick={() => toggleSort('dealer')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
                     Account Name
@@ -483,37 +525,58 @@ export function AccountsList({
                     onClick={() => router.push(`${detailBasePath}/${key}`)}
                     className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--muted)]/50 transition-colors cursor-pointer"
                   >
-                    <td className="px-3 py-2">
-                      <AccountAvatar
-                        name={account.dealer}
-                        accountKey={key}
-                        storefrontImage={account.storefrontImage}
-                        size={28}
-                        className="w-7 h-7 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
-                      />
+                    <td className="px-3 py-2 align-middle">
+                      <div className="flex items-center justify-center h-full">
+                        <AccountAvatar
+                          name={account.dealer}
+                          accountKey={key}
+                          storefrontImage={account.storefrontImage}
+                          size={36}
+                          className="w-9 h-9 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
+                        />
+                      </div>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 align-middle">
                       <span className="text-sm font-medium">{account.dealer}</span>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 align-middle">
                       <span className="text-xs text-[var(--muted-foreground)] bg-[var(--muted)] px-2 py-0.5 rounded-full">
                         {account.category || 'General'}
                       </span>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 align-middle">
                       <span className="text-xs text-[var(--muted-foreground)]">
                         {cityState || '—'}
                       </span>
                     </td>
-                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                      <UserPicker
-                        value={account.accountRepId ?? null}
-                        onChange={(userId) => handleRepChange(key, userId)}
-                        users={users}
-                        compact
-                      />
+                    <td className="px-3 py-2 align-middle">
+                      {account.accountRep ? (
+                        <Link
+                          href={`/settings/users/${account.accountRep.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center gap-2 group"
+                        >
+                          <UserAvatar
+                            name={account.accountRep.name}
+                            email={account.accountRep.email}
+                            avatarUrl={account.accountRep.avatarUrl}
+                            size={28}
+                            className="w-7 h-7 rounded-full object-cover flex-shrink-0 border border-[var(--border)]"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-[var(--foreground)] truncate group-hover:text-[var(--primary)] transition-colors">
+                              {account.accountRep.name}
+                            </p>
+                            <p className="text-[10px] text-[var(--muted-foreground)] truncate leading-tight">
+                              {account.accountRep.email}
+                            </p>
+                          </div>
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-[var(--muted-foreground)]">—</span>
+                      )}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 align-middle">
                       <div className="flex items-center gap-1.5">
                         {(() => {
                           const connectedProviders = normalizeConnectedProviders(account);
@@ -554,15 +617,17 @@ export function AccountsList({
                         })()}
                       </div>
                     </td>
-                    <td className="px-3 py-2">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(key); }}
-                        className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                        title="Delete account"
-                      >
-                        <TrashIcon className="w-4 h-4" />
-                      </button>
-                    </td>
+                    {canManageAccounts && (
+                      <td className="px-3 py-2 align-middle">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDelete(key); }}
+                          className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          title="Delete account"
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}

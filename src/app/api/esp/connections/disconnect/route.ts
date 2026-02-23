@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import { disconnectEspConnection } from '@/lib/esp/connections';
 import { parseEspProvider, providerValidationMessage } from '@/lib/esp/provider-utils';
 
@@ -9,7 +10,7 @@ import { parseEspProvider, providerValidationMessage } from '@/lib/esp/provider-
  * Body: { accountKey: string, provider: string | 'any' }
  */
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   let body: { accountKey?: string; provider?: string };

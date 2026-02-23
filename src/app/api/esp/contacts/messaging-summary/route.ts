@@ -11,7 +11,7 @@ import { unsupportedCapabilityPayload } from '@/lib/esp/unsupported';
  * Providers without messaging summary support return empty summaries.
  */
 export async function GET(req: NextRequest) {
-  const { session, error } = await requireRole('developer', 'admin', 'client');
+  const { session, error } = await requireRole('developer', 'super_admin', 'admin', 'client');
   if (error) return error;
 
   const accountKey = req.nextUrl.searchParams.get('accountKey')?.trim()

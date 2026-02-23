@@ -5,8 +5,11 @@ import { useParams, usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { AdminOnly } from '@/components/route-guard';
+import { AccountAssignmentManager } from '@/components/account-assignment-manager';
 import { useAccount } from '@/contexts/account-context';
+import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { UserAvatar } from '@/components/user-avatar';
+import { roleDisplayName } from '@/lib/roles';
 import { safeJson } from '@/lib/safe-json';
 import { toast } from '@/lib/toast';
 import { ArrowLeftIcon, ArrowUpTrayIcon, TrashIcon } from '@heroicons/react/24/outline';
@@ -27,6 +30,7 @@ interface User {
 
 const roleColors: Record<string, string> = {
   developer: 'text-purple-400 bg-purple-500/10',
+  super_admin: 'text-amber-400 bg-amber-500/10',
   admin: 'text-blue-400 bg-blue-500/10',
   client: 'text-green-400 bg-green-500/10',
 };
@@ -45,7 +49,10 @@ function UserDetailContent() {
   const router = useRouter();
   const { data: session, update } = useSession();
   const userId = params.id as string;
-  const { accounts, accountsLoaded } = useAccount();
+  const { accounts, accountsLoaded, userRole: currentUserRole } = useAccount();
+  const { markClean } = useUnsavedChanges();
+  const canEditUsers = currentUserRole === 'developer' || currentUserRole === 'super_admin';
+  const canUploadAvatar = currentUserRole === 'developer';
   const usersBasePath = pathname.startsWith('/settings/users') ? '/settings/users' : '/users';
 
   const [loading, setLoading] = useState(true);
@@ -81,12 +88,6 @@ function UserDetailContent() {
       .catch(() => toast.error('User not found'))
       .finally(() => setLoading(false));
   }, [userId]);
-
-  const toggleAccountKey = (key: string) => {
-    setAccountKeys(prev =>
-      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
-    );
-  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -124,6 +125,7 @@ function UserDetailContent() {
           title: updated.title ?? null,
         });
       }
+      markClean();
       toast.success('User updated');
     } catch (err) {
       toast.error(String(err instanceof Error ? err.message : err));
@@ -252,6 +254,7 @@ function UserDetailContent() {
   const inputClass = 'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
   const labelClass = 'block text-xs font-medium text-[var(--muted-foreground)] mb-1.5';
   const sectionHeadingClass = 'text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4';
+  const sectionCardClass = 'glass-section-card rounded-xl p-6';
 
   return (
     <div>
@@ -285,66 +288,70 @@ function UserDetailContent() {
           <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
             <span>{email || user.email}</span>
             <span className={`text-[10px] font-medium uppercase tracking-wider rounded px-1.5 py-0.5 ${roleColors[user.role] || ''}`}>
-              {user.role}
+              {roleDisplayName(user.role)}
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleSendInvite}
-            disabled={sendingInvite}
-            className="px-3.5 py-2 border border-[var(--border)] rounded-lg text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-50 transition-colors"
-          >
-            {sendingInvite ? 'Sending...' : 'Send Invite'}
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || !name || !email}
-            className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+        {canEditUsers && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSendInvite}
+              disabled={sendingInvite}
+              className="px-3.5 py-2 border border-[var(--border)] rounded-lg text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-50 transition-colors"
+            >
+              {sendingInvite ? 'Sending...' : 'Send Invite'}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || !name || !email}
+              className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="max-w-2xl space-y-10">
+      <fieldset disabled={!canEditUsers} className="max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6 disabled:opacity-70 disabled:pointer-events-none">
 
         {/* General */}
-        <section>
+        <section className={sectionCardClass}>
           <h3 className={sectionHeadingClass}>General</h3>
           <div className="space-y-4">
-            <div>
-              <label className={labelClass}>Profile Photo</label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/jpg,image/webp"
-                className="hidden"
-                onChange={handleAvatarInputChange}
-              />
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={avatarLoading}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
-                >
-                  <ArrowUpTrayIcon className="w-3.5 h-3.5" />
-                  {avatarLoading ? 'Updating...' : avatarUrl ? 'Change Photo' : 'Upload Photo'}
-                </button>
-                {avatarUrl && (
+            {canUploadAvatar && (
+              <div>
+                <label className={labelClass}>Profile Photo</label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  className="hidden"
+                  onChange={handleAvatarInputChange}
+                />
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleRemoveAvatar}
+                    onClick={() => fileInputRef.current?.click()}
                     disabled={avatarLoading}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
                   >
-                    <TrashIcon className="w-3.5 h-3.5" />
-                    Remove
+                    <ArrowUpTrayIcon className="w-3.5 h-3.5" />
+                    {avatarLoading ? 'Updating...' : avatarUrl ? 'Change Photo' : 'Upload Photo'}
                   </button>
-                )}
+                  {avatarUrl && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveAvatar}
+                      disabled={avatarLoading}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    >
+                      <TrashIcon className="w-3.5 h-3.5" />
+                      Remove
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
             <div>
               <label className={labelClass}>Name</label>
               <input type="text" value={name} onChange={e => setName(e.target.value)} className={inputClass} />
@@ -379,13 +386,14 @@ function UserDetailContent() {
         </section>
 
         {/* Role & Access */}
-        <section>
+        <section className={sectionCardClass}>
           <h3 className={sectionHeadingClass}>Role & Access</h3>
           <div className="space-y-4">
             <div>
               <label className={labelClass}>Role</label>
-              <select value={role} onChange={e => setRole(e.target.value)} className={inputClass}>
-                <option value="developer">Developer</option>
+              <select value={role} onChange={e => setRole(e.target.value)} className={inputClass} disabled={!canEditUsers}>
+                {currentUserRole === 'developer' && <option value="developer">Developer</option>}
+                <option value="super_admin">Super Admin</option>
                 <option value="admin">Admin</option>
                 <option value="client">Client</option>
               </select>
@@ -394,42 +402,21 @@ function UserDetailContent() {
             {(role === 'admin' || role === 'client') && (
               <div>
                 <label className={labelClass}>Assigned Accounts</label>
-                <p className="text-xs text-[var(--muted-foreground)] mb-2">
-                  {role === 'admin' ? 'Admin can switch between these accounts' : 'Client will be locked to these'}
-                </p>
-                {accountsLoaded ? (
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(accounts).map(([key, account]) => {
-                      const selected = accountKeys.includes(key);
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => toggleAccountKey(key)}
-                          className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
-                            selected
-                              ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
-                              : 'bg-[var(--input)] text-[var(--muted-foreground)] border-[var(--border)] hover:border-[var(--primary)]'
-                          }`}
-                        >
-                          {account.dealer || key}
-                        </button>
-                      );
-                    })}
-                    {Object.keys(accounts).length === 0 && (
-                      <p className="text-xs text-[var(--muted-foreground)]">No accounts available</p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-xs text-[var(--muted-foreground)]">Loading accounts...</p>
-                )}
+                <AccountAssignmentManager
+                  accounts={accounts}
+                  accountsLoaded={accountsLoaded}
+                  selectedKeys={accountKeys}
+                  onChange={setAccountKeys}
+                  description={role === 'admin' ? 'Admin can switch between these accounts' : 'Client will be locked to these accounts'}
+                  disabled={!canEditUsers}
+                />
               </div>
             )}
           </div>
         </section>
 
         {/* Info */}
-        <section>
+        <section className={`${sectionCardClass} lg:col-span-2`}>
           <h3 className={sectionHeadingClass}>Info</h3>
           <div className="space-y-4">
             <div>
@@ -454,24 +441,30 @@ function UserDetailContent() {
         </section>
 
         {/* Danger Zone */}
-        <section className="border-t border-red-500/20 pt-6">
-          <h3 className="text-sm font-semibold text-red-400 uppercase tracking-wider mb-3">Danger Zone</h3>
-          <div className="flex items-center justify-between p-4 border border-red-500/20 rounded-xl">
-            <div>
-              <p className="text-sm font-medium">Delete this user</p>
-              <p className="text-xs text-[var(--muted-foreground)]">
-                Permanently remove {name} and revoke their access.
-              </p>
+      </fieldset>
+
+      {/* Danger Zone — outside fieldset so it's not disabled */}
+      {canEditUsers && (
+        <div className="max-w-7xl mt-6">
+          <section className="glass-section-card rounded-xl p-6 border border-red-500/20">
+            <h3 className="text-sm font-semibold text-red-400 uppercase tracking-wider mb-3">Danger Zone</h3>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between p-4 border border-red-500/20 rounded-xl">
+              <div>
+                <p className="text-sm font-medium">Delete this user</p>
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  Permanently remove {name} and revoke their access.
+                </p>
+              </div>
+              <button
+                onClick={handleDelete}
+                className="px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-colors flex-shrink-0"
+              >
+                Delete User
+              </button>
             </div>
-            <button
-              onClick={handleDelete}
-              className="px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-colors flex-shrink-0"
-            >
-              Delete User
-            </button>
-          </div>
-        </section>
-      </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

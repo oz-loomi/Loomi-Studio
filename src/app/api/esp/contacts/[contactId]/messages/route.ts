@@ -26,7 +26,7 @@ function normalizeMediaUrls(value: unknown): string[] {
  * Provider-agnostic 1:1 outbound message send.
  */
 export async function POST(req: NextRequest, { params }: RouteContext) {
-  const { session, error } = await requireRole('developer', 'admin', 'client');
+  const { session, error } = await requireRole('developer', 'super_admin', 'admin', 'client');
   if (error) return error;
 
   const { contactId } = await params;

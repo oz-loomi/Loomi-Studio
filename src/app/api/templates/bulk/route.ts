@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import { parseTemplate } from '@/lib/template-parser';
 import { serializeTemplate } from '@/lib/template-serializer';
 import * as templateService from '@/lib/services/templates';
@@ -153,7 +154,7 @@ function applyOperation(raw: string, operation: BulkOperation) {
 }
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole('developer', 'admin');
+  const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {

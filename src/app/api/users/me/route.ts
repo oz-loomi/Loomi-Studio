@@ -50,11 +50,12 @@ export async function PUT(req: NextRequest) {
   const { session, error } = await requireAuth();
   if (error) return error;
 
-  const { name, title, email, password } = await req.json() as {
+  const { name, title, email, password, confirmPassword } = await req.json() as {
     name?: string;
     title?: string;
     email?: string;
     password?: string;
+    confirmPassword?: string;
   };
 
   const data: Record<string, unknown> = {};
@@ -87,7 +88,17 @@ export async function PUT(req: NextRequest) {
   }
 
   if (password !== undefined) {
-    if (password.trim()) {
+    const trimmedPassword = password.trim();
+    if (trimmedPassword) {
+      const trimmedConfirmPassword = typeof confirmPassword === 'string' ? confirmPassword.trim() : '';
+
+      if (!trimmedConfirmPassword) {
+        return NextResponse.json({ error: 'Please confirm your new password' }, { status: 400 });
+      }
+      if (password !== confirmPassword) {
+        return NextResponse.json({ error: 'Passwords do not match' }, { status: 400 });
+      }
+
       data.password = await bcryptjs.hash(password, 12);
     }
   }
