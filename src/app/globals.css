@@ -259,7 +259,6 @@ body {
   border: 1px solid transparent;
   border-radius: 0.75rem;
   backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
   transition:
     background-color 0.2s ease,
     border-color 0.2s ease,
@@ -271,7 +270,6 @@ main[data-scrolled='true'] .page-sticky-header {
   background: var(--sidebar-bg);
   border-color: var(--sidebar-border);
   backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
   box-shadow: var(--sidebar-shadow);
 }
 
@@ -284,7 +282,7 @@ main[data-scrolled='true'] .page-sticky-header {
 .glass-panel {
   background: var(--sidebar-bg);
   backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
+
   border: 1px solid var(--sidebar-border);
   box-shadow: var(--sidebar-shadow);
 }
@@ -319,7 +317,6 @@ main[data-scrolled='true'] .page-sticky-header {
 /* ── Dropdown popover — opaque frosted glass ── */
 .glass-dropdown {
   backdrop-filter: blur(40px) saturate(200%);
-  -webkit-backdrop-filter: blur(40px) saturate(200%);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   overflow: hidden;
@@ -358,7 +355,7 @@ main[data-scrolled='true'] .page-sticky-header {
 .glass-card {
   background: var(--card);
   backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+
   border: 1px solid var(--border);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1),
     inset 0 0.5px 0 rgba(255, 255, 255, 0.04);
@@ -385,7 +382,7 @@ main[data-scrolled='true'] .page-sticky-header {
 .glass-section-card {
   background: var(--card);
   backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+
   border: 1px solid var(--border);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1),
     inset 0 0.5px 0 rgba(255, 255, 255, 0.04);
@@ -400,7 +397,6 @@ main[data-scrolled='true'] .page-sticky-header {
 .glass-modal {
   background: rgba(18, 18, 22, 0.82);
   backdrop-filter: blur(32px) saturate(180%);
-  -webkit-backdrop-filter: blur(32px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 1rem;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4),
@@ -429,7 +425,7 @@ main[data-scrolled='true'] .page-sticky-header {
 .glass-table {
   background: var(--card);
   backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   overflow: hidden;
@@ -470,7 +466,6 @@ main[data-scrolled='true'] .page-sticky-header {
 .glass-action-bar {
   background: var(--card);
   backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--border);
   border-radius: 1rem;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
@@ -487,7 +482,6 @@ main[data-scrolled='true'] .page-sticky-header {
     radial-gradient(100% 75% at 0% 100%, var(--ai-assist-tint-soft) 0%, transparent 62%),
     var(--ai-assist-bg);
   backdrop-filter: blur(34px) saturate(195%);
-  -webkit-backdrop-filter: blur(34px) saturate(195%);
   border: 1px solid var(--ai-assist-border);
   box-shadow: var(--ai-assist-shadow);
 }
@@ -631,7 +625,6 @@ main[data-scrolled='true'] .page-sticky-header {
 .animate-overlay-in {
   animation: modal-overlay-in 0.2s ease both;
   backdrop-filter: blur(8px) saturate(120%);
-  -webkit-backdrop-filter: blur(8px) saturate(120%);
 }
 
 /* ── Page Content Entrance ── */

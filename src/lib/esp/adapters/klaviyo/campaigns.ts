@@ -50,7 +50,7 @@ export async function fetchCampaigns(
 
   const campaigns: EspCampaign[] = [];
   let url: string | null =
-    `${KLAVIYO_BASE}/campaigns/?sort=-send_time&page[size]=50`;
+    `${KLAVIYO_BASE}/campaigns/?filter=equals(messages.channel,'email')&sort=-created_at&page[size]=50`;
 
   while (url) {
     const res: Response = await fetch(url, { headers: klaviyoHeaders(apiKey) });
