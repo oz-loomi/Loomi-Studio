@@ -11,6 +11,7 @@ import {
   ShieldCheckIcon,
   ArrowLeftIcon,
   MagnifyingGlassIcon,
+  LinkIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from 'sonner';
 import { AccountAvatar } from '@/components/account-avatar';
@@ -173,12 +174,12 @@ export function AccountsList({
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to create'); setCreating(false); return; }
 
-      toast.success('Account created!');
+      toast.success('Sub-account created!');
       resetCreate();
       // Redirect to the new account's detail page
       router.push(`${detailBasePath}/${newKey.trim()}`);
     } catch {
-      toast.error('Failed to create account');
+      toast.error('Failed to create sub-account');
     }
     setCreating(false);
   };
@@ -284,7 +285,7 @@ export function AccountsList({
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-[var(--muted-foreground)]">
-          {sortedEntries.length} account{sortedEntries.length !== 1 ? 's' : ''}{search ? ' found' : ' configured'}
+          {sortedEntries.length} sub-account{sortedEntries.length !== 1 ? 's' : ''}{search ? ' found' : ' configured'}
         </p>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -296,7 +297,7 @@ export function AccountsList({
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              placeholder="Search accounts..."
+              placeholder="Search sub-accounts..."
               className="w-52 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
             />
           </div>
@@ -305,7 +306,7 @@ export function AccountsList({
               onClick={() => setCreateMode('choose')}
               className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
             >
-              <PlusIcon className="w-4 h-4" /> New Account
+              <PlusIcon className="w-4 h-4" /> New Sub-Account
             </button>
           )}
         </div>
@@ -320,7 +321,7 @@ export function AccountsList({
             {createMode === 'choose' && (
               <div className="p-6">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-semibold">Add New Account</h3>
+                  <h3 className="text-lg font-semibold">Add New Sub-Account</h3>
                   <button onClick={resetCreate} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]">
                     <XMarkIcon className="w-5 h-5" />
                   </button>
@@ -330,22 +331,33 @@ export function AccountsList({
                     onClick={() => setCreateMode('manual')}
                     className="w-full flex items-center gap-4 p-4 glass-card rounded-xl hover:bg-[var(--primary)]/5 transition-all text-left group"
                   >
-                    <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-500/20 transition-colors">
-                      <ShieldCheckIcon className="w-5 h-5 text-emerald-400" />
+                    <div className="w-10 h-10 rounded-lg bg-sky-500/10 flex items-center justify-center flex-shrink-0 group-hover:bg-sky-500/20 transition-colors">
+                      <LinkIcon className="w-5 h-5 text-sky-400" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium">Create Account</div>
+                      <div className="text-sm font-medium">Integrate with ESP</div>
                       <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                        Set up account details, then connect an ESP + branding
+                        Create a sub-account and connect an ESP provider
                       </div>
                     </div>
-                    <span className="text-[10px] font-medium bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full flex-shrink-0">
+                    <span className="text-[10px] font-medium bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded-full flex-shrink-0">
                       Recommended
                     </span>
                   </button>
-                  <p className="text-xs text-[var(--muted-foreground)] px-1">
-                    Legacy direct-token imports are retired. Create the account first, then connect your ESP in Integrations.
-                  </p>
+                  <button
+                    onClick={() => setCreateMode('manual')}
+                    className="w-full flex items-center gap-4 p-4 glass-card rounded-xl hover:bg-[var(--primary)]/5 transition-all text-left group"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-500/20 transition-colors">
+                      <PlusIcon className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium">Add Manually</div>
+                      <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                        Set up sub-account details without an ESP connection
+                      </div>
+                    </div>
+                  </button>
                 </div>
               </div>
             )}
@@ -357,7 +369,7 @@ export function AccountsList({
                   <button onClick={() => setCreateMode('choose')} className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]">
                     <ArrowLeftIcon className="w-4 h-4" />
                   </button>
-                  <h3 className="text-lg font-semibold flex-1">Create Account</h3>
+                  <h3 className="text-lg font-semibold flex-1">Create Sub-Account</h3>
                   <button onClick={resetCreate} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]">
                     <XMarkIcon className="w-5 h-5" />
                   </button>
@@ -365,7 +377,7 @@ export function AccountsList({
 
                 <div className="space-y-3">
                   <div>
-                    <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Account Name *</label>
+                    <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Sub-Account Name *</label>
                     <input
                       type="text"
                       value={newDealer}
@@ -415,7 +427,7 @@ export function AccountsList({
 
                   {/* Account Rep picker */}
                   <div>
-                    <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Account Rep</label>
+                    <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Sub-Account Rep</label>
                     <div className="flex items-center gap-2">
                       <UserPicker
                         value={newRepId}
@@ -459,7 +471,7 @@ export function AccountsList({
                     disabled={!newKey.trim() || !newDealer.trim() || creating}
                     className="flex-1 px-4 py-2.5 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
                   >
-                    {creating ? 'Creating...' : 'Create Account'}
+                    {creating ? 'Creating...' : 'Create Sub-Account'}
                   </button>
                 </div>
               </div>
@@ -472,9 +484,9 @@ export function AccountsList({
       {/* ─── Account Table ─── */}
       {sortedEntries.length === 0 ? (
         <div className="text-center py-16 text-[var(--muted-foreground)]">
-          <p className="text-sm">{search ? 'No accounts match your search.' : 'No accounts yet.'}</p>
+          <p className="text-sm">{search ? 'No sub-accounts match your search.' : 'No sub-accounts yet.'}</p>
           <p className="text-xs mt-1">
-            {search ? 'Try a different search term.' : 'Click &quot;New Account&quot; to get started.'}
+            {search ? 'Try a different search term.' : 'Click &quot;New Sub-Account&quot; to get started.'}
           </p>
         </div>
       ) : (
@@ -485,7 +497,7 @@ export function AccountsList({
                 <th className="w-12 px-3 py-2"></th>
                 <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                   <button type="button" onClick={() => toggleSort('dealer')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
-                    Account Name
+                    Sub-Account Name
                     <span className="text-[10px]">{sortIndicator('dealer')}</span>
                   </button>
                 </th>
@@ -503,7 +515,7 @@ export function AccountsList({
                 </th>
                 <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                   <button type="button" onClick={() => toggleSort('rep')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
-                    Account Rep
+                    Sub-Account Rep
                     <span className="text-[10px]">{sortIndicator('rep')}</span>
                   </button>
                 </th>
@@ -623,7 +635,7 @@ export function AccountsList({
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDelete(key); }}
                           className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          title="Delete account"
+                          title="Delete sub-account"
                         >
                           <TrashIcon className="w-4 h-4" />
                         </button>

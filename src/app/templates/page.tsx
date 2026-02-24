@@ -562,7 +562,7 @@ export default function TemplatesPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
-            placeholder={isAdmin ? 'Search templates or accounts...' : 'Search templates...'}
+            placeholder={isAdmin ? 'Search templates or sub-accounts...' : 'Search templates...'}
           />
         </div>
 

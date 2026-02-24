@@ -142,7 +142,7 @@ export function CampaignToolbar({
           values={filters.account}
           isOpen={openPanel === 'account'}
           icon={accountIcon}
-          triggerLabel={getFilterLabel('Account', filters.account)}
+          triggerLabel={getFilterLabel('Sub-Account', filters.account)}
           onToggle={() => setOpenPanel(openPanel === 'account' ? null : 'account')}
           onClear={() => clearFilter('account')}
           accounts={options.accounts}

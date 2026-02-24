@@ -464,7 +464,7 @@ export default function ScheduleCampaignPage() {
     }
 
     if (!selectedAccountKey) {
-      setError('Select an account before scheduling.');
+      setError('Select a sub-account before scheduling.');
       return;
     }
 
@@ -628,11 +628,11 @@ export default function ScheduleCampaignPage() {
           </div>
 
           <div className="glass-card rounded-xl p-4 border border-[var(--border)] space-y-3">
-            <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Audience & Account</p>
+            <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Audience & Sub-Account</p>
 
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] text-[var(--muted-foreground)] mb-1.5">Send Account</label>
+                <label className="block text-[11px] text-[var(--muted-foreground)] mb-1.5">Send Sub-Account</label>
                 <select
                   value={selectedAccountKey}
                   onChange={(event) => setSelectedAccountKey(event.target.value)}
@@ -692,7 +692,7 @@ export default function ScheduleCampaignPage() {
           <div className="glass-card rounded-xl p-4 border border-[var(--border)] space-y-3">
             <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Ready to Schedule</p>
             <p className="text-sm text-[var(--muted-foreground)]">
-              Loomi will compile this template and create the scheduled campaign in {scheduleProviderLabel} for the selected account.
+              Loomi will compile this template and create the scheduled campaign in {scheduleProviderLabel} for the selected sub-account.
             </p>
 
             <button

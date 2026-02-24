@@ -199,7 +199,7 @@ export function ContactsTable({
                 <SortHeader label="Source" sortKey="source" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortHeader label="Added" sortKey="dateAdded" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                 {showAccountColumn && (
-                  <SortHeader label="Account" sortKey="_dealer" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                  <SortHeader label="Sub-Account" sortKey="_dealer" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
                 )}
                 <th className="w-8" />
               </tr>

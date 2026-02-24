@@ -20,6 +20,7 @@ import { toast } from '@/lib/toast';
 import { AdminOnly } from '@/components/route-guard';
 import { OemMultiSelect } from '@/components/oem-multi-select';
 import { UserAvatar } from '@/components/user-avatar';
+import { AccountAvatar } from '@/components/account-avatar';
 import { ContactsTable } from '@/components/contacts/contacts-table';
 import type { Contact } from '@/components/contacts/contacts-table';
 import type { AccountData } from '@/contexts/account-context';
@@ -583,7 +584,7 @@ export default function AccountDetailPage() {
         applyProviderCatalog(catalog);
       } catch {
         if (cancelled) return;
-        toast.error('Account not found');
+        toast.error('Sub-account not found');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -953,9 +954,9 @@ export default function AccountDetailPage() {
     return (
       <AdminOnly>
         <div className="text-center py-16">
-          <p className="text-[var(--muted-foreground)]">Account not found</p>
+          <p className="text-[var(--muted-foreground)]">Sub-account not found</p>
           <Link href="/accounts" className="text-sm text-[var(--primary)] mt-2 inline-block hover:underline">
-            Back to Accounts
+            Back to Sub-Accounts
           </Link>
         </div>
       </AdminOnly>
@@ -1023,6 +1024,14 @@ export default function AccountDetailPage() {
           >
             <ArrowLeftIcon className="w-4 h-4" />
           </Link>
+          <AccountAvatar
+            name={dealer || key}
+            accountKey={key}
+            storefrontImage={storefrontImage}
+            logos={{ light: logoLight, dark: logoDark, white: logoWhite, black: logoBlack }}
+            size={40}
+            className="rounded-xl flex-shrink-0 border border-[var(--border)]"
+          />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               {isEditingDealerName ? (
@@ -1052,7 +1061,7 @@ export default function AccountDetailPage() {
                 type="button"
                 onClick={() => setIsEditingDealerName((prev) => !prev)}
                 className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                title="Edit account name"
+                title="Edit sub-account name"
               >
                 <PencilSquareIcon className="w-4 h-4" />
               </button>
@@ -1138,7 +1147,7 @@ export default function AccountDetailPage() {
                 <div>
                   <div className="mb-1.5 flex items-center gap-1.5">
                     <label className="text-xs font-medium text-[var(--muted-foreground)]">
-                      Account Rep
+                      Sub-Account Rep
                     </label>
                     <span className="relative inline-flex items-center group">
                       <QuestionMarkCircleIcon className="w-4 h-4 text-[var(--muted-foreground)]/80 hover:text-[var(--foreground)] transition-colors cursor-help" />

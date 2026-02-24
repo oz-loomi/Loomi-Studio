@@ -422,8 +422,8 @@ function AdminCampaignsPage() {
       }
     : filters.account.length > 1
       ? {
-          title: 'No campaigns found for selected accounts',
-          subtitle: 'Create campaigns in each account\'s connected platform to get started.',
+          title: 'No campaigns found for selected sub-accounts',
+          subtitle: 'Create campaigns in each sub-account\'s connected platform to get started.',
         }
     : null;
 
@@ -433,8 +433,8 @@ function AdminCampaignsPage() {
       : 'No campaigns match current filters';
   const adminEmptySubtitle =
     campaigns.length === 0
-      ? 'Accounts may need to reconnect their integration with campaign scopes'
-      : 'Try expanding the selected account/date/status/industry filters.';
+      ? 'Sub-accounts may need to reconnect their integration with campaign scopes'
+      : 'Try expanding the selected sub-account/date/status/industry filters.';
 
   return (
     <div>
@@ -676,7 +676,7 @@ function AccountCampaignsPage() {
       ? 'Scheduled and sent campaigns will appear here.'
       : 'Try expanding the selected date range.';
 
-  const dealerName = accountData?.dealer || 'Your Account';
+  const dealerName = accountData?.dealer || 'Your Sub-Account';
   const accountProvider = resolveAccountProvider(accountData, '');
   const accountLocationId = resolveAccountLocationId(accountData);
   const accountProviderLabel = providerDisplayName(accountProvider);
@@ -852,7 +852,7 @@ function AccountCampaignsPage() {
               <div className="text-center py-12 border border-dashed border-[var(--border)] rounded-xl">
                 <PaperAirplaneIcon className="w-8 h-8 mx-auto mb-3 text-[var(--muted-foreground)]" />
                 <p className="text-[var(--muted-foreground)] text-sm">
-                  {search ? 'No campaigns match your search.' : 'No campaigns found for this account.'}
+                  {search ? 'No campaigns match your search.' : 'No campaigns found for this sub-account.'}
                 </p>
               </div>
             ) : (

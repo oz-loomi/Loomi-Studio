@@ -108,7 +108,7 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
   }, [open]);
 
   const handleSelect = (key: string | '__admin__') => {
-    const destinationLabel = key === '__admin__' ? 'Admin Dashboard' : (accounts[key]?.dealer || key);
+    const destinationLabel = key === '__admin__' ? 'Admin Account' : (accounts[key]?.dealer || key);
     confirmNavigation(() => {
       if (key === '__admin__') {
         setAccount({ mode: 'admin' });
@@ -147,7 +147,7 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
         )}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-[var(--sidebar-foreground)] truncate">
-            {currentAccount?.dealer || currentKey || 'Your Account'}
+            {currentAccount?.dealer || currentKey || 'Your Sub-Account'}
           </p>
           {currentAccount && getAccountAddress(currentAccount) && (
             <p className="text-[10px] text-[var(--sidebar-muted-foreground)] truncate leading-tight">
@@ -178,7 +178,7 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
         )}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-[var(--sidebar-foreground)] truncate">
-            {isAdmin ? 'Admin Dashboard' : currentAccount?.dealer || currentKey || 'Select account'}
+            {isAdmin ? 'Admin Account' : currentAccount?.dealer || currentKey || 'Select sub-account'}
           </p>
           {!isAdmin && currentAccount && (
             <p className="text-[10px] text-[var(--sidebar-muted-foreground)] truncate leading-tight">
@@ -205,7 +205,7 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search accounts..."
+                placeholder="Search sub-accounts..."
                 className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
               />
             </div>
@@ -224,8 +224,8 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
                   <ShieldCheckIcon className="w-3.5 h-3.5 text-[var(--primary)]" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-[var(--foreground)]">Admin Dashboard</p>
-                  <p className="text-[10px] text-[var(--muted-foreground)] leading-tight">Manage all accounts & templates</p>
+                  <p className="text-xs font-medium text-[var(--foreground)]">Admin Account</p>
+                  <p className="text-[10px] text-[var(--muted-foreground)] leading-tight">Manage all sub-accounts & templates</p>
                 </div>
                 {isAdmin && <CheckIcon className="w-3.5 h-3.5 text-[var(--primary)] flex-shrink-0" />}
               </button>
@@ -238,7 +238,7 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
               <p className="text-xs text-[var(--muted-foreground)] text-center py-4">Loading...</p>
             ) : filteredAccounts.length === 0 ? (
               <p className="text-xs text-[var(--muted-foreground)] text-center py-4">
-                {search ? 'No accounts match your search' : 'No accounts available'}
+                {search ? 'No sub-accounts match your search' : 'No sub-accounts available'}
               </p>
             ) : (
               filteredAccounts.map(([key, accountData]) => {

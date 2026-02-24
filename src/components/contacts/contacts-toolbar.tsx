@@ -291,8 +291,8 @@ export function ContactsAccountFilter({
   const triggerLabel = selectedAccount
     ? selectedAccount.dealer
     : hasSelection
-      ? `Account (${values.length})`
-      : 'Account';
+      ? `Sub-Account (${values.length})`
+      : 'Sub-Account';
 
   return (
     <div ref={dropdownRef} className={`relative ${className || ''}`}>

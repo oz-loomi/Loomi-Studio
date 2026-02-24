@@ -113,8 +113,8 @@ export default function SettingsPage() {
   // Determine available tabs based on role/mode
   const tabs: { key: Tab; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }[] = [];
   const hasAdminAccess = userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
-  if (hasAdminAccess && isAdmin) tabs.push({ key: 'accounts', label: 'Accounts', icon: BuildingStorefrontIcon });
-  if (isAccount) tabs.push({ key: 'account', label: 'Account', icon: BuildingStorefrontIcon });
+  if (hasAdminAccess && isAdmin) tabs.push({ key: 'accounts', label: 'Sub-Accounts', icon: BuildingStorefrontIcon });
+  if (isAccount) tabs.push({ key: 'account', label: 'Sub-Account', icon: BuildingStorefrontIcon });
   if (hasAdminAccess) tabs.push({ key: 'users', label: 'Users', icon: UsersIcon });
   if (isAccount && hasAdminAccess) tabs.push({ key: 'integrations', label: 'Integrations', icon: LinkIcon });
   if (hasAdminAccess) tabs.push({ key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon });
@@ -215,15 +215,15 @@ function AccountDetailTabRedirect({ targetTab }: { targetTab: 'integration' | 'c
   if (!isAccount || !accountKey) {
     return (
       <div className="text-center py-16">
-        <p className="text-[var(--muted-foreground)] text-sm">Select an account to manage this section.</p>
-        <p className="text-[var(--muted-foreground)] text-xs mt-1">Use the Account switcher in the sidebar.</p>
+        <p className="text-[var(--muted-foreground)] text-sm">Select a sub-account to manage this section.</p>
+        <p className="text-[var(--muted-foreground)] text-xs mt-1">Use the sub-account switcher in the sidebar.</p>
       </div>
     );
   }
 
   return (
     <div className="text-center py-16">
-      <p className="text-[var(--muted-foreground)] text-sm">Opening account settings...</p>
+      <p className="text-[var(--muted-foreground)] text-sm">Opening sub-account settings...</p>
     </div>
   );
 }
@@ -263,8 +263,8 @@ function AccountSettingsTab() {
   if (!accountData || !accountKey) {
     return (
       <div className="text-center py-16">
-        <p className="text-[var(--muted-foreground)] text-sm">Select an account to manage settings.</p>
-        <p className="text-[var(--muted-foreground)] text-xs mt-1">Use the Account switcher in the sidebar.</p>
+        <p className="text-[var(--muted-foreground)] text-sm">Select a sub-account to manage settings.</p>
+        <p className="text-[var(--muted-foreground)] text-xs mt-1">Use the sub-account switcher in the sidebar.</p>
       </div>
     );
   }
@@ -318,7 +318,7 @@ function AccountSettingsTab() {
         <h3 className={sectionHeadingClass}>General</h3>
         <div className="space-y-4">
           <div>
-            <label className={labelClass}>Account Key</label>
+            <label className={labelClass}>Sub-Account Key</label>
             <div className="px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
               {accountKey}
             </div>
@@ -566,7 +566,7 @@ function UsersTab() {
               </th>
               <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                 <button type="button" onClick={() => toggleSort('accounts')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
-                  Accounts
+                  Sub-Accounts
                   <span className="text-[10px]">{sortIndicator('accounts')}</span>
                 </button>
               </th>
@@ -589,7 +589,7 @@ function UsersTab() {
                   {search
                     ? 'No users match your search'
                     : isAccount
-                      ? 'No users are assigned to this account'
+                      ? 'No users are assigned to this sub-account'
                       : 'No users found'}
                 </td>
               </tr>
@@ -627,7 +627,7 @@ function UsersTab() {
                   </td>
                   <td className="px-3 py-2 align-middle text-sm text-[var(--muted-foreground)]">
                     {user.accountKeys.length === 0 ? (
-                      <span className="text-xs opacity-50">All accounts</span>
+                      <span className="text-xs opacity-50">All sub-accounts</span>
                     ) : (
                       <div className="account-avatar-stack flex items-center pl-2">
                         {user.accountKeys.slice(0, 4).map((accountKey) => {
@@ -675,7 +675,7 @@ function UsersTab() {
 
                         {user.accountKeys.length > 4 && (
                           <span
-                            title={`${user.accountKeys.length - 4} more account${user.accountKeys.length - 4 === 1 ? '' : 's'}`}
+                            title={`${user.accountKeys.length - 4} more sub-account${user.accountKeys.length - 4 === 1 ? '' : 's'}`}
                             className="account-avatar-stack-item inline-flex items-center justify-center w-[34px] h-[34px] rounded-full border border-[var(--background)] bg-[var(--background)] text-[10px] font-medium text-[var(--muted-foreground)] shadow-sm"
                           >
                             +{user.accountKeys.length - 4}
@@ -1307,9 +1307,9 @@ function CustomValuesTab() {
       setAccountStatusRefreshNonce((prev) => prev + 1);
 
       if (result.failed > 0) {
-        toast.warning(`Linked ${result.linked}/${result.total} accounts (${result.failed} failed)`);
+        toast.warning(`Linked ${result.linked}/${result.total} sub-accounts (${result.failed} failed)`);
       } else {
-        toast.success(`Linked ${result.linked} account${result.linked === 1 ? '' : 's'} successfully`);
+        toast.success(`Linked ${result.linked} sub-account${result.linked === 1 ? '' : 's'} successfully`);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to apply bulk location links');
@@ -1348,7 +1348,7 @@ function CustomValuesTab() {
   }
 
   async function handleDisconnectGhlAgency() {
-    if (!confirm('Disconnect GHL agency OAuth? Accounts linked via agency will stop syncing until reconnected.')) {
+    if (!confirm('Disconnect GHL agency OAuth? Sub-accounts linked via agency will stop syncing until reconnected.')) {
       return;
     }
 
@@ -1644,7 +1644,7 @@ function CustomValuesTab() {
           <div>
             <h3 className="text-sm font-semibold text-[var(--foreground)]">Global Default Values</h3>
             <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-              Define custom values that apply to all accounts. Accounts can override individual values.
+              Define custom values that apply to all sub-accounts. Sub-accounts can override individual values.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1790,9 +1790,9 @@ function CustomValuesTab() {
       <section className={sectionCardClass}>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-semibold text-[var(--foreground)]">Push to Connected ESP Accounts</h3>
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">Push to Connected ESP Sub-Accounts</h3>
             <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-              Sync custom values to accounts whose active provider supports custom values and has a valid connection.
+              Sync custom values to sub-accounts whose active provider supports custom values and has a valid connection.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1823,7 +1823,7 @@ function CustomValuesTab() {
               <div>
                 <p className="text-xs font-semibold text-[var(--foreground)]">GHL Agency OAuth</p>
                 <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
-                  Agency mode is active for {ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length} account{ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length !== 1 ? 's' : ''}. Link each account to a location in Account Integrations.
+                  Agency mode is active for {ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length} sub-account{ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length !== 1 ? 's' : ''}. Link each sub-account to a location in Sub-Account Integrations.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -1871,7 +1871,7 @@ function CustomValuesTab() {
             {ghlAgencyStatus?.connected && ghlAgencyUnlinkedAccounts.length > 0 && (
               <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
                 <p className="text-[11px] text-amber-400">
-                  {ghlAgencyUnlinkedAccounts.length} account{ghlAgencyUnlinkedAccounts.length !== 1 ? 's' : ''} still need a location link.
+                  {ghlAgencyUnlinkedAccounts.length} sub-account{ghlAgencyUnlinkedAccounts.length !== 1 ? 's' : ''} still need a location link.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {ghlAgencyUnlinkedAccounts.slice(0, 8).map((accountStatus) => (
@@ -1948,7 +1948,7 @@ function CustomValuesTab() {
                         {bulkLinkPreview.slice(0, 20).map((row) => (
                           <div key={`${row.line}-${row.accountKey}-${row.locationId}`} className="text-[11px] font-mono">
                             <span className="text-[var(--muted-foreground)]">L{row.line}</span>{' '}
-                            <span>{row.accountKey || '(missing account)'}</span>
+                            <span>{row.accountKey || '(missing sub-account)'}</span>
                             <span className="text-[var(--muted-foreground)]">{' -> '}</span>
                             <span>{row.locationId || '(missing location)'}</span>{' '}
                             {row.error ? (
@@ -1993,7 +1993,7 @@ function CustomValuesTab() {
         {accountStatuses.some((accountStatus) => accountStatus.needsReauthorization) && (
           <div className="glass-card rounded-lg p-3 mb-4 border border-amber-500/20 bg-amber-500/5">
             <p className="text-[11px] text-amber-400">
-              <strong>Re-authorization required:</strong> Some OAuth-connected accounts are missing required scopes for custom value sync. Click &quot;Re-auth needed&quot; next to each account to grant the required scopes.
+              <strong>Re-authorization required:</strong> Some OAuth-connected sub-accounts are missing required scopes for custom value sync. Click &quot;Re-auth needed&quot; next to each sub-account to grant the required scopes.
             </p>
           </div>
         )}
@@ -2013,10 +2013,10 @@ function CustomValuesTab() {
         )}
 
         {loadingAccounts ? (
-          <div className="py-8 text-center text-sm text-[var(--muted-foreground)]">Loading accounts...</div>
+          <div className="py-8 text-center text-sm text-[var(--muted-foreground)]">Loading sub-accounts...</div>
         ) : accountStatuses.length === 0 ? (
           <div className="py-8 text-center text-sm text-[var(--muted-foreground)]">
-            No accounts found. Create an account first.
+            No sub-accounts found. Create a sub-account first.
           </div>
         ) : (
           <div className="glass-table">
@@ -2037,7 +2037,7 @@ function CustomValuesTab() {
                       className="rounded border-[var(--border)]"
                     />
                   </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Account</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Sub-Account</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Connection</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Overrides</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Status</th>
@@ -2104,7 +2104,7 @@ function CustomValuesTab() {
                         <a
                           href={`/settings/accounts/${encodeURIComponent(acct.key)}?tab=integration`}
                           className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition-colors"
-                          title="Link this account to a GHL location"
+                          title="Link this sub-account to a GHL location"
                         >
                           <ExclamationTriangleIcon className="w-2.5 h-2.5" /> Link location
                         </a>
@@ -2155,7 +2155,7 @@ function CustomValuesTab() {
                               ? acct.needsReauthorization
                                 ? `Re-authorize ${providerDisplayName(acct.provider)} to enable custom values`
                                 : acct.provider === 'ghl' && acct.oauthMode === 'agency' && ghlAgencyStatus?.connected && !acct.locationId
-                                  ? 'Link this account to a GHL location in Integrations'
+                                  ? 'Link this sub-account to a GHL location in Integrations'
                                 : `Connect ${providerDisplayName(acct.provider)} first`
                               : `Push custom values to ${providerDisplayName(acct.provider)}`
                         }

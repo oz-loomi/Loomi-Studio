@@ -297,8 +297,8 @@ function AdminFlowsPage() {
       }
     : filters.account.length > 1
       ? {
-          title: 'No flows found for selected accounts',
-          subtitle: 'Create and manage workflows directly in each account\'s connected platform.',
+          title: 'No flows found for selected sub-accounts',
+          subtitle: 'Create and manage workflows directly in each sub-account\'s connected platform.',
         }
       : null;
 
