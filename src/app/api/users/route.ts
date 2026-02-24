@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import bcryptjs from 'bcryptjs';
 import crypto from 'crypto';
 import { issueAndSendUserInvite } from '@/lib/users/invitations';
+import { sendUserDeletedEmail } from '@/lib/users/deleted-email';
 
 function parseAccountKeys(raw: string): string[] {
   try {
@@ -239,7 +240,23 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 });
   }
 
+  // Fetch user info before deletion for the notification email
+  const userToDelete = await prisma.user.findUnique({
+    where: { id },
+    select: { name: true, email: true },
+  });
+
   await prisma.user.delete({ where: { id } });
+
+  // Fire-and-forget: send deletion notification email
+  if (userToDelete) {
+    sendUserDeletedEmail({
+      to: userToDelete.email,
+      recipientName: userToDelete.name,
+    }).catch((err) => {
+      console.error('[user-delete] Failed to send deletion email:', err);
+    });
+  }
 
   return NextResponse.json({ success: true });
 }

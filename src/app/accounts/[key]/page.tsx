@@ -2294,6 +2294,19 @@ function LogoSlot({
 
   const inputClass = 'w-full px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
 
+  // Variant-specific preview backgrounds so each logo is visible in its intended context
+  const previewStyle: Record<AccountImageVariant, React.CSSProperties> = {
+    storefront: {
+      backgroundImage: 'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
+      backgroundSize: '16px 16px',
+      backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0',
+    },
+    light: { backgroundColor: '#1f2937' },   // dark bg for light logos
+    dark: { backgroundColor: '#f9fafb' },    // light bg for dark logos
+    white: { backgroundColor: '#1f2937' },   // dark bg for white logos
+    black: { backgroundColor: '#f9fafb' },   // light bg for black logos
+  };
+
   return (
     <div data-variant={variant}>
       <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-2">
@@ -2310,11 +2323,18 @@ function LogoSlot({
           dragging
             ? 'border-[var(--primary)] bg-[var(--primary)]/5'
             : value
-            ? 'border-[var(--border)] bg-[var(--muted)]'
+            ? 'border-[var(--border)]'
             : 'border-[var(--border)] bg-[var(--muted)]/50 hover:border-[var(--muted-foreground)]'
         }`}
-        style={{ height: '120px' }}
+        style={{ height: variant === 'storefront' ? '160px' : '120px' }}
       >
+        {/* Variant-specific preview background */}
+        {value && !uploading && (
+          <div
+            className="absolute inset-0 rounded-[10px]"
+            style={previewStyle[variant]}
+          />
+        )}
         {uploading ? (
           <div className="flex flex-col items-center gap-2 text-[var(--muted-foreground)]">
             <ArrowPathIcon className="w-5 h-5 animate-spin" />
@@ -2324,7 +2344,7 @@ function LogoSlot({
           <img
             src={value}
             alt={label}
-            className="max-w-full max-h-full object-contain p-3"
+            className="relative max-w-full max-h-full object-contain p-3"
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
         ) : (

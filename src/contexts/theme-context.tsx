@@ -15,16 +15,16 @@ const STORAGE_KEY = 'loomi-theme';
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function loadTheme(): Theme {
-  if (typeof window === 'undefined') return 'dark';
+  if (typeof window === 'undefined') return 'light';
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === 'light' || stored === 'dark') return stored;
   } catch {}
-  return 'dark';
+  return 'light';
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('dark');
+  const [theme, setThemeState] = useState<Theme>('light');
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {

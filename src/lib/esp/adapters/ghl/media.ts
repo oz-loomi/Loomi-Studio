@@ -70,7 +70,7 @@ export async function listMedia(
 
   const offset = options?.cursor ? Number(options.cursor) : 0;
   const limit = options?.limit || 50;
-  const url = `${GHL_BASE}/medias/files?locationId=${encodeURIComponent(locationId)}&offset=${offset}&limit=${limit}`;
+  const url = `${GHL_BASE}/medias/files?altId=${encodeURIComponent(locationId)}&altType=location&type=file&offset=${offset}&limit=${limit}`;
 
   const res = await fetch(url, { headers: ghlHeaders(token) });
 
