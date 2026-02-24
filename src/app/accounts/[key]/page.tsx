@@ -2280,6 +2280,7 @@ function LogoSlot({
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [imgVersion, setImgVersion] = useState(0);
 
   // Reset error when URL changes (re-upload or manual edit)
   useEffect(() => { setImgError(false); }, [value]);
@@ -2296,6 +2297,9 @@ function LogoSlot({
     setUploading(true);
     await onUpload(file);
     setUploading(false);
+    // Reset error + bust browser cache (handles same-URL re-uploads and stale 404s)
+    setImgError(false);
+    setImgVersion((v) => v + 1);
   }, [onUpload]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -2355,7 +2359,7 @@ function LogoSlot({
           </div>
         ) : value && !imgError ? (
           <img
-            src={value}
+            src={imgVersion ? `${value}?v=${imgVersion}` : value}
             alt={label}
             className="relative max-w-full max-h-full object-contain p-3"
             onError={() => setImgError(true)}
