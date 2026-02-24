@@ -1990,13 +1990,32 @@ function CustomValuesTab() {
           </div>
         )}
 
-        {accountStatuses.some((accountStatus) => accountStatus.needsReauthorization) && (
-          <div className="glass-card rounded-lg p-3 mb-4 border border-amber-500/20 bg-amber-500/5">
-            <p className="text-[11px] text-amber-400">
-              <strong>Re-authorization required:</strong> Some OAuth-connected sub-accounts are missing required scopes for custom value sync. Click &quot;Re-auth needed&quot; next to each sub-account to grant the required scopes.
-            </p>
-          </div>
-        )}
+        {accountStatuses.some((accountStatus) => accountStatus.needsReauthorization) && (() => {
+          const firstNeedsReauth = accountStatuses.find((a) => a.needsReauthorization);
+          const reauthCount = accountStatuses.filter((a) => a.needsReauthorization).length;
+          const reauthHref = firstNeedsReauth
+            ? buildAuthorizeHrefForAccount({
+                provider: firstNeedsReauth.provider,
+                accountKey: firstNeedsReauth.key,
+                oauthMode: firstNeedsReauth.oauthMode,
+              })
+            : '#';
+          return (
+            <div className="glass-card rounded-lg p-3 mb-4 border border-amber-500/20 bg-amber-500/5 flex items-center justify-between gap-3">
+              <p className="text-[11px] text-amber-400">
+                <strong>Re-authorization required:</strong> {reauthCount} sub-account{reauthCount !== 1 ? 's are' : ' is'} missing required scopes.
+                Re-authorizing once updates all sub-accounts under the same agency.
+              </p>
+              <a
+                href={reauthHref}
+                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors border border-amber-500/20"
+              >
+                <ArrowPathIcon className="w-3.5 h-3.5" />
+                Re-authorize All
+              </a>
+            </div>
+          );
+        })()}
 
         {bulkProgress && (
           <div className="mb-4">
