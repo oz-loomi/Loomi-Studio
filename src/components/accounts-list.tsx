@@ -8,7 +8,6 @@ import {
   PlusIcon,
   XMarkIcon,
   TrashIcon,
-  ShieldCheckIcon,
   ArrowLeftIcon,
   MagnifyingGlassIcon,
   LinkIcon,
