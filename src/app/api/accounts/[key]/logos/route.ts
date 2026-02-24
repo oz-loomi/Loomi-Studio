@@ -26,11 +26,13 @@ async function tryEspUpload(
     });
 
     if (isResolveError(result)) {
+      console.warn(`[logos] ESP resolve failed for ${accountKey}: ${result.error} (${result.status})`);
       return null;
     }
 
     const { adapter, credentials } = result;
     if (!adapter.media) {
+      console.warn(`[logos] ESP adapter for ${accountKey} (${adapter.provider}) has no media support`);
       return null;
     }
 
@@ -119,9 +121,10 @@ export async function POST(
     if (espResult) {
       url = espResult.url;
       source = 'esp';
+      console.log(`[logos] ESP upload succeeded for ${key}/${variant} → ${url}`);
     } else {
-      // ── Fallback: save locally ──
-      const logoDir = path.join(process.cwd(), 'public', 'logos', key);
+      // ── Fallback: save to data/logos (served via API route) ──
+      const logoDir = path.join(process.cwd(), 'data', 'logos', key);
       if (!fs.existsSync(logoDir)) {
         fs.mkdirSync(logoDir, { recursive: true });
       }
@@ -137,8 +140,10 @@ export async function POST(
       const fileName = `${variant}.${ext}`;
       const filePath = path.join(logoDir, fileName);
       fs.writeFileSync(filePath, buffer);
-      url = `/logos/${key}/${fileName}`;
+      // Serve through API route (Next.js doesn't serve files added to /public after build)
+      url = `/api/logos/${key}/${fileName}`;
       source = 'local';
+      console.log(`[logos] Local fallback for ${key}/${variant} → ${filePath}`);
     }
 
     // ── Update account data via Prisma ──
