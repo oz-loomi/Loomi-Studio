@@ -28,6 +28,7 @@ interface AccountRow {
   location: string;
   industry: string;
   storefrontImage: string | null;
+  logos?: { light?: string; dark?: string; white?: string; black?: string } | null;
 }
 
 function getVisiblePages(currentPage: number, totalPages: number, maxVisible = 5): number[] {
@@ -54,6 +55,7 @@ function normalizeRow(accountKey: string, account: AccountData): AccountRow {
     location: formatAccountCityState(account) || 'Location unavailable',
     industry: typeof account.category === 'string' && account.category.trim() ? account.category.trim() : 'General',
     storefrontImage: account.storefrontImage || null,
+    logos: account.logos || null,
   };
 }
 
@@ -253,6 +255,7 @@ export function AccountAssignmentManager({
                   name={row.dealer}
                   accountKey={row.key}
                   storefrontImage={row.storefrontImage}
+                  logos={row.logos}
                   size={16}
                   className="rounded-full"
                 />
@@ -399,6 +402,7 @@ export function AccountAssignmentManager({
                                     name={row.dealer}
                                     accountKey={row.key}
                                     storefrontImage={row.storefrontImage}
+                                    logos={row.logos}
                                     size={30}
                                     className="rounded-md border border-[var(--border)]"
                                   />

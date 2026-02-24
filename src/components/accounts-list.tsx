@@ -531,6 +531,7 @@ export function AccountsList({
                           name={account.dealer}
                           accountKey={key}
                           storefrontImage={account.storefrontImage}
+                          logos={account.logos}
                           size={36}
                           className="w-9 h-9 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
                         />

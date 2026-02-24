@@ -28,6 +28,7 @@ export interface AccountOption {
   key: string;
   label: string;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string } | null;
   city?: string;
   state?: string;
 }
@@ -52,24 +53,26 @@ function toggleSelection(values: string[], value: string): string[] {
     : [...values, value];
 }
 
-function TinyAvatar({ label, accountKey, storefrontImage }: { label: string; accountKey?: string; storefrontImage?: string }) {
+function TinyAvatar({ label, accountKey, storefrontImage, logos }: { label: string; accountKey?: string; storefrontImage?: string; logos?: AccountOption['logos'] }) {
   return (
     <AccountAvatar
       name={label}
       accountKey={accountKey || label}
       storefrontImage={storefrontImage}
+      logos={logos}
       size={16}
       className="w-4 h-4 rounded-[3px] object-cover flex-shrink-0 border border-[var(--border)]"
     />
   );
 }
 
-function DropdownAvatar({ label, accountKey, storefrontImage }: { label: string; accountKey?: string; storefrontImage?: string }) {
+function DropdownAvatar({ label, accountKey, storefrontImage, logos }: { label: string; accountKey?: string; storefrontImage?: string; logos?: AccountOption['logos'] }) {
   return (
     <AccountAvatar
       name={label}
       accountKey={accountKey || label}
       storefrontImage={storefrontImage}
+      logos={logos}
       size={20}
       className="w-5 h-5 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
     />
@@ -141,7 +144,7 @@ export function DashboardToolbar({
   const standardPresets = DATE_RANGE_PRESETS.filter(p => p.key !== 'custom');
 
   const accountIcon = singleSelectedAccount
-    ? <TinyAvatar label={singleSelectedAccount.label} accountKey={singleSelectedAccount.key} storefrontImage={singleSelectedAccount.storefrontImage} />
+    ? <TinyAvatar label={singleSelectedAccount.label} accountKey={singleSelectedAccount.key} storefrontImage={singleSelectedAccount.storefrontImage} logos={singleSelectedAccount.logos} />
     : <BuildingStorefrontIcon className="w-3.5 h-3.5" />;
 
   function handlePresetSelect(key: DateRangeKey) {
@@ -325,7 +328,7 @@ export function DashboardToolbar({
                       : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
                   }`}
                 >
-                  <DropdownAvatar label={account.label} accountKey={account.key} storefrontImage={account.storefrontImage} />
+                  <DropdownAvatar label={account.label} accountKey={account.key} storefrontImage={account.storefrontImage} logos={account.logos} />
                   <span className="flex-1 min-w-0 text-left">
                     <span className="block truncate">{account.label}</span>
                     {location && (

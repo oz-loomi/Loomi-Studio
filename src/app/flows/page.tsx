@@ -41,6 +41,7 @@ interface AccountData {
   state?: string;
   city?: string;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string };
 }
 
 function capitalize(s: string): string {
@@ -134,6 +135,7 @@ function AdminFlowsPage() {
               state: a.state,
               city: a.city,
               storefrontImage: a.storefrontImage,
+              logos: a.logos,
               locationId: resolveAccountLocationId(a) || undefined,
             };
             const preferredProvider = resolveAccountProvider(a, '');
@@ -183,6 +185,7 @@ function AdminFlowsPage() {
         label,
         key: key ?? existing?.key,
         storefrontImage: meta?.storefrontImage ?? existing?.storefrontImage,
+        logos: meta?.logos ?? existing?.logos,
         city: meta?.city ?? existing?.city,
         state: meta?.state ?? existing?.state,
       });

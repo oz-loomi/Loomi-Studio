@@ -73,6 +73,7 @@ interface AccountData {
   state?: string;
   city?: string;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string };
 }
 
 // ── Helpers ──
@@ -227,6 +228,7 @@ function AdminCampaignsPage() {
               state: a.state,
               city: a.city,
               storefrontImage: a.storefrontImage,
+              logos: a.logos,
               locationId: resolveAccountLocationId(a) || undefined,
             };
             const preferredProvider = resolveAccountProvider(a, '');
@@ -294,6 +296,7 @@ function AdminCampaignsPage() {
         label,
         key: key ?? existing?.key,
         storefrontImage: meta?.storefrontImage ?? existing?.storefrontImage,
+        logos: meta?.logos ?? existing?.logos,
         city: meta?.city ?? existing?.city,
         state: meta?.state ?? existing?.state,
       });

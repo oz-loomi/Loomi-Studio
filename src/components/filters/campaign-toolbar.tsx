@@ -16,6 +16,7 @@ export interface AccountFilterOption {
   label: string;
   key?: string;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string } | null;
   city?: string;
   state?: string;
 }
@@ -40,24 +41,26 @@ interface CampaignToolbarProps {
   options: CampaignFilterOptions;
 }
 
-function TinyAvatar({ label, accountKey, storefrontImage }: { label: string; accountKey?: string; storefrontImage?: string }) {
+function TinyAvatar({ label, accountKey, storefrontImage, logos }: { label: string; accountKey?: string; storefrontImage?: string; logos?: AccountFilterOption['logos'] }) {
   return (
     <AccountAvatar
       name={label}
       accountKey={accountKey || label}
       storefrontImage={storefrontImage}
+      logos={logos}
       size={16}
       className="w-4 h-4 rounded-[3px] object-cover flex-shrink-0 border border-[var(--border)]"
     />
   );
 }
 
-function DropdownAvatar({ label, accountKey, storefrontImage }: { label: string; accountKey?: string; storefrontImage?: string }) {
+function DropdownAvatar({ label, accountKey, storefrontImage, logos }: { label: string; accountKey?: string; storefrontImage?: string; logos?: AccountFilterOption['logos'] }) {
   return (
     <AccountAvatar
       name={label}
       accountKey={accountKey || label}
       storefrontImage={storefrontImage}
+      logos={logos}
       size={20}
       className="w-5 h-5 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
     />
@@ -129,7 +132,7 @@ export function CampaignToolbar({
   const selectedAccountOption = selectedAccountOptions.length === 1 ? selectedAccountOptions[0] : null;
 
   const accountIcon = selectedAccountOption
-    ? <TinyAvatar label={selectedAccountOption.label} accountKey={selectedAccountOption.key} storefrontImage={selectedAccountOption.storefrontImage} />
+    ? <TinyAvatar label={selectedAccountOption.label} accountKey={selectedAccountOption.key} storefrontImage={selectedAccountOption.storefrontImage} logos={selectedAccountOption.logos} />
     : <BuildingStorefrontIcon className="w-3.5 h-3.5" />;
 
   return (
@@ -270,7 +273,7 @@ function AccountFilterDropdown({
                       : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
                   }`}
                 >
-                  <DropdownAvatar label={acct.label} accountKey={acct.key} storefrontImage={acct.storefrontImage} />
+                  <DropdownAvatar label={acct.label} accountKey={acct.key} storefrontImage={acct.storefrontImage} logos={acct.logos} />
                   <span className="flex-1 min-w-0 text-left">
                     <span className="block truncate">{acct.label}</span>
                     {location && (

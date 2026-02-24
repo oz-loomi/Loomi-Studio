@@ -337,6 +337,7 @@ function AdminContactsView() {
       key,
       dealer: val.dealer || accountMap[key]?.dealer || key,
       storefrontImage: accountMap[key]?.storefrontImage,
+      logos: accountMap[key]?.logos,
       city: accountMap[key]?.city,
       state: accountMap[key]?.state,
     }))

@@ -16,7 +16,7 @@ import { AccountAvatar } from '@/components/account-avatar';
 // ── Types ──
 
 interface AccountHealthProps {
-  accounts: Record<string, { dealer: string; category?: string; storefrontImage?: string }>;
+  accounts: Record<string, { dealer: string; category?: string; storefrontImage?: string; logos?: { light?: string; dark?: string; white?: string; black?: string } }>;
   crmStats: Record<string, {
     dealer: string;
     contactCount: number | null;
@@ -106,6 +106,7 @@ export function AccountHealthGrid({ accounts, crmStats, emailsByAccount, loading
                 name={account.dealer}
                 accountKey={key}
                 storefrontImage={account.storefrontImage}
+                logos={account.logos}
                 size={40}
                 className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
               />

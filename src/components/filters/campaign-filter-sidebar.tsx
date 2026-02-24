@@ -285,6 +285,7 @@ function AccountSection({
                 name={account.label}
                 accountKey={account.key || account.label}
                 storefrontImage={account.storefrontImage}
+                logos={account.logos}
                 size={22}
                 className="w-[22px] h-[22px] rounded-md object-cover flex-shrink-0 border border-[var(--sidebar-border-soft)]"
               />

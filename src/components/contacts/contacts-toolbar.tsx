@@ -196,6 +196,7 @@ interface ContactAccountFilterOption {
   key: string;
   dealer: string;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string } | null;
   city?: string;
   state?: string;
 }
@@ -211,16 +212,19 @@ function TinyAccountAvatar({
   dealer,
   accountKey,
   storefrontImage,
+  logos,
 }: {
   dealer: string;
   accountKey: string;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string } | null;
 }) {
   return (
     <AccountAvatar
       name={dealer}
       accountKey={accountKey}
       storefrontImage={storefrontImage}
+      logos={logos}
       size={16}
       className="w-4 h-4 rounded-[3px] object-cover flex-shrink-0 border border-[var(--border)]"
     />
@@ -231,16 +235,19 @@ function DropdownAccountAvatar({
   dealer,
   accountKey,
   storefrontImage,
+  logos,
 }: {
   dealer: string;
   accountKey: string;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string } | null;
 }) {
   return (
     <AccountAvatar
       name={dealer}
       accountKey={accountKey}
       storefrontImage={storefrontImage}
+      logos={logos}
       size={20}
       className="w-5 h-5 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
     />
@@ -304,6 +311,7 @@ export function ContactsAccountFilter({
             dealer={selectedAccount.dealer}
             accountKey={selectedAccount.key}
             storefrontImage={selectedAccount.storefrontImage}
+            logos={selectedAccount.logos}
           />
         ) : (
           <BuildingStorefrontIcon className="w-3.5 h-3.5" />
@@ -368,6 +376,7 @@ export function ContactsAccountFilter({
                     dealer={account.dealer}
                     accountKey={account.key}
                     storefrontImage={account.storefrontImage}
+                    logos={account.logos}
                   />
                   <span className="flex-1 min-w-0 text-left">
                     <span className="block truncate">{account.dealer}</span>

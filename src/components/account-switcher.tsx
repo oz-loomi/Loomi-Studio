@@ -281,6 +281,7 @@ function AccountSwitcherAvatar({ account, accountKey }: { account: AccountData; 
       name={account.dealer}
       accountKey={accountKey || account.dealer}
       storefrontImage={account.storefrontImage}
+      logos={account.logos}
       size={28}
       className="w-7 h-7 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
     />

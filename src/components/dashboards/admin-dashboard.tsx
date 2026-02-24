@@ -45,6 +45,7 @@ interface AccountData {
   city?: string;
   state?: string;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string };
 }
 
 interface CrmStat {
@@ -207,6 +208,7 @@ export function AdminDashboard() {
           key,
           label: acct.dealer || key,
           storefrontImage: acct.storefrontImage,
+          logos: acct.logos,
           city: acct.city,
           state: acct.state,
         }))

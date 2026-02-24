@@ -663,6 +663,7 @@ function UsersTab() {
                                   name={summary.dealer}
                                   accountKey={accountKey}
                                   storefrontImage={account?.storefrontImage || null}
+                                  logos={account?.logos}
                                   size={32}
                                   className="rounded-full"
                                   alt={`${summary.dealer} (${accountKey})`}

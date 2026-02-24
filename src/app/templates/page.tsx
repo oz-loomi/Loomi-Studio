@@ -584,6 +584,7 @@ export default function TemplatesPage() {
                   name={accountFilterLabel}
                   accountKey={accountFilter}
                   storefrontImage={selectedAccountData?.storefrontImage}
+                  logos={selectedAccountData?.logos}
                   size={16}
                   className="w-4 h-4 rounded-[3px] object-cover flex-shrink-0 border border-[var(--border)]"
                 />
@@ -638,6 +639,7 @@ export default function TemplatesPage() {
                           name={acct?.dealer || k}
                           accountKey={k}
                           storefrontImage={acct?.storefrontImage}
+                          logos={acct?.logos}
                           size={20}
                           className="w-5 h-5 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
                         />
@@ -928,6 +930,7 @@ export default function TemplatesPage() {
                             name={acct?.dealer || k}
                             accountKey={k}
                             storefrontImage={acct?.storefrontImage}
+                            logos={acct?.logos}
                             size={32}
                             className="w-8 h-8 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
                           />

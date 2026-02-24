@@ -67,6 +67,7 @@ export interface AccountMeta {
   city?: string;
   locationId?: string;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string };
 }
 
 interface CampaignPageListProps {
@@ -328,10 +329,12 @@ function AccountAvatar({
   accountKey,
   dealer,
   storefrontImage,
+  logos,
 }: {
   accountKey: string;
   dealer: string;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string };
 }) {
   return (
     <Link
@@ -344,6 +347,7 @@ function AccountAvatar({
         name={dealer}
         accountKey={accountKey}
         storefrontImage={storefrontImage}
+        logos={logos}
         size={24}
         className="w-6 h-6 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
       />
@@ -426,6 +430,7 @@ function CampaignRow({
             accountKey={accountKey}
             dealer={accountName || '—'}
             storefrontImage={meta?.storefrontImage}
+            logos={meta?.logos}
           />
         </span>
       )}
