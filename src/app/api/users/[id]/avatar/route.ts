@@ -69,19 +69,22 @@ export async function POST(
       return NextResponse.json({ error: 'Unsupported image format' }, { status: 400 });
     }
 
-    const avatarDir = path.join(process.cwd(), 'public', 'avatars');
+    // Store in data/avatars (Next.js doesn't serve files added to /public after build)
+    const avatarDir = path.join(process.cwd(), 'data', 'avatars');
     if (!fs.existsSync(avatarDir)) {
       fs.mkdirSync(avatarDir, { recursive: true });
     }
 
     clearAvatarFiles(id, avatarDir);
+    // Also clean legacy public/avatars
+    clearAvatarFiles(id, path.join(process.cwd(), 'public', 'avatars'));
 
     const fileName = `${id}-${Date.now()}.${ext}`;
     const filePath = path.join(avatarDir, fileName);
     const buffer = Buffer.from(await file.arrayBuffer());
     fs.writeFileSync(filePath, buffer);
 
-    const avatarUrl = `/avatars/${fileName}`;
+    const avatarUrl = `/api/avatars/${fileName}`;
 
     await prisma.user.update({
       where: { id },
@@ -112,8 +115,9 @@ export async function DELETE(
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const avatarDir = path.join(process.cwd(), 'public', 'avatars');
-    clearAvatarFiles(id, avatarDir);
+    // Clean from both data/avatars and legacy public/avatars
+    clearAvatarFiles(id, path.join(process.cwd(), 'data', 'avatars'));
+    clearAvatarFiles(id, path.join(process.cwd(), 'public', 'avatars'));
 
     await prisma.user.update({
       where: { id },

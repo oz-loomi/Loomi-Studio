@@ -11,6 +11,11 @@ const nextConfig = {
         source: '/logos/:path*',
         destination: '/api/logos/:path*',
       },
+      {
+        // Serve legacy /avatars/* URLs through the API route
+        source: '/avatars/:path*',
+        destination: '/api/avatars/:path*',
+      },
     ];
   },
 };
