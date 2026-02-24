@@ -123,7 +123,6 @@ export function verifyState(state: string): { accountKey: string } | null {
 /** Scopes required by the app — used for authorization and mismatch detection. */
 export const REQUIRED_SCOPES = [
   'locations.readonly',
-  'locations.write',
   'locations/customValues.readonly',
   'locations/customValues.write',
   'contacts.readonly',
@@ -267,7 +266,7 @@ export async function getLegacyValidToken(accountKey: string): Promise<string | 
   }
 }
 
-async function getValidAgencyToken(): Promise<{
+export async function getValidAgencyToken(): Promise<{
   token: string;
   subjectId: string | null;
   scopes: string;

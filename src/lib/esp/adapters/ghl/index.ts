@@ -61,6 +61,7 @@ import {
   exchangeCodeForTokens,
   refreshAccessToken,
   getValidToken,
+  getValidAgencyToken,
   fetchLocationDetails,
   storeConnection,
   removeConnection,
@@ -466,7 +467,7 @@ class GhlAccountDetailsSyncAdapter implements AccountDetailsSyncAdapter {
   readonly provider = 'ghl' as const;
 
   async syncBusinessDetails(
-    accountKey: string,
+    _accountKey: string,
     locationId: string,
     details: BusinessDetailsInput,
   ): Promise<BusinessDetailsSyncResult> {
@@ -485,20 +486,22 @@ class GhlAccountDetailsSyncAdapter implements AccountDetailsSyncAdapter {
       return { synced: false, warning: 'No business details to sync' };
     }
 
-    let token: string | null = process.env.GHL_AGENCY_TOKEN || null;
+    // PUT /locations requires locations.write — an agency-level scope not available
+    // to sub-account OAuth tokens. Use the agency OAuth token or legacy agency env token.
+    let token: string | null = null;
+    try {
+      const agency = await getValidAgencyToken();
+      if (agency?.token) token = agency.token;
+    } catch {
+      // Agency OAuth not connected.
+    }
     if (!token) {
-      try {
-        token = await getValidToken(accountKey);
-      } catch {
-        // OAuth token resolution failed.
-      }
+      token = process.env.GHL_AGENCY_TOKEN?.trim() || null;
     }
 
     if (!token) {
-      return {
-        synced: false,
-        warning: 'No GHL token available (Agency or OAuth). Business details saved locally only.',
-      };
+      // No agency token — silently skip sync (sub-account tokens can't write locations).
+      return { synced: false };
     }
 
     try {

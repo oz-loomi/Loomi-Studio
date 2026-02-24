@@ -2279,6 +2279,10 @@ function LogoSlot({
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  // Reset error when URL changes (re-upload or manual edit)
+  useEffect(() => { setImgError(false); }, [value]);
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -2349,13 +2353,18 @@ function LogoSlot({
             <ArrowPathIcon className="w-5 h-5 animate-spin" />
             <span className="text-[10px]">Uploading...</span>
           </div>
-        ) : value ? (
+        ) : value && !imgError ? (
           <img
             src={value}
             alt={label}
             className="relative max-w-full max-h-full object-contain p-3"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            onError={() => setImgError(true)}
           />
+        ) : value && imgError ? (
+          <div className="relative flex flex-col items-center gap-1.5 text-amber-400/80">
+            <ExclamationTriangleIcon className="w-5 h-5" />
+            <span className="text-[10px]">Image not found — click to re-upload</span>
+          </div>
         ) : (
           <div className="flex flex-col items-center gap-2 text-[var(--muted-foreground)]">
             <CloudArrowUpIcon className="w-6 h-6" />
