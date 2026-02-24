@@ -123,6 +123,7 @@ export function verifyState(state: string): { accountKey: string } | null {
 /** Scopes required by the app — used for authorization and mismatch detection. */
 export const REQUIRED_SCOPES = [
   'locations.readonly',
+  'locations.write',
   'locations/customValues.readonly',
   'locations/customValues.write',
   'contacts.readonly',
