@@ -200,9 +200,15 @@ export async function listFolders(
   const rawFolders: Record<string, unknown>[] =
     ((data as Record<string, unknown>)?.files as Record<string, unknown>[]) ?? [];
 
-  const folders = rawFolders
+  const allFolders = rawFolders
     .filter((f) => !f.deleted)
     .map(normalizeFolder);
+
+  // GHL with fetchAll=true returns ALL folders flat — filter to only
+  // direct children of the requested parent.
+  const folders = allFolders.filter((f) =>
+    parentId ? f.parentId === parentId : !f.parentId,
+  );
 
   setCacheFolders(locationId, folders, parentId);
 
