@@ -48,6 +48,21 @@ export async function GET(req: NextRequest) {
     const limitParam = req.nextUrl.searchParams.get('limit');
     const limit = limitParam ? Number(limitParam) : undefined;
     const parentId = req.nextUrl.searchParams.get('parentId') || undefined;
+    const countOnly = req.nextUrl.searchParams.get('countOnly') === 'true';
+
+    // countOnly mode: fetch all files across all folders for total count
+    if (countOnly) {
+      const media = await adapter.media.listMedia(
+        credentials.token,
+        credentials.locationId,
+        { fetchAll: true },
+      );
+      return NextResponse.json({
+        total: media.total ?? media.files.length,
+        provider: adapter.provider,
+        capabilities: adapter.media.mediaCapabilities,
+      });
+    }
 
     const media = await adapter.media.listMedia(
       credentials.token,

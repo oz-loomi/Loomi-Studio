@@ -11,10 +11,7 @@ import {
   ArrowUpTrayIcon,
   ClipboardDocumentIcon,
   ExclamationTriangleIcon,
-  BuildingStorefrontIcon,
-  ChevronDownIcon,
   ChevronRightIcon,
-  CheckIcon,
   FolderIcon,
   FolderPlusIcon,
   HomeIcon,
@@ -63,6 +60,7 @@ interface MediaCapabilities {
 
 interface AccountMediaPreview {
   files: MediaFile[];
+  totalCount?: number;
   provider: string | null;
   capabilities: MediaCapabilities | null;
   loading: boolean;
@@ -161,12 +159,11 @@ export default function MediaPage() {
 
   // Admin account filter
   const [accountFilter, setAccountFilter] = useState<string>('all');
-  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
-  const accountDropdownRef = useRef<HTMLDivElement>(null);
 
   // ── Admin overview state ──
   const [overviewData, setOverviewData] = useState<Record<string, AccountMediaPreview>>({});
   const [overviewLoaded, setOverviewLoaded] = useState(false);
+  const [overviewSearch, setOverviewSearch] = useState('');
 
   // Derive the effective account key
   const effectiveAccountKey = isAccount
@@ -195,10 +192,18 @@ export default function MediaPage() {
     });
   }, [allAccountKeys, accounts]);
 
-  const selectedAccountData = accountFilter !== 'all' ? accounts[accountFilter] : null;
-  const accountFilterLabel = accountFilter === 'all'
-    ? 'All Accounts'
-    : selectedAccountData?.dealer || accountFilter;
+  // Filter overview accounts by search
+  const filteredOverviewKeys = useMemo(() => {
+    if (!overviewSearch.trim()) return connectedAccountKeys;
+    const q = overviewSearch.toLowerCase();
+    return connectedAccountKeys.filter(k => {
+      const acct = accounts[k];
+      const name = (acct?.dealer || k).toLowerCase();
+      const city = (acct?.city || '').toLowerCase();
+      const state = (acct?.state || '').toLowerCase();
+      return name.includes(q) || city.includes(q) || state.includes(q);
+    });
+  }, [connectedAccountKeys, accounts, overviewSearch]);
 
   // Close menus on outside click
   useEffect(() => {
@@ -206,18 +211,6 @@ export default function MediaPage() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-
-  // Close account dropdown on outside click
-  useEffect(() => {
-    if (!accountDropdownOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (accountDropdownRef.current && !accountDropdownRef.current.contains(e.target as Node)) {
-        setAccountDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [accountDropdownOpen]);
 
   // ── Admin Overview Loading ──
 
@@ -236,12 +229,12 @@ export default function MediaPage() {
     }
     setOverviewData(initialState);
 
-    // Fetch media for all connected accounts in parallel
+    // Fetch total file counts for all connected accounts in parallel
     const results = await Promise.allSettled(
       connectedAccountKeys.map(async (key) => {
         const params = new URLSearchParams({
           accountKey: key,
-          limit: String(OVERVIEW_LIMIT),
+          countOnly: 'true',
         });
         const res = await fetch(`/api/esp/media?${params.toString()}`);
         const data = await res.json();
@@ -249,14 +242,14 @@ export default function MediaPage() {
         if (res.ok) {
           return {
             accountKey: key,
-            files: (data.files || []) as MediaFile[],
+            totalCount: (data.total as number) || 0,
             provider: data.provider || null,
             capabilities: data.capabilities || null,
           };
         } else {
           return {
             accountKey: key,
-            files: [] as MediaFile[],
+            totalCount: 0,
             provider: null,
             capabilities: null,
             error: data.error || 'Failed to load',
@@ -270,15 +263,16 @@ export default function MediaPage() {
       const updated = { ...prev };
       for (const result of results) {
         if (result.status === 'fulfilled') {
-          const { accountKey: key, files: rowFiles, provider: rowProvider, capabilities: rowCaps, error } = result.value as {
+          const { accountKey: key, totalCount, provider: rowProvider, capabilities: rowCaps, error } = result.value as {
             accountKey: string;
-            files: MediaFile[];
+            totalCount: number;
             provider: string | null;
             capabilities: MediaCapabilities | null;
             error?: string;
           };
           updated[key] = {
-            files: rowFiles,
+            files: [],
+            totalCount,
             provider: rowProvider,
             capabilities: rowCaps,
             loading: false,
@@ -718,9 +712,9 @@ export default function MediaPage() {
             <div className="flex items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
               <PhotoIcon className="w-3.5 h-3.5" />
               <span>
-                {row.files.length >= OVERVIEW_LIMIT
-                  ? `${OVERVIEW_LIMIT}+ files`
-                  : `${row.files.length} file${row.files.length !== 1 ? 's' : ''}`}
+                {(row.totalCount ?? 0) === 0
+                  ? 'No files'
+                  : `${row.totalCount} file${row.totalCount !== 1 ? 's' : ''}`}
               </span>
             </div>
           </div>
@@ -753,26 +747,59 @@ export default function MediaPage() {
             <PhotoIcon className="w-7 h-7 text-[var(--primary)]" />
             <div>
               <h2 className="text-2xl font-bold">Media Library</h2>
-              <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
-                {isAdmin
-                  ? effectiveAccountKey
-                    ? `Media files for ${accounts[effectiveAccountKey]?.dealer || effectiveAccountKey}`
-                    : 'Media files across all accounts'
-                  : isAccount && accountData
+              {/* Breadcrumb for admin navigation */}
+              {isAdmin ? (
+                <div className="flex items-center gap-1.5 text-sm mt-0.5">
+                  {effectiveAccountKey ? (
+                    <>
+                      <button
+                        onClick={() => { setAccountFilter('all'); setSearch(''); setOverviewSearch(''); setCurrentFolderId(undefined); setFolderPath([{ id: undefined, name: 'Root' }]); }}
+                        className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                      >
+                        All Accounts
+                      </button>
+                      <ChevronRightIcon className="w-3 h-3 text-[var(--muted-foreground)]" />
+                      <span className="text-[var(--muted-foreground)]">
+                        {accounts[effectiveAccountKey]?.dealer || effectiveAccountKey}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-[var(--muted-foreground)]">All Accounts</span>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
+                  {isAccount && accountData
                     ? `Media files for ${accountData.dealer}`
                     : 'Manage your media files'}
-              </p>
+                </p>
+              )}
             </div>
           </div>
 
-          {/* Back to overview button when admin drilled into an account */}
-          {isAdmin && effectiveAccountKey && (
-            <button
-              onClick={() => { setAccountFilter('all'); setSearch(''); setCurrentFolderId(undefined); setFolderPath([{ id: undefined, name: 'Root' }]); }}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)] rounded-lg hover:bg-[var(--muted)] transition-colors"
-            >
-              All Accounts
-            </button>
+          {/* Action buttons in header */}
+          {effectiveAccountKey && (hasConnection || isAdmin) && (
+            <div className="flex items-center gap-2">
+              {capabilities?.canUpload && (
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  disabled={uploading}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  <ArrowUpTrayIcon className="w-3.5 h-3.5" />
+                  {uploading ? 'Uploading...' : 'Add Media'}
+                </button>
+              )}
+              {capabilities?.canCreateFolders && (
+                <button
+                  onClick={() => setShowNewFolderInput(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                >
+                  <FolderPlusIcon className="w-3.5 h-3.5" />
+                  New Folder
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -789,11 +816,38 @@ export default function MediaPage() {
           )}
 
           {connectedAccountKeys.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-              {connectedAccountKeys.map(key => (
-                <AccountCard key={key} acctKey={key} />
-              ))}
-            </div>
+            <>
+              {/* Overview search bar */}
+              <div className="flex items-center justify-between mb-4 gap-3">
+                <div className="relative flex-1 max-w-xs">
+                  <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                  <input
+                    type="text"
+                    value={overviewSearch}
+                    onChange={(e) => setOverviewSearch(e.target.value)}
+                    className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
+                    placeholder="Search accounts..."
+                  />
+                </div>
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  {filteredOverviewKeys.length} account{filteredOverviewKeys.length !== 1 ? 's' : ''}
+                  {overviewSearch && ` matching "${overviewSearch}"`}
+                </p>
+              </div>
+
+              {filteredOverviewKeys.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {filteredOverviewKeys.map(key => (
+                    <AccountCard key={key} acctKey={key} />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-[var(--muted-foreground)]">
+                  <MagnifyingGlassIcon className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No accounts match &quot;{overviewSearch}&quot;</p>
+                </div>
+              )}
+            </>
           )}
         </>
       )}
@@ -814,146 +868,26 @@ export default function MediaPage() {
 
           {/* Toolbar */}
           {effectiveAccountKey && (hasConnection || isAdmin) && (
-            <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                {/* Search */}
-                <div className="relative flex-1 max-w-xs">
-                  <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
-                    placeholder="Search files..."
-                  />
-                </div>
-
-                {/* Account filter for admin */}
-                {isAdmin && allAccountKeys.length > 0 && (
-                  <div ref={accountDropdownRef} className="relative">
-                    <button
-                      onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
-                      className={`inline-flex items-center gap-1.5 h-[38px] px-3 text-sm rounded-lg border transition-colors ${
-                        accountDropdownOpen
-                          ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5'
-                          : accountFilter !== 'all'
-                            ? 'border-[var(--primary)]/50 text-[var(--primary)] bg-[var(--primary)]/5'
-                            : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
-                      }`}
-                    >
-                      {accountFilter !== 'all' ? (
-                        <AccountAvatar
-                          name={accountFilterLabel}
-                          accountKey={accountFilter}
-                          storefrontImage={selectedAccountData?.storefrontImage}
-                          logos={selectedAccountData?.logos}
-                          size={16}
-                          className="w-4 h-4 rounded-[3px] object-cover flex-shrink-0 border border-[var(--border)]"
-                        />
-                      ) : (
-                        <BuildingStorefrontIcon className="w-3.5 h-3.5" />
-                      )}
-                      <span className="max-w-[140px] truncate">{accountFilterLabel}</span>
-                      {accountFilter !== 'all' ? (
-                        <XMarkIcon
-                          className="w-3 h-3 hover:text-[var(--foreground)]"
-                          onClick={(e) => { e.stopPropagation(); setAccountFilter('all'); setAccountDropdownOpen(false); }}
-                        />
-                      ) : (
-                        <ChevronDownIcon className={`w-3 h-3 transition-transform ${accountDropdownOpen ? 'rotate-180' : ''}`} />
-                      )}
-                    </button>
-
-                    {accountDropdownOpen && (
-                      <div className="absolute top-full left-0 mt-2 z-50 glass-dropdown shadow-lg animate-fade-in-up" style={{ minWidth: '260px' }}>
-                        <div className="p-1.5">
-                          <p className="px-2 py-1 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
-                            Filter by Account
-                          </p>
-                          <button
-                            onClick={() => { setAccountFilter('all'); setAccountDropdownOpen(false); }}
-                            className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors ${
-                              accountFilter === 'all'
-                                ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
-                                : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
-                            }`}
-                          >
-                            All Accounts
-                            {accountFilter === 'all' && <CheckIcon className="w-3.5 h-3.5" />}
-                          </button>
-                        </div>
-                        <div className="border-t border-[var(--border)] max-h-[280px] overflow-y-auto p-1.5">
-                          {allAccountKeys.map(k => {
-                            const acct = accounts[k];
-                            const isSelected = accountFilter === k;
-                            const loc = [acct?.city, acct?.state].filter(Boolean).join(', ');
-                            return (
-                              <button
-                                key={k}
-                                onClick={() => { setAccountFilter(k); setAccountDropdownOpen(false); }}
-                                className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition-colors ${
-                                  isSelected
-                                    ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
-                                    : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
-                                }`}
-                              >
-                                <AccountAvatar
-                                  name={acct?.dealer || k}
-                                  accountKey={k}
-                                  storefrontImage={acct?.storefrontImage}
-                                  logos={acct?.logos}
-                                  size={20}
-                                  className="w-5 h-5 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
-                                />
-                                <span className="flex-1 min-w-0 text-left">
-                                  <span className="block truncate">{acct?.dealer || k}</span>
-                                  {loc && (
-                                    <span className="block text-[10px] text-[var(--muted-foreground)] truncate">{loc}</span>
-                                  )}
-                                </span>
-                                {isSelected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+            <div className="flex items-center justify-between mb-4 gap-3">
+              <div className="relative flex-1 max-w-xs">
+                <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
+                  placeholder="Search files..."
+                />
               </div>
-
-              <div className="flex items-center gap-2">
-                {/* Add Media button */}
-                {capabilities?.canUpload && (
-                  <button
-                    onClick={() => setShowUploadModal(true)}
-                    disabled={uploading}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
-                  >
-                    <ArrowUpTrayIcon className="w-3.5 h-3.5" />
-                    {uploading ? 'Uploading...' : 'Add Media'}
-                  </button>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {loading ? 'Loading...' : (
+                  <>
+                    {filteredFolders.length > 0 && `${filteredFolders.length} folder${filteredFolders.length !== 1 ? 's' : ''}, `}
+                    {`${filtered.length} file${filtered.length !== 1 ? 's' : ''}`}
+                  </>
                 )}
-                {/* New Folder button */}
-                {capabilities?.canCreateFolders && (
-                  <button
-                    onClick={() => setShowNewFolderInput(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
-                  >
-                    <FolderPlusIcon className="w-3.5 h-3.5" />
-                    New Folder
-                  </button>
-                )}
-                <p className="text-xs text-[var(--muted-foreground)]">
-                  {loading ? 'Loading...' : (
-                    <>
-                      {filteredFolders.length > 0 && `${filteredFolders.length} folder${filteredFolders.length !== 1 ? 's' : ''}, `}
-                      {`${filtered.length} file${filtered.length !== 1 ? 's' : ''}`}
-                    </>
-                  )}
-                  {search && ` matching "${search}"`}
-                </p>
-              </div>
+                {search && ` matching "${search}"`}
+              </p>
             </div>
           )}
 
@@ -1058,7 +992,7 @@ export default function MediaPage() {
                   <p className="text-sm font-medium mb-1">
                     {currentFolderId ? 'This folder is empty' : 'No media files yet'}
                   </p>
-                  <p className="text-xs">Click &quot;Add Media&quot; to upload files.</p>
+                  <p className="text-xs">Click &quot;Upload Media&quot; to upload files.</p>
                 </>
               ) : (
                 <p className="text-sm">No files match your search.</p>

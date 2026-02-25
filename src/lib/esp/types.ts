@@ -586,7 +586,7 @@ export interface MediaAdapter {
   listMedia(
     token: string,
     locationId: string,
-    options?: { cursor?: string; limit?: number; parentId?: string },
+    options?: { cursor?: string; limit?: number; parentId?: string; fetchAll?: boolean },
   ): Promise<MediaListResult>;
   listFolders?(
     token: string,

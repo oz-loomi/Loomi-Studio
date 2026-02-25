@@ -114,9 +114,36 @@ function throwGhlError(data: unknown, status: number): never {
 export async function listMedia(
   token: string,
   locationId: string,
-  options?: { cursor?: string; limit?: number; parentId?: string },
+  options?: { cursor?: string; limit?: number; parentId?: string; fetchAll?: boolean },
 ): Promise<MediaListResult> {
   const parentId = options?.parentId;
+
+  // fetchAll mode: return ALL files across all folders (for total count)
+  if (options?.fetchAll) {
+    const params = new URLSearchParams({
+      altId: locationId,
+      altType: 'location',
+      type: 'file',
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+      fetchAll: 'true',
+    });
+
+    const res = await fetch(`${GHL_BASE}/medias/files?${params.toString()}`, {
+      headers: ghlHeaders(token),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throwGhlError(data, res.status);
+    }
+
+    const data = await res.json();
+    const rawFiles: Record<string, unknown>[] =
+      ((data as Record<string, unknown>)?.files as Record<string, unknown>[]) ?? [];
+
+    return { files: rawFiles.map(normalizeFile), total: rawFiles.length };
+  }
 
   // Check cache only for first page (no cursor)
   if (!options?.cursor) {
