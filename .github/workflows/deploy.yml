@@ -29,6 +29,12 @@ jobs:
             cd /var/www/loomi-studio
             git pull origin main
             npm install --legacy-peer-deps
+
+            # Stop the running process BEFORE building so it doesn't
+            # serve stale HTML that references old CSS chunk hashes
+            # while `next build` is replacing the .next directory.
+            pm2 stop loomi-studio || true
+
             npm run build
             set -a && source .env.local && set +a
-            pm2 restart loomi-studio --update-env
+            pm2 start loomi-studio --update-env || pm2 restart loomi-studio --update-env

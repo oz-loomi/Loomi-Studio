@@ -224,9 +224,23 @@ export default function MediaPage() {
     });
   }, [connectedAccountKeys, accounts, overviewSearch]);
 
+  // Ref guard: prevents the global close-handler from firing in the same
+  // tick as a menu-toggle button click.  React 18 delegates synthetic events
+  // to the root container — e.stopPropagation() should stop native bubbling
+  // to `document`, but in practice it sometimes doesn't.  The ref is our
+  // belt-and-suspenders fallback.
+  const menuClickRef = useRef(false);
+
   // Close menus on outside click
   useEffect(() => {
-    const handler = () => { setOpenMenu(null); setFolderMenuId(null); };
+    const handler = () => {
+      if (menuClickRef.current) {
+        menuClickRef.current = false;
+        return;
+      }
+      setOpenMenu(null);
+      setFolderMenuId(null);
+    };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
@@ -798,6 +812,7 @@ export default function MediaPage() {
                   onMouseDown={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
+                    menuClickRef.current = true;
                     setOpenMenu(prev => prev === f.id ? null : f.id);
                   }}
                   className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors opacity-0 group-hover:opacity-100"
@@ -805,7 +820,7 @@ export default function MediaPage() {
                   <EllipsisVerticalIcon className="w-4 h-4" />
                 </button>
                 {isMenuOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onClick={(e) => e.stopPropagation()}>
+                  <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onMouseDown={(e) => { e.stopPropagation(); menuClickRef.current = true; }}>
                     <button
                       onClick={() => { setOpenMenu(null); copyUrl(f.url); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
@@ -1272,6 +1287,7 @@ export default function MediaPage() {
                         onMouseDown={(e) => {
                           e.stopPropagation();
                           e.preventDefault();
+                          menuClickRef.current = true;
                           setFolderMenuId(prev => prev === folder.id ? null : folder.id);
                         }}
                         className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors opacity-0 group-hover:opacity-100"
@@ -1279,7 +1295,7 @@ export default function MediaPage() {
                         <EllipsisVerticalIcon className="w-4 h-4" />
                       </button>
                       {folderMenuId === folder.id && (
-                        <div className="absolute right-0 top-full mt-1 z-50 w-40 glass-dropdown" onClick={(e) => e.stopPropagation()}>
+                        <div className="absolute right-0 top-full mt-1 z-50 w-40 glass-dropdown" onMouseDown={(e) => { e.stopPropagation(); menuClickRef.current = true; }}>
                           {capabilities?.canMove && (
                             <button
                               onClick={() => { setFolderMenuId(null); openMoveModal([{ id: folder.id, type: 'folder' }]); }}
