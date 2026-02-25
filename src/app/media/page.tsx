@@ -118,8 +118,6 @@ function formatFileSize(bytes: number | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-const OVERVIEW_LIMIT = 8;
-
 // ── Page ──
 
 export default function MediaPage() {
@@ -617,7 +615,11 @@ export default function MediaPage() {
             {activeProvider && <ProviderPill prov={activeProvider} />}
             <div className="relative flex-shrink-0">
               <button
-                onClick={(e) => { e.stopPropagation(); setOpenMenu(isMenuOpen ? null : f.id); }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setOpenMenu(prev => prev === f.id ? null : f.id);
+                }}
                 className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors opacity-0 group-hover:opacity-100"
               >
                 <EllipsisVerticalIcon className="w-4 h-4" />
