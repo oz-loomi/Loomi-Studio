@@ -684,7 +684,7 @@ class GhlMediaAdapter implements MediaAdapter {
     canUpload: true,
     canDelete: true,
     canRename: false,
-    canMove: true,
+    canMove: false, // GHL public API has no move endpoint
     canCreateFolders: true,
     canNavigateFolders: true,
   };

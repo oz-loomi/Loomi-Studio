@@ -80,8 +80,9 @@ function ghlHeaders(token: string): Record<string, string> {
 }
 
 function normalizeFile(raw: Record<string, unknown>): EspMedia {
+  // GHL uses MongoDB _id — raw.altId is the LOCATION id, never the file id
   return {
-    id: String(raw.id || raw.altId || ''),
+    id: String(raw.id || raw._id || ''),
     name: String(raw.name || ''),
     url: String(raw.url || ''),
     type: String(raw.type || 'image'),
