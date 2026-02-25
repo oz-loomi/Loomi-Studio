@@ -157,6 +157,7 @@ export default function MediaPage() {
   const [deleteFile, setDeleteFile] = useState<MediaFile | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [previewFile, setPreviewFile] = useState<MediaFile | null>(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   // Admin account filter
   const [accountFilter, setAccountFilter] = useState<string>('all');
@@ -407,6 +408,7 @@ export default function MediaPage() {
     }
 
     setUploading(false);
+    setShowUploadModal(false);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -672,132 +674,71 @@ export default function MediaPage() {
     );
   };
 
-  // ── Overview Row Component ──
+  // ── Overview Account Card Component ──
 
-  const AccountMediaRow = ({ acctKey }: { acctKey: string }) => {
+  const AccountCard = ({ acctKey }: { acctKey: string }) => {
     const acct = accounts[acctKey];
     const row = overviewData[acctKey];
-    const scrollRef = useRef<HTMLDivElement>(null);
     const acctName = acct?.dealer || acctKey;
     const location = [acct?.city, acct?.state].filter(Boolean).join(', ');
-
-    const handleViewAll = () => {
-      setAccountFilter(acctKey);
-      setSearch('');
-    };
-
-    if (!row) return null;
+    const providerList = acct?.connectedProviders || [];
 
     return (
-      <div className="mb-8 animate-fade-in-up">
-        {/* Row header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <AccountAvatar
-              name={acctName}
-              accountKey={acctKey}
-              storefrontImage={acct?.storefrontImage}
-              logos={acct?.logos}
-              size={32}
-              className="w-8 h-8 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
-            />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold truncate">{acctName}</h3>
-                {row.provider && <ProviderPill prov={row.provider} />}
-              </div>
-              {location && (
-                <p className="text-[10px] text-[var(--muted-foreground)] truncate">{location}</p>
-              )}
+      <button
+        onClick={() => { setAccountFilter(acctKey); setSearch(''); }}
+        className="glass-card rounded-xl p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up"
+      >
+        <div className="flex items-start gap-3">
+          <AccountAvatar
+            name={acctName}
+            accountKey={acctKey}
+            storefrontImage={acct?.storefrontImage}
+            logos={acct?.logos}
+            size={40}
+            className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
+          />
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold truncate group-hover:text-[var(--primary)] transition-colors">
+              {acctName}
+            </h3>
+            {location && (
+              <p className="text-[11px] text-[var(--muted-foreground)] truncate mt-0.5">{location}</p>
+            )}
+            <div className="flex items-center gap-2 mt-2">
+              {providerList.map((prov: string) => (
+                <ProviderPill key={prov} prov={prov} />
+              ))}
             </div>
           </div>
-          <button
-            onClick={handleViewAll}
-            className="flex items-center gap-1 text-xs font-medium text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors flex-shrink-0"
-          >
-            View All <ChevronRightIcon className="w-3.5 h-3.5" />
-          </button>
+          <ChevronRightIcon className="w-4 h-4 text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex-shrink-0" />
         </div>
-
-        {/* Row content */}
-        {row.loading && (
-          <div className="flex gap-3 overflow-hidden">
-            {[1, 2, 3, 4, 5, 6].map(i => (
-              <div key={i} className="glass-card rounded-xl animate-pulse flex-shrink-0 w-[180px]">
-                <div className="h-[110px] rounded-t-xl bg-[var(--muted)]" />
-                <div className="p-2.5 space-y-1.5">
-                  <div className="h-2.5 bg-[var(--muted)] rounded w-14" />
-                  <div className="h-2.5 bg-[var(--muted)] rounded w-3/4" />
-                </div>
-              </div>
-            ))}
+        {/* File count summary */}
+        {row && !row.loading && !row.error && (
+          <div className="mt-3 pt-3 border-t border-[var(--border)]">
+            <div className="flex items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
+              <PhotoIcon className="w-3.5 h-3.5" />
+              <span>
+                {row.files.length >= OVERVIEW_LIMIT
+                  ? `${OVERVIEW_LIMIT}+ files`
+                  : `${row.files.length} file${row.files.length !== 1 ? 's' : ''}`}
+              </span>
+            </div>
           </div>
         )}
-
-        {!row.loading && row.error && (
-          <div className="glass-card rounded-xl p-6 text-center text-[var(--muted-foreground)]">
-            <ExclamationTriangleIcon className="w-6 h-6 mx-auto mb-2 opacity-40" />
-            <p className="text-xs">{row.error}</p>
+        {row?.loading && (
+          <div className="mt-3 pt-3 border-t border-[var(--border)]">
+            <div className="h-3 bg-[var(--muted)] rounded w-16 animate-pulse" />
           </div>
         )}
-
-        {!row.loading && !row.error && row.files.length === 0 && (
-          <div className="glass-card rounded-xl p-6 text-center text-[var(--muted-foreground)]">
-            <PhotoIcon className="w-6 h-6 mx-auto mb-2 opacity-30" />
-            <p className="text-xs">No media files yet</p>
+        {row && !row.loading && row.error && (
+          <div className="mt-3 pt-3 border-t border-[var(--border)]">
+            <div className="flex items-center gap-1.5 text-[10px] text-red-400">
+              <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+              <span>Unable to load</span>
+            </div>
           </div>
         )}
-
-        {!row.loading && !row.error && row.files.length > 0 && (
-          <div
-            ref={scrollRef}
-            className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin"
-            style={{ scrollbarWidth: 'thin' }}
-          >
-            {row.files.map(f => {
-              const isImage = f.type?.startsWith('image') || f.url?.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
-              return (
-                <div
-                  key={f.id}
-                  className="glass-card rounded-xl flex-shrink-0 w-[180px] overflow-hidden group cursor-pointer hover:ring-1 hover:ring-[var(--primary)]/30 transition-all"
-                  onClick={() => copyUrl(f.url)}
-                  title="Click to copy URL"
-                >
-                  <div className="h-[110px] bg-[var(--muted)] overflow-hidden">
-                    {isImage && f.url ? (
-                      <img
-                        src={f.thumbnailUrl || f.url}
-                        alt={f.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="flex items-center justify-center h-full">
-                        <PhotoIcon className="w-8 h-8 text-[var(--muted-foreground)] opacity-30" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-2.5">
-                    <p className="text-[11px] font-medium truncate" title={f.name}>{f.name}</p>
-                    <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{timeAgo(f.createdAt)}</p>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* "View All" card at the end if we hit the limit */}
-            {row.files.length >= OVERVIEW_LIMIT && (
-              <button
-                onClick={handleViewAll}
-                className="flex-shrink-0 w-[120px] glass-card rounded-xl flex flex-col items-center justify-center gap-2 text-[var(--primary)] hover:bg-[var(--primary)]/5 transition-colors"
-              >
-                <ChevronRightIcon className="w-6 h-6" />
-                <span className="text-xs font-medium">View All</span>
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+      </button>
     );
   };
 
@@ -848,9 +789,9 @@ export default function MediaPage() {
           )}
 
           {connectedAccountKeys.length > 0 && (
-            <div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
               {connectedAccountKeys.map(key => (
-                <AccountMediaRow key={key} acctKey={key} />
+                <AccountCard key={key} acctKey={key} />
               ))}
             </div>
           )}
@@ -860,48 +801,16 @@ export default function MediaPage() {
       {/* ── Single-Account Detail Mode ── */}
       {!showOverview && (
         <>
-          {/* Upload drop zone */}
-          {effectiveAccountKey && (hasConnection || isAdmin) && (
-            <div
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              className={`mb-6 border-2 border-dashed rounded-xl p-6 text-center transition-all ${
-                dragOver
-                  ? 'border-[var(--primary)] bg-[var(--primary)]/5'
-                  : 'border-[var(--border)] hover:border-[var(--primary)]/50'
-              }`}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={(e) => handleUpload(e.target.files)}
-                className="hidden"
-                id="media-upload-input"
-              />
-              {uploading ? (
-                <div className="flex items-center justify-center gap-2 text-[var(--primary)]">
-                  <ArrowUpTrayIcon className="w-5 h-5 animate-bounce" />
-                  <span className="text-sm font-medium">Uploading...</span>
-                </div>
-              ) : (
-                <label htmlFor="media-upload-input" className="cursor-pointer">
-                  <ArrowUpTrayIcon className="w-8 h-8 mx-auto text-[var(--muted-foreground)] mb-2" />
-                  <p className="text-sm text-[var(--muted-foreground)]">
-                    <span className="font-medium text-[var(--primary)]">Browse</span> or drag & drop files here
-                  </p>
-                  <p className="text-[10px] text-[var(--muted-foreground)] mt-1">
-                    Images will be uploaded to {provider ? providerLabel(provider) : 'your connected platform'}
-                    {currentFolderId && folderPath.length > 1 && (
-                      <> in <strong>{folderPath[folderPath.length - 1].name}</strong></>
-                    )}
-                  </p>
-                </label>
-              )}
-            </div>
-          )}
+          {/* Hidden file input for uploads */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*"
+            onChange={(e) => handleUpload(e.target.files)}
+            className="hidden"
+            id="media-upload-input"
+          />
 
           {/* Toolbar */}
           {effectiveAccountKey && (hasConnection || isAdmin) && (
@@ -1014,6 +923,17 @@ export default function MediaPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                {/* Add Media button */}
+                {capabilities?.canUpload && (
+                  <button
+                    onClick={() => setShowUploadModal(true)}
+                    disabled={uploading}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    <ArrowUpTrayIcon className="w-3.5 h-3.5" />
+                    {uploading ? 'Uploading...' : 'Add Media'}
+                  </button>
+                )}
                 {/* New Folder button */}
                 {capabilities?.canCreateFolders && (
                   <button
@@ -1138,7 +1058,7 @@ export default function MediaPage() {
                   <p className="text-sm font-medium mb-1">
                     {currentFolderId ? 'This folder is empty' : 'No media files yet'}
                   </p>
-                  <p className="text-xs">Upload files using the drop zone above.</p>
+                  <p className="text-xs">Click &quot;Add Media&quot; to upload files.</p>
                 </>
               ) : (
                 <p className="text-sm">No files match your search.</p>
@@ -1264,6 +1184,65 @@ export default function MediaPage() {
               >
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Upload Modal ── */}
+      {showUploadModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in"
+          onClick={() => !uploading && setShowUploadModal(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape' && !uploading) setShowUploadModal(false); }}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+        >
+          <div
+            className="glass-modal w-[520px]"
+            onClick={(e) => e.stopPropagation()}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <h3 className="text-base font-semibold">Upload Media</h3>
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5">
+              <div
+                className={`border-2 border-dashed rounded-xl p-10 text-center transition-all cursor-pointer ${
+                  dragOver
+                    ? 'border-[var(--primary)] bg-[var(--primary)]/5'
+                    : 'border-[var(--border)] hover:border-[var(--primary)]/50'
+                }`}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploading ? (
+                  <div className="flex flex-col items-center gap-2 text-[var(--primary)]">
+                    <ArrowUpTrayIcon className="w-8 h-8 animate-bounce" />
+                    <span className="text-sm font-medium">Uploading...</span>
+                  </div>
+                ) : (
+                  <>
+                    <ArrowUpTrayIcon className="w-10 h-10 mx-auto text-[var(--muted-foreground)] mb-3" />
+                    <p className="text-sm text-[var(--foreground)] font-medium mb-1">
+                      Drop files here or click to browse
+                    </p>
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      Images will be uploaded to {provider ? providerLabel(provider) : 'your connected platform'}
+                      {currentFolderId && folderPath.length > 1 && (
+                        <> in <strong>{folderPath[folderPath.length - 1].name}</strong></>
+                      )}
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
