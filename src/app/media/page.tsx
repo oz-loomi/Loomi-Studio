@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   PhotoIcon,
   MagnifyingGlassIcon,
@@ -24,7 +24,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { safeJson } from '@/lib/safe-json';
-import { useAccount } from '@/contexts/account-context';
+import { useAccount, type AccountData } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
 
 // ── Types ──
@@ -122,6 +122,245 @@ function formatFileSize(bytes: number | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ── Extracted sub-components (stable references — never defined inside a render) ──
+
+function ProviderPill({ prov }: { prov: string }) {
+  const icon = providerIcon(prov);
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--muted)] text-[10px] font-medium text-[var(--muted-foreground)]">
+      {icon && (
+        <img src={icon} alt={providerLabel(prov)} className="w-3.5 h-3.5 rounded-full object-cover" />
+      )}
+      {providerLabel(prov)}
+    </span>
+  );
+}
+
+interface MediaCardProps {
+  f: MediaFile;
+  isMenuOpen: boolean;
+  isSelected: boolean;
+  selectMode: boolean;
+  provider: string | null;
+  capabilities: MediaCapabilities | null;
+  menuClickRef: React.MutableRefObject<boolean>;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onMenuToggle: () => void;
+  onMenuClose: () => void;
+  onSelect: () => void;
+  onPreview: () => void;
+  onCopyUrl: () => void;
+  onMove?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
+}
+
+function MediaCard({
+  f,
+  isMenuOpen,
+  isSelected,
+  selectMode,
+  provider: activeProvider,
+  capabilities: activeCaps,
+  menuClickRef,
+  draggable,
+  onDragStart,
+  onMenuToggle,
+  onMenuClose,
+  onSelect,
+  onPreview,
+  onCopyUrl,
+  onMove,
+  onRename,
+  onDelete,
+}: MediaCardProps) {
+  const isImage = f.type?.startsWith('image') || f.url?.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
+
+  return (
+    <div
+      className={`glass-card rounded-xl group animate-fade-in-up overflow-hidden ${isSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      draggable={draggable}
+      onDragStart={onDragStart}
+    >
+      {/* Thumbnail */}
+      <div
+        className="h-[140px] bg-[var(--muted)] relative overflow-hidden cursor-pointer"
+        onClick={() => selectMode ? onSelect() : onPreview()}
+      >
+        {isImage && f.url ? (
+          <img
+            src={f.thumbnailUrl || f.url}
+            alt={f.name}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <PhotoIcon className="w-10 h-10 text-[var(--muted-foreground)] opacity-30" />
+          </div>
+        )}
+        {/* Select checkbox */}
+        {selectMode && (
+          <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+            isSelected
+              ? 'bg-[var(--primary)] border-[var(--primary)]'
+              : 'bg-black/40 border-white/60 hover:border-white'
+          }`}>
+            {isSelected && <CheckIcon className="w-3.5 h-3.5 text-white" />}
+          </div>
+        )}
+        {/* Hover overlay */}
+        {!selectMode && (
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+            <EyeIcon className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity drop-shadow-lg" />
+          </div>
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="p-3">
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          {activeProvider && <ProviderPill prov={activeProvider} />}
+          {!selectMode && (
+            <div className="relative flex-shrink-0">
+              <button
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  menuClickRef.current = true;
+                  onMenuToggle();
+                }}
+                className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors opacity-0 group-hover:opacity-100"
+              >
+                <EllipsisVerticalIcon className="w-4 h-4" />
+              </button>
+              {isMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onMouseDown={(e) => { e.stopPropagation(); menuClickRef.current = true; }}>
+                  <button
+                    onClick={() => { onMenuClose(); onCopyUrl(); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <ClipboardDocumentIcon className="w-4 h-4" /> Copy URL
+                  </button>
+                  {activeCaps?.canMove && onMove && (
+                    <button
+                      onClick={() => { onMenuClose(); onMove(); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                    >
+                      <FolderArrowDownIcon className="w-4 h-4" /> Move
+                    </button>
+                  )}
+                  {activeCaps?.canRename && onRename && (
+                    <button
+                      onClick={() => { onMenuClose(); onRename(); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                    >
+                      <PencilSquareIcon className="w-4 h-4" /> Rename
+                    </button>
+                  )}
+                  {activeCaps?.canDelete && onDelete && (
+                    <button
+                      onClick={() => { onMenuClose(); onDelete(); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <TrashIcon className="w-4 h-4" /> Delete
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <h3 className="text-xs font-semibold truncate" title={f.name}>
+          {f.name}
+        </h3>
+        <div className="flex items-center gap-2 mt-1">
+          {f.size != null && (
+            <span className="text-[10px] text-[var(--muted-foreground)]">
+              {formatFileSize(f.size)}
+            </span>
+          )}
+          <span className="text-[10px] text-[var(--muted-foreground)] ml-auto">
+            {timeAgo(f.createdAt)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface AccountCardProps {
+  acctKey: string;
+  acctData: AccountData | undefined;
+  overviewRow: AccountMediaPreview | undefined;
+  onSelect: () => void;
+}
+
+function AccountCard({ acctKey, acctData, overviewRow, onSelect }: AccountCardProps) {
+  const acctName = acctData?.dealer || acctKey;
+  const location = [acctData?.city, acctData?.state].filter(Boolean).join(', ');
+  const providerList = acctData?.connectedProviders || [];
+
+  return (
+    <button
+      onClick={onSelect}
+      className="glass-card rounded-xl p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up"
+    >
+      <div className="flex items-start gap-3">
+        <AccountAvatar
+          name={acctName}
+          accountKey={acctKey}
+          storefrontImage={acctData?.storefrontImage}
+          logos={acctData?.logos}
+          size={40}
+          className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
+        />
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold truncate group-hover:text-[var(--primary)] transition-colors">
+            {acctName}
+          </h3>
+          {location && (
+            <p className="text-[11px] text-[var(--muted-foreground)] truncate mt-0.5">{location}</p>
+          )}
+          <div className="flex items-center gap-2 mt-2">
+            {providerList.map((prov: string) => (
+              <ProviderPill key={prov} prov={prov} />
+            ))}
+          </div>
+        </div>
+        <ChevronRightIcon className="w-4 h-4 text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex-shrink-0" />
+      </div>
+      {/* File count summary */}
+      {overviewRow && !overviewRow.loading && !overviewRow.error && (
+        <div className="mt-3 pt-3 border-t border-[var(--border)]">
+          <div className="flex items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
+            <PhotoIcon className="w-3.5 h-3.5" />
+            <span>
+              {(overviewRow.totalCount ?? 0) === 0
+                ? 'No files'
+                : `${overviewRow.totalCount} file${overviewRow.totalCount !== 1 ? 's' : ''}`}
+            </span>
+          </div>
+        </div>
+      )}
+      {overviewRow?.loading && (
+        <div className="mt-3 pt-3 border-t border-[var(--border)]">
+          <div className="h-3 bg-[var(--muted)] rounded w-16 animate-pulse" />
+        </div>
+      )}
+      {overviewRow && !overviewRow.loading && overviewRow.error && (
+        <div className="mt-3 pt-3 border-t border-[var(--border)]">
+          <div className="flex items-center gap-1.5 text-[10px] text-red-400">
+            <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+            <span>Unable to load</span>
+          </div>
+        </div>
+      )}
+    </button>
+  );
+}
+
 // ── Page ──
 
 export default function MediaPage() {
@@ -175,6 +414,9 @@ export default function MediaPage() {
   const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
   const [deleteFolderItem, setDeleteFolderItem] = useState<MediaFolder | null>(null);
   const [deletingFolder, setDeletingFolder] = useState(false);
+
+  // Drag-and-drop
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   // Admin account filter
   const [accountFilter, setAccountFilter] = useState<string>('all');
@@ -674,6 +916,57 @@ export default function MediaPage() {
     setDeletingFolder(false);
   };
 
+  // ── Drag-and-drop into folders ──
+
+  const handleDragStart = useCallback((e: React.DragEvent, id: string, type: 'file' | 'folder') => {
+    e.dataTransfer.setData('application/json', JSON.stringify({ id, type }));
+    e.dataTransfer.effectAllowed = 'move';
+  }, []);
+
+  const handleMoveDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleMoveDrop = useCallback(async (e: React.DragEvent, targetFolderId: string) => {
+    e.preventDefault();
+    setDropTargetId(null);
+
+    if (!effectiveAccountKey || !capabilities?.canMove) return;
+
+    let dragData: { id: string; type: 'file' | 'folder' } | null = null;
+    try {
+      dragData = JSON.parse(e.dataTransfer.getData('application/json'));
+    } catch { return; }
+    if (!dragData) return;
+
+    // Prevent dropping a folder onto itself
+    if (dragData.type === 'folder' && dragData.id === targetFolderId) return;
+
+    try {
+      const res = await fetch(`/api/esp/media/${encodeURIComponent(dragData.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountKey: effectiveAccountKey, targetFolderId }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        // Remove moved item from current view
+        if (dragData.type === 'file') {
+          setFiles(prev => prev.filter(f => f.id !== dragData!.id));
+        } else {
+          setFolders(prev => prev.filter(f => f.id !== dragData!.id));
+        }
+        toast.success('Moved successfully');
+      } else {
+        toast.error(data.error || 'Failed to move');
+      }
+    } catch {
+      toast.error('Failed to move');
+    }
+  }, [effectiveAccountKey, capabilities]);
+
   // ── Folder Navigation ──
 
   const navigateToFolder = useCallback((folder: MediaFolder) => {
@@ -739,208 +1032,6 @@ export default function MediaPage() {
   // ── Connection state ──
   const connectedProviders = accountData?.connectedProviders;
   const hasConnection = effectiveAccountKey && connectedProviders && connectedProviders.length > 0;
-
-  // ── Sub-components ──
-
-  const ProviderPill = ({ prov }: { prov: string }) => {
-    const icon = providerIcon(prov);
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--muted)] text-[10px] font-medium text-[var(--muted-foreground)]">
-        {icon && (
-          <img src={icon} alt={providerLabel(prov)} className="w-3.5 h-3.5 rounded-full object-cover" />
-        )}
-        {providerLabel(prov)}
-      </span>
-    );
-  };
-
-  const MediaCard = ({ f, cardProvider, cardCapabilities }: {
-    f: MediaFile;
-    cardProvider?: string | null;
-    cardCapabilities?: MediaCapabilities | null;
-  }) => {
-    const isMenuOpen = openMenu === f.id;
-    const isImage = f.type?.startsWith('image') || f.url?.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
-    const activeProvider = cardProvider ?? provider;
-    const activeCaps = cardCapabilities ?? capabilities;
-    const isSelected = selectedIds.has(f.id);
-
-    return (
-      <div className={`glass-card rounded-xl group animate-fade-in-up overflow-hidden ${isSelected ? 'ring-2 ring-[var(--primary)]' : ''}`}>
-        {/* Thumbnail */}
-        <div
-          className="h-[140px] bg-[var(--muted)] relative overflow-hidden cursor-pointer"
-          onClick={() => selectMode ? toggleSelectFile(f.id) : setPreviewFile(f)}
-        >
-          {isImage && f.url ? (
-            <img
-              src={f.thumbnailUrl || f.url}
-              alt={f.name}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <PhotoIcon className="w-10 h-10 text-[var(--muted-foreground)] opacity-30" />
-            </div>
-          )}
-          {/* Select checkbox */}
-          {selectMode && (
-            <div className={`absolute top-2 left-2 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-              isSelected
-                ? 'bg-[var(--primary)] border-[var(--primary)]'
-                : 'bg-black/40 border-white/60 hover:border-white'
-            }`}>
-              {isSelected && <CheckIcon className="w-3.5 h-3.5 text-white" />}
-            </div>
-          )}
-          {/* Hover overlay */}
-          {!selectMode && (
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-              <EyeIcon className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity drop-shadow-lg" />
-            </div>
-          )}
-        </div>
-
-        {/* Info */}
-        <div className="p-3">
-          <div className="flex items-center justify-between gap-2 mb-1.5">
-            {activeProvider && <ProviderPill prov={activeProvider} />}
-            {!selectMode && (
-              <div className="relative flex-shrink-0">
-                <button
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    menuClickRef.current = true;
-                    setOpenMenu(prev => prev === f.id ? null : f.id);
-                  }}
-                  className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors opacity-0 group-hover:opacity-100"
-                >
-                  <EllipsisVerticalIcon className="w-4 h-4" />
-                </button>
-                {isMenuOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onMouseDown={(e) => { e.stopPropagation(); menuClickRef.current = true; }}>
-                    <button
-                      onClick={() => { setOpenMenu(null); copyUrl(f.url); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                    >
-                      <ClipboardDocumentIcon className="w-4 h-4" /> Copy URL
-                    </button>
-                    {activeCaps?.canMove && (
-                      <button
-                        onClick={() => { setOpenMenu(null); openMoveModal([{ id: f.id, type: 'file' }]); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                      >
-                        <FolderArrowDownIcon className="w-4 h-4" /> Move
-                      </button>
-                    )}
-                    {activeCaps?.canRename && (
-                      <button
-                        onClick={() => { setOpenMenu(null); setRenameValue(f.name); setRenameFile(f); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                      >
-                        <PencilSquareIcon className="w-4 h-4" /> Rename
-                      </button>
-                    )}
-                    {activeCaps?.canDelete && (
-                      <button
-                        onClick={() => { setOpenMenu(null); setDeleteFile(f); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
-                      >
-                        <TrashIcon className="w-4 h-4" /> Delete
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          <h3 className="text-xs font-semibold truncate" title={f.name}>
-            {f.name}
-          </h3>
-          <div className="flex items-center gap-2 mt-1">
-            {f.size != null && (
-              <span className="text-[10px] text-[var(--muted-foreground)]">
-                {formatFileSize(f.size)}
-              </span>
-            )}
-            <span className="text-[10px] text-[var(--muted-foreground)] ml-auto">
-              {timeAgo(f.createdAt)}
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ── Overview Account Card Component ──
-
-  const AccountCard = ({ acctKey }: { acctKey: string }) => {
-    const acct = accounts[acctKey];
-    const row = overviewData[acctKey];
-    const acctName = acct?.dealer || acctKey;
-    const location = [acct?.city, acct?.state].filter(Boolean).join(', ');
-    const providerList = acct?.connectedProviders || [];
-
-    return (
-      <button
-        onClick={() => { setAccountFilter(acctKey); setSearch(''); }}
-        className="glass-card rounded-xl p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up"
-      >
-        <div className="flex items-start gap-3">
-          <AccountAvatar
-            name={acctName}
-            accountKey={acctKey}
-            storefrontImage={acct?.storefrontImage}
-            logos={acct?.logos}
-            size={40}
-            className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
-          />
-          <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold truncate group-hover:text-[var(--primary)] transition-colors">
-              {acctName}
-            </h3>
-            {location && (
-              <p className="text-[11px] text-[var(--muted-foreground)] truncate mt-0.5">{location}</p>
-            )}
-            <div className="flex items-center gap-2 mt-2">
-              {providerList.map((prov: string) => (
-                <ProviderPill key={prov} prov={prov} />
-              ))}
-            </div>
-          </div>
-          <ChevronRightIcon className="w-4 h-4 text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex-shrink-0" />
-        </div>
-        {/* File count summary */}
-        {row && !row.loading && !row.error && (
-          <div className="mt-3 pt-3 border-t border-[var(--border)]">
-            <div className="flex items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
-              <PhotoIcon className="w-3.5 h-3.5" />
-              <span>
-                {(row.totalCount ?? 0) === 0
-                  ? 'No files'
-                  : `${row.totalCount} file${row.totalCount !== 1 ? 's' : ''}`}
-              </span>
-            </div>
-          </div>
-        )}
-        {row?.loading && (
-          <div className="mt-3 pt-3 border-t border-[var(--border)]">
-            <div className="h-3 bg-[var(--muted)] rounded w-16 animate-pulse" />
-          </div>
-        )}
-        {row && !row.loading && row.error && (
-          <div className="mt-3 pt-3 border-t border-[var(--border)]">
-            <div className="flex items-center gap-1.5 text-[10px] text-red-400">
-              <ExclamationTriangleIcon className="w-3.5 h-3.5" />
-              <span>Unable to load</span>
-            </div>
-          </div>
-        )}
-      </button>
-    );
-  };
 
   // ── Render ──
 
@@ -1044,7 +1135,13 @@ export default function MediaPage() {
               {filteredOverviewKeys.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                   {filteredOverviewKeys.map(key => (
-                    <AccountCard key={key} acctKey={key} />
+                    <AccountCard
+                      key={key}
+                      acctKey={key}
+                      acctData={accounts[key]}
+                      overviewRow={overviewData[key]}
+                      onSelect={() => { setAccountFilter(key); setSearch(''); }}
+                    />
                   ))}
                 </div>
               ) : (
@@ -1264,7 +1361,18 @@ export default function MediaPage() {
               {filteredFolders.map(folder => (
                 <div
                   key={folder.id}
-                  className="glass-card rounded-xl p-4 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up relative"
+                  className={`glass-card rounded-xl p-4 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up relative ${
+                    capabilities?.canMove ? 'cursor-grab active:cursor-grabbing' : ''
+                  } ${dropTargetId === folder.id ? 'ring-2 ring-[var(--primary)] bg-[var(--primary)]/5' : ''}`}
+                  draggable={!!capabilities?.canMove}
+                  onDragStart={(e) => handleDragStart(e, folder.id, 'folder')}
+                  onDragOver={handleMoveDragOver}
+                  onDragEnter={(e) => { e.preventDefault(); setDropTargetId(folder.id); }}
+                  onDragLeave={(e) => {
+                    // Only clear if we truly left the folder card (not entering a child)
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTargetId(null);
+                  }}
+                  onDrop={(e) => handleMoveDrop(e, folder.id)}
                 >
                   <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigateToFolder(folder)}>
                     <div className="w-10 h-10 rounded-lg bg-[var(--primary)]/10 flex items-center justify-center flex-shrink-0">
@@ -1325,7 +1433,26 @@ export default function MediaPage() {
           {!loading && filtered.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
               {filtered.map(f => (
-                <MediaCard key={f.id} f={f} />
+                <MediaCard
+                  key={f.id}
+                  f={f}
+                  isMenuOpen={openMenu === f.id}
+                  isSelected={selectedIds.has(f.id)}
+                  selectMode={selectMode}
+                  provider={provider}
+                  capabilities={capabilities}
+                  menuClickRef={menuClickRef}
+                  draggable={!!capabilities?.canMove}
+                  onDragStart={(e) => handleDragStart(e, f.id, 'file')}
+                  onMenuToggle={() => setOpenMenu(prev => prev === f.id ? null : f.id)}
+                  onMenuClose={() => setOpenMenu(null)}
+                  onSelect={() => toggleSelectFile(f.id)}
+                  onPreview={() => setPreviewFile(f)}
+                  onCopyUrl={() => copyUrl(f.url)}
+                  onMove={capabilities?.canMove ? () => openMoveModal([{ id: f.id, type: 'file' }]) : undefined}
+                  onRename={capabilities?.canRename ? () => { setRenameValue(f.name); setRenameFile(f); } : undefined}
+                  onDelete={capabilities?.canDelete ? () => setDeleteFile(f) : undefined}
+                />
               ))}
             </div>
           )}
