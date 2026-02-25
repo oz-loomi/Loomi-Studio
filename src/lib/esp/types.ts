@@ -549,12 +549,35 @@ export interface MediaUploadInput {
   file: Buffer | Uint8Array;
   name: string;
   mimeType: string;
+  /** Upload into a specific folder (GHL only) */
+  parentId?: string;
+}
+
+// ── Media Folders ──
+
+export interface EspMediaFolder {
+  id: string;
+  name: string;
+  parentId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MediaFolderListResult {
+  folders: EspMediaFolder[];
+}
+
+export interface CreateMediaFolderInput {
+  name: string;
+  parentId?: string;
 }
 
 export interface MediaCapabilities {
   canUpload: boolean;
   canDelete: boolean;
   canRename: boolean;
+  canCreateFolders: boolean;
+  canNavigateFolders: boolean;
 }
 
 export interface MediaAdapter {
@@ -563,8 +586,18 @@ export interface MediaAdapter {
   listMedia(
     token: string,
     locationId: string,
-    options?: { cursor?: string; limit?: number },
+    options?: { cursor?: string; limit?: number; parentId?: string },
   ): Promise<MediaListResult>;
+  listFolders?(
+    token: string,
+    locationId: string,
+    parentId?: string,
+  ): Promise<MediaFolderListResult>;
+  createFolder?(
+    token: string,
+    locationId: string,
+    input: CreateMediaFolderInput,
+  ): Promise<EspMediaFolder>;
   uploadMedia(
     token: string,
     locationId: string,

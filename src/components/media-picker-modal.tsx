@@ -6,6 +6,9 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
   ArrowUpTrayIcon,
+  FolderIcon,
+  ChevronRightIcon,
+  HomeIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 
@@ -22,6 +25,19 @@ interface MediaFile {
   updatedAt?: string;
 }
 
+interface MediaFolder {
+  id: string;
+  name: string;
+  parentId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface FolderBreadcrumb {
+  id: string | undefined;
+  name: string;
+}
+
 export interface MediaPickerModalProps {
   accountKey: string;
   onSelect: (url: string) => void;
@@ -32,6 +48,7 @@ export interface MediaPickerModalProps {
 
 export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerModalProps) {
   const [files, setFiles] = useState<MediaFile[]>([]);
+  const [folders, setFolders] = useState<MediaFolder[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [nextCursor, setNextCursor] = useState<string | undefined>();
@@ -39,16 +56,20 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [currentFolderId, setCurrentFolderId] = useState<string | undefined>();
+  const [folderPath, setFolderPath] = useState<FolderBreadcrumb[]>([{ id: undefined, name: 'Root' }]);
+  const [canNavigateFolders, setCanNavigateFolders] = useState(false);
 
   // ── Fetch media ──
 
   const loadMedia = useCallback(async (cursor?: string) => {
     if (cursor) setLoadingMore(true);
-    else setLoading(true);
+    else { setLoading(true); setFolders([]); }
 
     try {
       const params = new URLSearchParams({ accountKey, limit: '50' });
       if (cursor) params.set('cursor', cursor);
+      if (currentFolderId) params.set('parentId', currentFolderId);
       const res = await fetch(`/api/esp/media?${params.toString()}`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -57,14 +78,16 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
       const data = await res.json();
       const newFiles: MediaFile[] = data.files || [];
       setFiles((prev) => (cursor ? [...prev, ...newFiles] : newFiles));
+      if (!cursor) setFolders(data.folders || []);
       setNextCursor(data.nextCursor || undefined);
+      if (data.capabilities?.canNavigateFolders) setCanNavigateFolders(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load media');
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [accountKey]);
+  }, [accountKey, currentFolderId]);
 
   useEffect(() => {
     loadMedia();
@@ -108,6 +131,21 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
     handleUpload(e.dataTransfer.files);
   }, [handleUpload]);
 
+  // ── Folder navigation ──
+
+  const navigateToFolder = useCallback((folder: MediaFolder) => {
+    setCurrentFolderId(folder.id);
+    setFolderPath(prev => [...prev, { id: folder.id, name: folder.name }]);
+    setSearch('');
+  }, []);
+
+  const navigateToBreadcrumb = useCallback((index: number) => {
+    const crumb = folderPath[index];
+    setCurrentFolderId(crumb.id);
+    setFolderPath(prev => prev.slice(0, index + 1));
+    setSearch('');
+  }, [folderPath]);
+
   // ── Search ──
 
   const filtered = useMemo(() => {
@@ -115,6 +153,12 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
     const q = search.toLowerCase();
     return files.filter((f) => f.name.toLowerCase().includes(q));
   }, [files, search]);
+
+  const filteredFolders = useMemo(() => {
+    if (!search.trim()) return folders;
+    const q = search.toLowerCase();
+    return folders.filter((f) => f.name.toLowerCase().includes(q));
+  }, [folders, search]);
 
   // ── Escape key ──
 
@@ -192,6 +236,36 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
           )}
         </div>
 
+        {/* ── Breadcrumbs ── */}
+        {canNavigateFolders && folderPath.length > 1 && (
+          <div className="flex items-center gap-1 px-4 pt-3 text-xs flex-wrap">
+            {folderPath.map((crumb, idx) => {
+              const isLast = idx === folderPath.length - 1;
+              return (
+                <span key={crumb.id ?? 'root'} className="flex items-center gap-1">
+                  {idx > 0 && (
+                    <ChevronRightIcon className="w-3 h-3 text-[var(--muted-foreground)]" />
+                  )}
+                  {isLast ? (
+                    <span className="font-medium text-[var(--foreground)] flex items-center gap-1">
+                      {idx === 0 ? <HomeIcon className="w-3 h-3" /> : <FolderIcon className="w-3 h-3" />}
+                      {crumb.name}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => navigateToBreadcrumb(idx)}
+                      className="flex items-center gap-1 text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                    >
+                      {idx === 0 ? <HomeIcon className="w-3 h-3" /> : <FolderIcon className="w-3 h-3" />}
+                      {crumb.name}
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
         {/* ── Media grid ── */}
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
@@ -203,53 +277,86 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
                 </div>
               ))}
             </div>
-          ) : filtered.length === 0 ? (
+          ) : filtered.length === 0 && filteredFolders.length === 0 ? (
             <div className="text-center py-12 text-[var(--muted-foreground)]">
               <PhotoIcon className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">{files.length === 0 ? 'No media files yet' : 'No matches'}</p>
-              {files.length === 0 && (
+              <p className="text-sm">
+                {files.length === 0 && folders.length === 0
+                  ? currentFolderId ? 'This folder is empty' : 'No media files yet'
+                  : 'No matches'}
+              </p>
+              {files.length === 0 && folders.length === 0 && !currentFolderId && (
                 <p className="text-xs mt-1 opacity-60">Upload an image to get started</p>
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {filtered.map((f) => {
-                const isImage = f.type?.startsWith('image') || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(f.url || '');
-                return (
-                  <button
-                    key={f.id}
-                    onClick={() => onSelect(f.url)}
-                    className="text-left rounded-lg overflow-hidden border border-transparent hover:border-[var(--primary)] hover:ring-1 hover:ring-[var(--primary)]/30 transition-all group"
-                    title={f.name}
-                  >
-                    <div className="h-[100px] bg-[var(--muted)] overflow-hidden">
-                      {isImage && f.url ? (
-                        <img
-                          src={f.thumbnailUrl || f.url}
-                          alt={f.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="flex items-center justify-center h-full">
-                          <PhotoIcon className="w-6 h-6 text-[var(--muted-foreground)] opacity-30" />
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-[10px] truncate px-1.5 py-1 text-[var(--muted-foreground)]">
-                      {f.name}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
+            <>
+              {/* Folder cards */}
+              {filteredFolders.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-2">
+                  {filteredFolders.map((folder) => (
+                    <button
+                      key={folder.id}
+                      onClick={() => navigateToFolder(folder)}
+                      className="text-left rounded-lg p-3 border border-transparent hover:border-[var(--primary)] hover:ring-1 hover:ring-[var(--primary)]/30 transition-all group bg-[var(--muted)]/30"
+                      title={folder.name}
+                    >
+                      <div className="flex items-center gap-2">
+                        <FolderIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0" />
+                        <span className="text-[11px] font-medium truncate group-hover:text-[var(--primary)] transition-colors">
+                          {folder.name}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* File cards */}
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {filtered.map((f) => {
+                  const isImage = f.type?.startsWith('image') || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(f.url || '');
+                  return (
+                    <button
+                      key={f.id}
+                      onClick={() => onSelect(f.url)}
+                      className="text-left rounded-lg overflow-hidden border border-transparent hover:border-[var(--primary)] hover:ring-1 hover:ring-[var(--primary)]/30 transition-all group"
+                      title={f.name}
+                    >
+                      <div className="h-[100px] bg-[var(--muted)] overflow-hidden">
+                        {isImage && f.url ? (
+                          <img
+                            src={f.thumbnailUrl || f.url}
+                            alt={f.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="flex items-center justify-center h-full">
+                            <PhotoIcon className="w-6 h-6 text-[var(--muted-foreground)] opacity-30" />
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[10px] truncate px-1.5 py-1 text-[var(--muted-foreground)]">
+                        {f.name}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
 
         {/* ── Footer ── */}
         <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--border)]">
           <p className="text-xs text-[var(--muted-foreground)]">
-            {loading ? 'Loading...' : `${filtered.length} file${filtered.length !== 1 ? 's' : ''}`}
+            {loading ? 'Loading...' : (
+              <>
+                {filteredFolders.length > 0 && `${filteredFolders.length} folder${filteredFolders.length !== 1 ? 's' : ''}, `}
+                {`${filtered.length} file${filtered.length !== 1 ? 's' : ''}`}
+              </>
+            )}
           </p>
           {nextCursor && !loading && (
             <button

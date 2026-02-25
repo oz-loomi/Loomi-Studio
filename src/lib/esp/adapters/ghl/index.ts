@@ -24,8 +24,11 @@ import type {
   MediaAdapter,
   MediaCapabilities,
   EspMedia,
+  EspMediaFolder,
   MediaListResult,
+  MediaFolderListResult,
   MediaUploadInput,
+  CreateMediaFolderInput,
   EspCredentials,
   OAuthTokenSet,
   EspConnectionRecord,
@@ -111,6 +114,8 @@ import {
   listMedia as listGhlMedia,
   uploadMedia as uploadGhlMedia,
   deleteMedia as deleteGhlMedia,
+  listFolders as listGhlFolders,
+  createFolder as createGhlFolder,
 } from './media';
 import { generateGhlCampaignScreenshot } from './campaign-screenshot';
 
@@ -678,14 +683,32 @@ class GhlMediaAdapter implements MediaAdapter {
     canUpload: true,
     canDelete: true,
     canRename: false,
+    canCreateFolders: true,
+    canNavigateFolders: true,
   };
 
   async listMedia(
     token: string,
     locationId: string,
-    options?: { cursor?: string; limit?: number },
+    options?: { cursor?: string; limit?: number; parentId?: string },
   ): Promise<MediaListResult> {
     return listGhlMedia(token, locationId, options);
+  }
+
+  async listFolders(
+    token: string,
+    locationId: string,
+    parentId?: string,
+  ): Promise<MediaFolderListResult> {
+    return listGhlFolders(token, locationId, parentId);
+  }
+
+  async createFolder(
+    token: string,
+    locationId: string,
+    input: CreateMediaFolderInput,
+  ): Promise<EspMediaFolder> {
+    return createGhlFolder(token, locationId, input);
   }
 
   async uploadMedia(

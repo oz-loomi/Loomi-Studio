@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
 import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-helpers';
 import { unsupportedCapabilityPayload } from '@/lib/esp/unsupported';
+import type { EspMediaFolder } from '@/lib/esp/types';
 
 /**
- * GET /api/esp/media?accountKey=xxx&cursor=xxx&limit=50
+ * GET /api/esp/media?accountKey=xxx&cursor=xxx&limit=50&parentId=xxx
  *
- * List media files from the connected provider.
+ * List media files (and folders) from the connected provider.
  */
 export async function GET(req: NextRequest) {
   const { session, error } = await requireAuth();
@@ -46,15 +47,28 @@ export async function GET(req: NextRequest) {
     const cursor = req.nextUrl.searchParams.get('cursor') || undefined;
     const limitParam = req.nextUrl.searchParams.get('limit');
     const limit = limitParam ? Number(limitParam) : undefined;
+    const parentId = req.nextUrl.searchParams.get('parentId') || undefined;
 
     const media = await adapter.media.listMedia(
       credentials.token,
       credentials.locationId,
-      { cursor, limit },
+      { cursor, limit, parentId },
     );
+
+    // Fetch folders for this level if adapter supports it
+    let folders: EspMediaFolder[] = [];
+    if (adapter.media.listFolders) {
+      const folderResult = await adapter.media.listFolders(
+        credentials.token,
+        credentials.locationId,
+        parentId,
+      );
+      folders = folderResult.folders;
+    }
 
     return NextResponse.json({
       files: media.files,
+      folders,
       nextCursor: media.nextCursor,
       total: media.total,
       provider: adapter.provider,
@@ -73,6 +87,7 @@ export async function GET(req: NextRequest) {
  * Expects multipart/form-data with:
  *   - accountKey (text field)
  *   - file (file field)
+ *   - parentId (optional text field — upload into a folder)
  */
 export async function POST(req: NextRequest) {
   const { session, error } = await requireAuth();
@@ -87,6 +102,7 @@ export async function POST(req: NextRequest) {
 
   const accountKey = formData.get('accountKey') as string | null;
   const file = formData.get('file') as File | null;
+  const parentId = formData.get('parentId') as string | null;
 
   if (!accountKey) {
     return NextResponse.json({ error: 'accountKey is required' }, { status: 400 });
@@ -129,6 +145,7 @@ export async function POST(req: NextRequest) {
         file: buffer,
         name: file.name,
         mimeType: file.type || 'application/octet-stream',
+        parentId: parentId || undefined,
       },
     );
 

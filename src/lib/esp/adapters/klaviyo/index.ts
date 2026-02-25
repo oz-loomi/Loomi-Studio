@@ -288,6 +288,8 @@ class KlaviyoMediaAdapter implements MediaAdapter {
     canUpload: true,
     canDelete: false,
     canRename: true,
+    canCreateFolders: false,
+    canNavigateFolders: false,
   };
 
   async listMedia(

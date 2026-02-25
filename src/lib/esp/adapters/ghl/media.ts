@@ -1,34 +1,72 @@
 // ── GHL Media Files ──
-// List, upload, and delete media via the GHL public API.
+// List, upload, delete media + folder navigation via the GHL public API.
 
 import { GHL_BASE, API_VERSION } from './constants';
-import type { EspMedia, MediaListResult, MediaUploadInput } from '../../types';
+import type {
+  EspMedia,
+  EspMediaFolder,
+  MediaListResult,
+  MediaFolderListResult,
+  MediaUploadInput,
+  CreateMediaFolderInput,
+} from '../../types';
 
 // ── In-memory cache (5 min TTL, same pattern as templates) ──
 
-const mediaCache = new Map<string, { data: EspMedia[]; fetchedAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-function cacheKey(locationId: string): string {
-  return `ghl-media:${locationId}`;
+// File cache — keyed by locationId + parentId
+const mediaCache = new Map<string, { data: EspMedia[]; fetchedAt: number }>();
+
+function fileCacheKey(locationId: string, parentId?: string): string {
+  return `ghl-media:${locationId}:${parentId || 'root'}`;
 }
 
-function getCached(locationId: string): EspMedia[] | null {
-  const entry = mediaCache.get(cacheKey(locationId));
+function getCachedFiles(locationId: string, parentId?: string): EspMedia[] | null {
+  const entry = mediaCache.get(fileCacheKey(locationId, parentId));
   if (!entry) return null;
   if (Date.now() - entry.fetchedAt > CACHE_TTL_MS) {
-    mediaCache.delete(cacheKey(locationId));
+    mediaCache.delete(fileCacheKey(locationId, parentId));
     return null;
   }
   return entry.data;
 }
 
-function setCache(locationId: string, data: EspMedia[]): void {
-  mediaCache.set(cacheKey(locationId), { data, fetchedAt: Date.now() });
+function setCacheFiles(locationId: string, data: EspMedia[], parentId?: string): void {
+  mediaCache.set(fileCacheKey(locationId, parentId), { data, fetchedAt: Date.now() });
 }
 
-function invalidateCache(locationId: string): void {
-  mediaCache.delete(cacheKey(locationId));
+// Folder cache — keyed by locationId + parentId
+const folderCache = new Map<string, { data: EspMediaFolder[]; fetchedAt: number }>();
+
+function folderCacheKey(locationId: string, parentId?: string): string {
+  return `ghl-folders:${locationId}:${parentId || 'root'}`;
+}
+
+function getCachedFolders(locationId: string, parentId?: string): EspMediaFolder[] | null {
+  const entry = folderCache.get(folderCacheKey(locationId, parentId));
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt > CACHE_TTL_MS) {
+    folderCache.delete(folderCacheKey(locationId, parentId));
+    return null;
+  }
+  return entry.data;
+}
+
+function setCacheFolders(locationId: string, data: EspMediaFolder[], parentId?: string): void {
+  folderCache.set(folderCacheKey(locationId, parentId), { data, fetchedAt: Date.now() });
+}
+
+/** Invalidate all file + folder cache entries for a location. */
+function invalidateAllCaches(locationId: string): void {
+  const prefix = `ghl-media:${locationId}:`;
+  for (const key of mediaCache.keys()) {
+    if (key.startsWith(prefix)) mediaCache.delete(key);
+  }
+  const folderPrefix = `ghl-folders:${locationId}:`;
+  for (const key of folderCache.keys()) {
+    if (key.startsWith(folderPrefix)) folderCache.delete(key);
+  }
 }
 
 // ── Helpers ──
@@ -53,16 +91,36 @@ function normalizeFile(raw: Record<string, unknown>): EspMedia {
   };
 }
 
+function normalizeFolder(raw: Record<string, unknown>): EspMediaFolder {
+  return {
+    id: String(raw.id || raw._id || ''),
+    name: String(raw.name || ''),
+    parentId: raw.parentId ? String(raw.parentId) : undefined,
+    createdAt: String(raw.createdAt || ''),
+    updatedAt: String(raw.updatedAt || ''),
+  };
+}
+
+function throwGhlError(data: unknown, status: number): never {
+  const msg =
+    (data as Record<string, string>)?.message ||
+    (data as Record<string, string>)?.error ||
+    `GHL API error (${status})`;
+  throw new Error(msg);
+}
+
 // ── List media files (offset-based pagination) ──
 
 export async function listMedia(
   token: string,
   locationId: string,
-  options?: { cursor?: string; limit?: number },
+  options?: { cursor?: string; limit?: number; parentId?: string },
 ): Promise<MediaListResult> {
+  const parentId = options?.parentId;
+
   // Check cache only for first page (no cursor)
   if (!options?.cursor) {
-    const cached = getCached(locationId);
+    const cached = getCachedFiles(locationId, parentId);
     if (cached) {
       return { files: cached };
     }
@@ -70,17 +128,25 @@ export async function listMedia(
 
   const offset = options?.cursor ? Number(options.cursor) : 0;
   const limit = options?.limit || 50;
-  const url = `${GHL_BASE}/medias/files?altId=${encodeURIComponent(locationId)}&altType=location&type=file&offset=${offset}&limit=${limit}`;
 
-  const res = await fetch(url, { headers: ghlHeaders(token) });
+  const params = new URLSearchParams({
+    altId: locationId,
+    altType: 'location',
+    type: 'file',
+    offset: String(offset),
+    limit: String(limit),
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+  });
+  if (parentId) params.set('parentId', parentId);
+
+  const res = await fetch(`${GHL_BASE}/medias/files?${params.toString()}`, {
+    headers: ghlHeaders(token),
+  });
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    const msg =
-      (data as Record<string, string>)?.message ||
-      (data as Record<string, string>)?.error ||
-      `GHL API error (${res.status})`;
-    throw new Error(msg);
+    throwGhlError(data, res.status);
   }
 
   const data = await res.json();
@@ -91,7 +157,7 @@ export async function listMedia(
 
   // Cache first page only
   if (!options?.cursor) {
-    setCache(locationId, files);
+    setCacheFiles(locationId, files, parentId);
   }
 
   const nextOffset = offset + files.length;
@@ -99,6 +165,82 @@ export async function listMedia(
     files,
     nextCursor: files.length === limit ? String(nextOffset) : undefined,
   };
+}
+
+// ── List folders ──
+
+export async function listFolders(
+  token: string,
+  locationId: string,
+  parentId?: string,
+): Promise<MediaFolderListResult> {
+  const cached = getCachedFolders(locationId, parentId);
+  if (cached) return { folders: cached };
+
+  const params = new URLSearchParams({
+    altId: locationId,
+    altType: 'location',
+    type: 'folder',
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+    fetchAll: 'true',
+  });
+  if (parentId) params.set('parentId', parentId);
+
+  const res = await fetch(`${GHL_BASE}/medias/files?${params.toString()}`, {
+    headers: ghlHeaders(token),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throwGhlError(data, res.status);
+  }
+
+  const data = await res.json();
+  const rawFolders: Record<string, unknown>[] =
+    ((data as Record<string, unknown>)?.files as Record<string, unknown>[]) ?? [];
+
+  const folders = rawFolders
+    .filter((f) => !f.deleted)
+    .map(normalizeFolder);
+
+  setCacheFolders(locationId, folders, parentId);
+
+  return { folders };
+}
+
+// ── Create folder ──
+
+export async function createFolder(
+  token: string,
+  locationId: string,
+  input: CreateMediaFolderInput,
+): Promise<EspMediaFolder> {
+  const body: Record<string, string> = {
+    altId: locationId,
+    altType: 'location',
+    name: input.name,
+  };
+  if (input.parentId) body.parentId = input.parentId;
+
+  const res = await fetch(`${GHL_BASE}/medias/folder`, {
+    method: 'POST',
+    headers: {
+      ...ghlHeaders(token),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throwGhlError(data, res.status);
+  }
+
+  const data = await res.json();
+  invalidateAllCaches(locationId);
+
+  return normalizeFolder(data as Record<string, unknown>);
 }
 
 // ── Upload media (multipart/form-data) ──
@@ -113,8 +255,11 @@ export async function uploadMedia(
   formData.append('file', blob, input.name);
   formData.append('name', input.name);
   formData.append('locationId', locationId);
+  if (input.parentId) {
+    formData.append('parentId', input.parentId);
+  }
 
-  const res = await fetch(`${GHL_BASE}/medias/upload`, {
+  const res = await fetch(`${GHL_BASE}/medias/upload-file`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -126,17 +271,13 @@ export async function uploadMedia(
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    const msg =
-      (data as Record<string, string>)?.message ||
-      (data as Record<string, string>)?.error ||
-      `GHL API error (${res.status})`;
-    throw new Error(msg);
+    throwGhlError(data, res.status);
   }
 
   const data = await res.json();
   const raw = ((data as Record<string, unknown>)?.file || data) as Record<string, unknown>;
 
-  invalidateCache(locationId);
+  invalidateAllCaches(locationId);
 
   return normalizeFile(raw);
 }
@@ -145,22 +286,23 @@ export async function uploadMedia(
 
 export async function deleteMedia(
   token: string,
-  _locationId: string,
+  locationId: string,
   mediaId: string,
 ): Promise<void> {
-  const res = await fetch(`${GHL_BASE}/medias/${encodeURIComponent(mediaId)}`, {
-    method: 'DELETE',
-    headers: ghlHeaders(token),
+  const params = new URLSearchParams({
+    altType: 'location',
+    altId: locationId,
   });
+
+  const res = await fetch(
+    `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}?${params.toString()}`,
+    { method: 'DELETE', headers: ghlHeaders(token) },
+  );
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    const msg =
-      (data as Record<string, string>)?.message ||
-      (data as Record<string, string>)?.error ||
-      `GHL API error (${res.status})`;
-    throw new Error(msg);
+    throwGhlError(data, res.status);
   }
 
-  invalidateCache(_locationId);
+  invalidateAllCaches(locationId);
 }

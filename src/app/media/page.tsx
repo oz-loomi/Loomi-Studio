@@ -15,6 +15,9 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CheckIcon,
+  FolderIcon,
+  FolderPlusIcon,
+  HomeIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { safeJson } from '@/lib/safe-json';
@@ -34,10 +37,25 @@ interface MediaFile {
   updatedAt?: string;
 }
 
+interface MediaFolder {
+  id: string;
+  name: string;
+  parentId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface FolderBreadcrumb {
+  id: string | undefined; // undefined = root
+  name: string;
+}
+
 interface MediaCapabilities {
   canUpload: boolean;
   canDelete: boolean;
   canRename: boolean;
+  canCreateFolders: boolean;
+  canNavigateFolders: boolean;
 }
 
 interface AccountMediaPreview {
@@ -108,12 +126,20 @@ export default function MediaPage() {
 
   // ── Single-account detail state ──
   const [files, setFiles] = useState<MediaFile[]>([]);
+  const [folders, setFolders] = useState<MediaFolder[]>([]);
   const [loading, setLoading] = useState(false);
   const [provider, setProvider] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<MediaCapabilities | null>(null);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
   const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
+
+  // Folder navigation
+  const [currentFolderId, setCurrentFolderId] = useState<string | undefined>(undefined);
+  const [folderPath, setFolderPath] = useState<FolderBreadcrumb[]>([{ id: undefined, name: 'Root' }]);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [showNewFolderInput, setShowNewFolderInput] = useState(false);
 
   // Upload
   const [uploading, setUploading] = useState(false);
@@ -290,6 +316,7 @@ export default function MediaPage() {
     } else {
       setLoading(true);
       setFiles([]);
+      setFolders([]);
     }
 
     try {
@@ -297,6 +324,7 @@ export default function MediaPage() {
         accountKey: effectiveAccountKey,
       });
       if (cursor) params.set('cursor', cursor);
+      if (currentFolderId) params.set('parentId', currentFolderId);
       params.set('limit', '50');
 
       const res = await fetch(`/api/esp/media?${params.toString()}`);
@@ -307,6 +335,7 @@ export default function MediaPage() {
           setFiles(prev => [...prev, ...(data.files || [])]);
         } else {
           setFiles(data.files || []);
+          setFolders(data.folders || []);
         }
         setNextCursor(data.nextCursor || undefined);
         setProvider(data.provider || null);
@@ -320,16 +349,19 @@ export default function MediaPage() {
 
     setLoading(false);
     setLoadingMore(false);
-  }, [effectiveAccountKey]);
+  }, [effectiveAccountKey, currentFolderId]);
 
   useEffect(() => {
     if (effectiveAccountKey) {
       loadMedia();
     } else {
       setFiles([]);
+      setFolders([]);
       setProvider(null);
       setCapabilities(null);
       setNextCursor(undefined);
+      setCurrentFolderId(undefined);
+      setFolderPath([{ id: undefined, name: 'Root' }]);
     }
   }, [effectiveAccountKey, loadMedia]);
 
@@ -346,6 +378,7 @@ export default function MediaPage() {
       const formData = new FormData();
       formData.append('accountKey', effectiveAccountKey);
       formData.append('file', file);
+      if (currentFolderId) formData.append('parentId', currentFolderId);
 
       try {
         const res = await fetch('/api/esp/media', {
@@ -463,6 +496,54 @@ export default function MediaPage() {
     }
   };
 
+  // ── Folder Navigation ──
+
+  const navigateToFolder = useCallback((folder: MediaFolder) => {
+    setCurrentFolderId(folder.id);
+    setFolderPath(prev => [...prev, { id: folder.id, name: folder.name }]);
+    setSearch('');
+  }, []);
+
+  const navigateToBreadcrumb = useCallback((index: number) => {
+    const crumb = folderPath[index];
+    setCurrentFolderId(crumb.id);
+    setFolderPath(prev => prev.slice(0, index + 1));
+    setSearch('');
+  }, [folderPath]);
+
+  // ── Create Folder ──
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim() || !effectiveAccountKey) return;
+    setCreatingFolder(true);
+
+    try {
+      const res = await fetch('/api/esp/media/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountKey: effectiveAccountKey,
+          name: newFolderName.trim(),
+          parentId: currentFolderId,
+        }),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.folder) {
+        setFolders(prev => [data.folder, ...prev]);
+        toast.success(`Folder "${newFolderName.trim()}" created`);
+        setNewFolderName('');
+        setShowNewFolderInput(false);
+      } else {
+        toast.error(data.error || 'Failed to create folder');
+      }
+    } catch {
+      toast.error('Failed to create folder');
+    }
+
+    setCreatingFolder(false);
+  };
+
   // ── Filtering ──
 
   const filtered = useMemo(() => {
@@ -470,6 +551,12 @@ export default function MediaPage() {
     const q = search.toLowerCase();
     return files.filter(f => f.name.toLowerCase().includes(q));
   }, [files, search]);
+
+  const filteredFolders = useMemo(() => {
+    if (!search.trim()) return folders;
+    const q = search.toLowerCase();
+    return folders.filter(f => f.name.toLowerCase().includes(q));
+  }, [folders, search]);
 
   // ── Connection state ──
   const connectedProviders = accountData?.connectedProviders;
@@ -729,7 +816,7 @@ export default function MediaPage() {
           {/* Back to overview button when admin drilled into an account */}
           {isAdmin && effectiveAccountKey && (
             <button
-              onClick={() => { setAccountFilter('all'); setSearch(''); }}
+              onClick={() => { setAccountFilter('all'); setSearch(''); setCurrentFolderId(undefined); setFolderPath([{ id: undefined, name: 'Root' }]); }}
               className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)] rounded-lg hover:bg-[var(--muted)] transition-colors"
             >
               All Accounts
@@ -796,6 +883,9 @@ export default function MediaPage() {
                   </p>
                   <p className="text-[10px] text-[var(--muted-foreground)] mt-1">
                     Images will be uploaded to {provider ? providerLabel(provider) : 'your connected platform'}
+                    {currentFolderId && folderPath.length > 1 && (
+                      <> in <strong>{folderPath[folderPath.length - 1].name}</strong></>
+                    )}
                   </p>
                 </label>
               )}
@@ -912,10 +1002,86 @@ export default function MediaPage() {
                 )}
               </div>
 
-              <p className="text-xs text-[var(--muted-foreground)]">
-                {loading ? 'Loading...' : `${filtered.length} file${filtered.length !== 1 ? 's' : ''}`}
-                {search && ` matching "${search}"`}
-              </p>
+              <div className="flex items-center gap-2">
+                {/* New Folder button */}
+                {capabilities?.canCreateFolders && (
+                  <button
+                    onClick={() => setShowNewFolderInput(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <FolderPlusIcon className="w-3.5 h-3.5" />
+                    New Folder
+                  </button>
+                )}
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  {loading ? 'Loading...' : (
+                    <>
+                      {filteredFolders.length > 0 && `${filteredFolders.length} folder${filteredFolders.length !== 1 ? 's' : ''}, `}
+                      {`${filtered.length} file${filtered.length !== 1 ? 's' : ''}`}
+                    </>
+                  )}
+                  {search && ` matching "${search}"`}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Breadcrumb navigation */}
+          {effectiveAccountKey && capabilities?.canNavigateFolders && folderPath.length > 1 && (
+            <div className="flex items-center gap-1 mb-4 text-sm flex-wrap">
+              {folderPath.map((crumb, idx) => {
+                const isLast = idx === folderPath.length - 1;
+                return (
+                  <span key={crumb.id ?? 'root'} className="flex items-center gap-1">
+                    {idx > 0 && (
+                      <ChevronRightIcon className="w-3 h-3 text-[var(--muted-foreground)]" />
+                    )}
+                    {isLast ? (
+                      <span className="font-medium text-[var(--foreground)] flex items-center gap-1">
+                        {idx === 0 ? <HomeIcon className="w-3.5 h-3.5" /> : <FolderIcon className="w-3.5 h-3.5" />}
+                        {crumb.name}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => navigateToBreadcrumb(idx)}
+                        className="flex items-center gap-1 text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                      >
+                        {idx === 0 ? <HomeIcon className="w-3.5 h-3.5" /> : <FolderIcon className="w-3.5 h-3.5" />}
+                        {crumb.name}
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {/* New folder input */}
+          {showNewFolderInput && (
+            <div className="flex items-center gap-2 mb-4 animate-fade-in-up">
+              <FolderPlusIcon className="w-5 h-5 text-[var(--muted-foreground)]" />
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') { setShowNewFolderInput(false); setNewFolderName(''); } }}
+                className="text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] w-64"
+                placeholder="Folder name..."
+                autoFocus
+              />
+              <button
+                onClick={handleCreateFolder}
+                disabled={creatingFolder || !newFolderName.trim()}
+                className="px-3 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {creatingFolder ? 'Creating...' : 'Create'}
+              </button>
+              <button
+                onClick={() => { setShowNewFolderInput(false); setNewFolderName(''); }}
+                className="p-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
             </div>
           )}
 
@@ -953,17 +1119,47 @@ export default function MediaPage() {
           )}
 
           {/* Empty state */}
-          {!loading && effectiveAccountKey && (hasConnection || isAdmin) && filtered.length === 0 && (
+          {!loading && effectiveAccountKey && (hasConnection || isAdmin) && filtered.length === 0 && filteredFolders.length === 0 && (
             <div className="text-center py-16 text-[var(--muted-foreground)]">
               <PhotoIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              {files.length === 0 ? (
+              {files.length === 0 && folders.length === 0 ? (
                 <>
-                  <p className="text-sm font-medium mb-1">No media files yet</p>
+                  <p className="text-sm font-medium mb-1">
+                    {currentFolderId ? 'This folder is empty' : 'No media files yet'}
+                  </p>
                   <p className="text-xs">Upload files using the drop zone above.</p>
                 </>
               ) : (
                 <p className="text-sm">No files match your search.</p>
               )}
+            </div>
+          )}
+
+          {/* Folder grid */}
+          {!loading && filteredFolders.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 mb-3">
+              {filteredFolders.map(folder => (
+                <button
+                  key={folder.id}
+                  onClick={() => navigateToFolder(folder)}
+                  className="glass-card rounded-xl p-4 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-[var(--primary)]/10 flex items-center justify-center flex-shrink-0">
+                      <FolderIcon className="w-5 h-5 text-[var(--primary)]" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-xs font-semibold truncate group-hover:text-[var(--primary)] transition-colors" title={folder.name}>
+                        {folder.name}
+                      </h3>
+                      <span className="text-[10px] text-[var(--muted-foreground)]">
+                        {timeAgo(folder.createdAt)}
+                      </span>
+                    </div>
+                    <ChevronRightIcon className="w-4 h-4 text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </button>
+              ))}
             </div>
           )}
 
