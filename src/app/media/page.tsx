@@ -18,6 +18,9 @@ import {
   FolderIcon,
   FolderPlusIcon,
   HomeIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  EyeIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { safeJson } from '@/lib/safe-json';
@@ -153,6 +156,7 @@ export default function MediaPage() {
   const [renaming, setRenaming] = useState(false);
   const [deleteFile, setDeleteFile] = useState<MediaFile | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [previewFile, setPreviewFile] = useState<MediaFile | null>(null);
 
   // Admin account filter
   const [accountFilter, setAccountFilter] = useState<string>('all');
@@ -198,8 +202,8 @@ export default function MediaPage() {
   // Close menus on outside click
   useEffect(() => {
     const handler = () => setOpenMenu(null);
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   // Close account dropdown on outside click
@@ -589,7 +593,10 @@ export default function MediaPage() {
     return (
       <div className="glass-card rounded-xl group animate-fade-in-up overflow-hidden">
         {/* Thumbnail */}
-        <div className="h-[140px] bg-[var(--muted)] relative overflow-hidden">
+        <div
+          className="h-[140px] bg-[var(--muted)] relative overflow-hidden cursor-pointer"
+          onClick={() => setPreviewFile(f)}
+        >
           {isImage && f.url ? (
             <img
               src={f.thumbnailUrl || f.url}
@@ -602,6 +609,10 @@ export default function MediaPage() {
               <PhotoIcon className="w-10 h-10 text-[var(--muted-foreground)] opacity-30" />
             </div>
           )}
+          {/* Hover overlay */}
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+            <EyeIcon className="w-6 h-6 text-white opacity-0 group-hover:opacity-80 transition-opacity drop-shadow-lg" />
+          </div>
         </div>
 
         {/* Info */}
@@ -1257,6 +1268,113 @@ export default function MediaPage() {
           </div>
         </div>
       )}
+
+      {/* ── Image Preview Modal ── */}
+      {previewFile && (() => {
+        const previewIsImage = previewFile.type?.startsWith('image') || previewFile.url?.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
+        const currentIndex = filtered.findIndex(f => f.id === previewFile.id);
+        const hasPrev = currentIndex > 0;
+        const hasNext = currentIndex < filtered.length - 1;
+
+        const goPrev = () => { if (hasPrev) setPreviewFile(filtered[currentIndex - 1]); };
+        const goNext = () => { if (hasNext) setPreviewFile(filtered[currentIndex + 1]); };
+
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 animate-overlay-in"
+            onClick={() => setPreviewFile(null)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setPreviewFile(null);
+              if (e.key === 'ArrowLeft') goPrev();
+              if (e.key === 'ArrowRight') goNext();
+            }}
+            tabIndex={-1}
+            ref={(el) => el?.focus()}
+          >
+            <div className="glass-modal w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[var(--border)]">
+                <div className="flex items-center gap-3 min-w-0">
+                  <PhotoIcon className="w-5 h-5 text-[var(--muted-foreground)] flex-shrink-0" />
+                  <h3 className="text-sm font-semibold truncate" title={previewFile.name}>
+                    {previewFile.name}
+                  </h3>
+                  {currentIndex >= 0 && (
+                    <span className="text-[10px] text-[var(--muted-foreground)] flex-shrink-0">
+                      {currentIndex + 1} / {filtered.length}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setPreviewFile(null)}
+                  className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex-shrink-0"
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Image */}
+              <div className="flex-1 overflow-hidden flex items-center justify-center bg-black/20 relative min-h-0">
+                {previewIsImage && previewFile.url ? (
+                  <img
+                    src={previewFile.url}
+                    alt={previewFile.name}
+                    className="max-w-full max-h-[70vh] object-contain"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-20 text-[var(--muted-foreground)]">
+                    <PhotoIcon className="w-16 h-16 opacity-30 mb-3" />
+                    <p className="text-sm">Preview not available</p>
+                  </div>
+                )}
+
+                {/* Prev/Next navigation */}
+                {hasPrev && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); goPrev(); }}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors"
+                  >
+                    <ArrowLeftIcon className="w-5 h-5" />
+                  </button>
+                )}
+                {hasNext && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); goNext(); }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors"
+                  >
+                    <ArrowRightIcon className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-[var(--border)]">
+                <div className="flex items-center gap-3 text-[10px] text-[var(--muted-foreground)]">
+                  {provider && <ProviderPill prov={provider} />}
+                  {previewFile.size != null && <span>{formatFileSize(previewFile.size)}</span>}
+                  {previewFile.createdAt && <span>{timeAgo(previewFile.createdAt)}</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => copyUrl(previewFile.url)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <ClipboardDocumentIcon className="w-3.5 h-3.5" /> Copy URL
+                  </button>
+                  {capabilities?.canDelete && (
+                    <button
+                      onClick={() => { setPreviewFile(null); setDeleteFile(previewFile); }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors"
+                    >
+                      <TrashIcon className="w-3.5 h-3.5" /> Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
