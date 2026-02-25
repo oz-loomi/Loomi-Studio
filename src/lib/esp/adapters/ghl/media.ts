@@ -315,6 +315,33 @@ export async function uploadMedia(
   return normalizeFile(raw);
 }
 
+// ── Move media / folder (change parent folder) ──
+
+export async function moveMedia(
+  token: string,
+  locationId: string,
+  mediaId: string,
+  targetFolderId?: string,
+): Promise<void> {
+  const params = new URLSearchParams({
+    altType: 'location',
+    altId: locationId,
+  });
+  if (targetFolderId) params.set('parentId', targetFolderId);
+
+  const res = await fetch(
+    `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}/move?${params.toString()}`,
+    { method: 'PUT', headers: ghlHeaders(token) },
+  );
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throwGhlError(data, res.status);
+  }
+
+  invalidateAllCaches(locationId);
+}
+
 // ── Delete media ──
 
 export async function deleteMedia(

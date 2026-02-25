@@ -576,6 +576,7 @@ export interface MediaCapabilities {
   canUpload: boolean;
   canDelete: boolean;
   canRename: boolean;
+  canMove: boolean;
   canCreateFolders: boolean;
   canNavigateFolders: boolean;
 }
@@ -603,6 +604,12 @@ export interface MediaAdapter {
     locationId: string,
     input: MediaUploadInput,
   ): Promise<EspMedia>;
+  moveMedia?(
+    token: string,
+    locationId: string,
+    mediaId: string,
+    targetFolderId?: string,
+  ): Promise<void>;
   deleteMedia?(
     token: string,
     locationId: string,

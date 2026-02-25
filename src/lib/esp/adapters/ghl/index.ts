@@ -114,6 +114,7 @@ import {
   listMedia as listGhlMedia,
   uploadMedia as uploadGhlMedia,
   deleteMedia as deleteGhlMedia,
+  moveMedia as moveGhlMedia,
   listFolders as listGhlFolders,
   createFolder as createGhlFolder,
 } from './media';
@@ -683,6 +684,7 @@ class GhlMediaAdapter implements MediaAdapter {
     canUpload: true,
     canDelete: true,
     canRename: false,
+    canMove: true,
     canCreateFolders: true,
     canNavigateFolders: true,
   };
@@ -690,7 +692,7 @@ class GhlMediaAdapter implements MediaAdapter {
   async listMedia(
     token: string,
     locationId: string,
-    options?: { cursor?: string; limit?: number; parentId?: string },
+    options?: { cursor?: string; limit?: number; parentId?: string; fetchAll?: boolean },
   ): Promise<MediaListResult> {
     return listGhlMedia(token, locationId, options);
   }
@@ -717,6 +719,15 @@ class GhlMediaAdapter implements MediaAdapter {
     input: MediaUploadInput,
   ): Promise<EspMedia> {
     return uploadGhlMedia(token, locationId, input);
+  }
+
+  async moveMedia(
+    token: string,
+    locationId: string,
+    mediaId: string,
+    targetFolderId?: string,
+  ): Promise<void> {
+    return moveGhlMedia(token, locationId, mediaId, targetFolderId);
   }
 
   async deleteMedia(

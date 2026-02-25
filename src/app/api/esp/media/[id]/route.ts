@@ -75,9 +75,78 @@ export async function PATCH(
 }
 
 /**
+ * PUT /api/esp/media/[id]
+ *
+ * Move a media file or folder to a different parent folder.
+ * Body: { accountKey, targetFolderId? }
+ * targetFolderId is optional — omit or null to move to root.
+ */
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { session, error } = await requireAuth();
+  if (error) return error;
+
+  const { id } = await params;
+  const body = await req.json();
+  const { accountKey, targetFolderId } = body;
+
+  if (!accountKey) {
+    return NextResponse.json({ error: 'accountKey is required' }, { status: 400 });
+  }
+
+  // Access check
+  const userRole = session!.user.role;
+  const userAccountKeys: string[] = session!.user.accountKeys ?? [];
+  const hasUnrestrictedAdminAccess =
+    userRole === 'developer' || (userRole === 'admin' && userAccountKeys.length === 0);
+  if (!hasUnrestrictedAdminAccess && !userAccountKeys.includes(accountKey)) {
+    return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+  }
+
+  // Resolve adapter + credentials
+  const result = await resolveAdapterAndCredentials(accountKey, {
+    requireCapability: 'media',
+  });
+  if (isResolveError(result)) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+
+  const { adapter, credentials } = result;
+  if (!adapter.media) {
+    return NextResponse.json(
+      unsupportedCapabilityPayload(adapter.provider, 'media'),
+      { status: 501 },
+    );
+  }
+
+  if (!adapter.media.moveMedia) {
+    return NextResponse.json(
+      { error: `${adapter.provider} does not support moving media` },
+      { status: 501 },
+    );
+  }
+
+  try {
+    await adapter.media.moveMedia(
+      credentials.token,
+      credentials.locationId,
+      id,
+      targetFolderId || undefined,
+    );
+
+    return NextResponse.json({ moved: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to move media';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
  * DELETE /api/esp/media/[id]?accountKey=xxx
  *
- * Delete a media file from the connected provider (GHL only).
+ * Delete a media file or folder from the connected provider.
  */
 export async function DELETE(
   req: NextRequest,
@@ -120,7 +189,7 @@ export async function DELETE(
 
   if (!adapter.media.deleteMedia) {
     return NextResponse.json(
-      { error: `${adapter.provider} does not support deleting media files` },
+      { error: `${adapter.provider} does not support deleting media` },
       { status: 501 },
     );
   }
