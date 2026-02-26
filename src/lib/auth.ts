@@ -48,7 +48,7 @@ declare module 'next-auth/jwt' {
 async function getAllAccountKeys(): Promise<string[]> {
   try {
     const accounts = await prisma.account.findMany({ select: { key: true } });
-    return accounts.map((a) => a.key);
+    return accounts.filter((a) => !a.key.startsWith('_')).map((a) => a.key);
   } catch {
     return [];
   }

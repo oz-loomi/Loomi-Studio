@@ -157,6 +157,9 @@ export async function POST(req: NextRequest) {
     if (!safeKey) {
       return NextResponse.json({ error: 'Invalid key' }, { status: 400 });
     }
+    if (safeKey.startsWith('_')) {
+      return NextResponse.json({ error: 'Account key cannot start with "_"' }, { status: 400 });
+    }
 
     const existing = await accountService.getAccount(safeKey);
     if (existing) {

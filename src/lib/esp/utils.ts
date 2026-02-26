@@ -46,6 +46,7 @@ export async function readAccounts(): Promise<Record<string, StoredAccount>> {
   });
   const result: Record<string, StoredAccount> = {};
   for (const account of accounts) {
+    if (account.key.startsWith('_')) continue; // skip internal records
     result[account.key] = {
       dealer: account.dealer,
       espProvider: (account.espProvider as EspProvider) || getDefaultEspProvider(),
