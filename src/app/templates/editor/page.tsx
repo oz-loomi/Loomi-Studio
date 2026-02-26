@@ -5004,12 +5004,13 @@ export default function TemplateEditorPage() {
     } catch {}
   }, [selectedComponent]);
 
+  const slugLabel = design
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
   const designLabel = (espMode || espTemplateId)
     ? (espTemplateName || "Loading...")
-    : design
-      .split("-")
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(" ");
+    : (parsed?.frontmatter?.title || slugLabel);
   const lineCount = code.split("\n").length;
   const backHref = espMode ? "/templates" : isAccount ? "/emails" : "/templates/library";
 
