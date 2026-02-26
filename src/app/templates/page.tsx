@@ -74,6 +74,12 @@ const statusColors: Record<string, { bg: string; text: string }> = {
   archived: { bg: '#6b728020', text: '#6b7280' },
 };
 
+const KNOWN_STATUSES = new Set(Object.keys(statusColors));
+/** Normalize status for display — map unrecognized values to "draft". */
+function displayStatus(status: string): string {
+  return KNOWN_STATUSES.has(status) ? status : 'draft';
+}
+
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -163,9 +169,13 @@ function EspHtmlPreview({ html, height = 160 }: EspHtmlPreviewProps) {
   const iframeWidth = 600;
   const scale = containerWidth > 0 ? containerWidth / iframeWidth : 0.4;
 
+  // Detect uncompiled source (frontmatter or Maizzle component tags) — show placeholder
+  const isRawSource = html && (html.trimStart().startsWith('---') || /^<x-/m.test(html));
+  const hasPreview = html && !isRawSource;
+
   return (
     <div ref={containerRef} className="relative overflow-hidden bg-[var(--muted)]" style={{ height }}>
-      {html && containerWidth > 0 && (
+      {hasPreview && containerWidth > 0 && (
         <iframe
           srcDoc={`<style>html,body{overflow:hidden !important;margin:0;}</style>${html}`}
           className="border-0 pointer-events-none absolute top-0 left-0"
@@ -181,7 +191,7 @@ function EspHtmlPreview({ html, height = 160 }: EspHtmlPreviewProps) {
           tabIndex={-1}
         />
       )}
-      {!html && (
+      {!hasPreview && (
         <div className="absolute inset-0 flex items-center justify-center">
           <EnvelopeIcon className="w-10 h-10 text-[var(--muted-foreground)] opacity-30" />
         </div>
@@ -217,7 +227,8 @@ function TemplateCard({
   onDelete,
   onSelect,
 }: TemplateCardProps) {
-  const sc = statusColors[t.status] || statusColors.draft;
+  const normStatus = displayStatus(t.status);
+  const sc = statusColors[normStatus];
 
   return (
     <div className={`glass-card rounded-xl group animate-fade-in-up relative ${isMenuOpen ? 'z-10' : ''}`}>
@@ -302,7 +313,7 @@ function TemplateCard({
             className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full"
             style={{ backgroundColor: sc.bg, color: sc.text }}
           >
-            {t.status}
+            {normStatus}
           </span>
           {t.remoteId && (
             <ArrowUpTrayIcon className="w-3 h-3 text-[var(--muted-foreground)]" title="Published" />
@@ -341,7 +352,8 @@ function TemplateRow({
   onDelete,
   onSelect,
 }: TemplateRowProps) {
-  const sc = statusColors[t.status] || statusColors.draft;
+  const normStatus = displayStatus(t.status);
+  const sc = statusColors[normStatus];
 
   return (
     <div
@@ -381,7 +393,7 @@ function TemplateRow({
         className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0"
         style={{ backgroundColor: sc.bg, color: sc.text }}
       >
-        {t.status}
+        {normStatus}
       </span>
       {t.remoteId && (
         <ArrowUpTrayIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" title="Published" />
@@ -1460,7 +1472,7 @@ export default function TemplatesPage() {
               </div>
             </div>
             <div className="flex-1 min-h-0 bg-[var(--muted)]">
-              {previewTemplate.html ? (
+              {previewTemplate.html && !previewTemplate.html.trimStart().startsWith('---') && !/^<x-/m.test(previewTemplate.html) ? (
                 <iframe
                   srcDoc={previewTemplate.html}
                   className="w-full h-full border-0"
@@ -1473,7 +1485,7 @@ export default function TemplatesPage() {
                   <div className="text-center">
                     <EnvelopeIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
                     <p className="text-sm">No preview available</p>
-                    <p className="text-xs mt-1">This template has no HTML content yet.</p>
+                    <p className="text-xs mt-1">Open the template in the editor to generate a preview.</p>
                   </div>
                 </div>
               )}

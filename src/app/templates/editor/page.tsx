@@ -3588,6 +3588,7 @@ export default function TemplateEditorPage() {
               subject: espSubject || undefined,
               previewText: espPreviewText || undefined,
               source: code,
+              html: previewHtml || undefined,
               editorType: editorMode,
             }),
           });
@@ -3607,7 +3608,7 @@ export default function TemplateEditorPage() {
               subject: espSubject || null,
               previewText: espPreviewText || null,
               source: code,
-              html: code,
+              html: previewHtml || code,
               editorType: editorMode,
             }),
           });
@@ -4255,6 +4256,7 @@ export default function TemplateEditorPage() {
             subject: espSubject || undefined,
             previewText: espPreviewText || undefined,
             source: code,
+            html: previewHtml || undefined,
             editorType: editorMode,
           }),
         });
@@ -4268,7 +4270,7 @@ export default function TemplateEditorPage() {
             subject: espSubject || null,
             previewText: espPreviewText || null,
             source: code,
-            html: code,
+            html: previewHtml || code,
             editorType: editorMode,
           }),
         });
