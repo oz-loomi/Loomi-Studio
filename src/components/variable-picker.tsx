@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDownIcon, ChevronRightIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import espVariablesData from '@/data/esp-variables.json';
@@ -71,8 +72,10 @@ export function VariablePickerButton({ onInsert }: VariablePickerButtonProps) {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
     new Set(['Custom Values']),
   );
-  const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
 
   // Get account custom values via context
   const { accountData } = useAccount();
@@ -122,11 +125,29 @@ export function VariablePickerButton({ onInsert }: VariablePickerButtonProps) {
     return result;
   }, [catalog, search]);
 
+  // Calculate dropdown position when opening
+  useEffect(() => {
+    if (!open || !buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const dropW = 288; // w-72 = 18rem = 288px
+    const dropH = 320; // max-h-80 = 20rem = 320px
+    // Prefer below-right; flip up if not enough space below
+    const top = rect.bottom + 4 + dropH > window.innerHeight
+      ? rect.top - dropH - 4
+      : rect.bottom + 4;
+    const left = Math.max(8, Math.min(rect.right - dropW, window.innerWidth - dropW - 8));
+    setDropdownPos({ top, left });
+  }, [open]);
+
   // Close on click outside
   useEffect(() => {
     if (!open) return;
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        buttonRef.current && !buttonRef.current.contains(target) &&
+        dropdownRef.current && !dropdownRef.current.contains(target)
+      ) {
         setOpen(false);
         setSearch('');
       }
@@ -135,12 +156,24 @@ export function VariablePickerButton({ onInsert }: VariablePickerButtonProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
 
+  // Close on scroll of any ancestor (but not scrolling within the dropdown itself)
+  useEffect(() => {
+    if (!open) return;
+    function handleScroll(e: Event) {
+      if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) return;
+      setOpen(false);
+      setSearch('');
+    }
+    window.addEventListener('scroll', handleScroll, true);
+    return () => window.removeEventListener('scroll', handleScroll, true);
+  }, [open]);
+
   // Focus search on open
   useEffect(() => {
-    if (open) {
+    if (open && dropdownPos) {
       requestAnimationFrame(() => searchRef.current?.focus());
     }
-  }, [open]);
+  }, [open, dropdownPos]);
 
   const toggleCategory = useCallback((category: string) => {
     setExpandedCategories((prev) => {
@@ -165,19 +198,12 @@ export function VariablePickerButton({ onInsert }: VariablePickerButtonProps) {
     ? new Set(Object.keys(filteredCatalog))
     : expandedCategories;
 
-  return (
-    <div ref={containerRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex-shrink-0 p-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)] transition-colors"
-        title="Insert variable"
-      >
-        <span className="w-4 h-4 flex items-center justify-center text-xs font-bold leading-none">{'{x}'}</span>
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-72 max-h-80 rounded-lg border border-[var(--border)] bg-[var(--card)] backdrop-blur-xl saturate-[160%] shadow-[0_4px_16px_rgba(0,0,0,0.1),inset_0_0.5px_0_rgba(255,255,255,0.04)] overflow-hidden flex flex-col">
+  const dropdown = open && dropdownPos && createPortal(
+    <div
+      ref={dropdownRef}
+      className="fixed z-[9999] w-72 max-h-80 rounded-lg border border-[var(--border)] bg-[var(--card)] backdrop-blur-xl saturate-[160%] shadow-[0_4px_16px_rgba(0,0,0,0.1),inset_0_0.5px_0_rgba(255,255,255,0.04)] overflow-hidden flex flex-col"
+      style={{ top: dropdownPos.top, left: dropdownPos.left }}
+    >
           {/* Search */}
           <div className="p-2 border-b border-[var(--border)]">
             <div className="relative">
@@ -248,8 +274,22 @@ export function VariablePickerButton({ onInsert }: VariablePickerButtonProps) {
               </div>
             )}
           </div>
-        </div>
-      )}
+    </div>,
+    document.body,
+  );
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex-shrink-0 p-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)] transition-colors"
+        title="Insert variable"
+      >
+        <span className="w-4 h-4 flex items-center justify-center text-xs font-bold leading-none">{'{x}'}</span>
+      </button>
+      {dropdown}
     </div>
   );
 }
