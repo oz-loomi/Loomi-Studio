@@ -166,7 +166,7 @@ export default function AccountDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const key = params.key as string;
-  const { refreshAccounts: refreshAccountList } = useAccount();
+  const { refreshAccounts: refreshAccountList, userRole } = useAccount();
   const { markClean } = useUnsavedChanges();
 
   const [activeTab, setActiveTab] = useState<DetailTab>('company');
@@ -968,7 +968,12 @@ export default function AccountDetailPage() {
   const sectionHeadingClass = 'text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4';
   const sectionCardClass = 'glass-section-card rounded-xl p-6';
   const showContactsTab = !pathname.startsWith('/settings/accounts/');
-  const visibleTabs = showContactsTab ? TABS : TABS.filter((tab) => tab.key !== 'contacts');
+  const canSeeCustomValues = userRole === 'developer' || userRole === 'super_admin';
+  const visibleTabs = TABS.filter((tab) => {
+    if (tab.key === 'contacts' && !showContactsTab) return false;
+    if (tab.key === 'custom-values' && !canSeeCustomValues) return false;
+    return true;
+  });
   const backHref = showContactsTab ? '/accounts' : '/settings/account';
   const showBrandsSelector = industryHasBrands(category);
   const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';

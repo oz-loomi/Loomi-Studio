@@ -38,6 +38,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
 import Link from "next/link";
+import { VariablePickerButton } from "@/components/variable-picker";
 import { useAccount } from "@/contexts/account-context";
 import { useUnsavedChanges } from "@/contexts/unsaved-changes-context";
 import {
@@ -895,12 +896,15 @@ function BorderRadiusField({
 }
 
 // Render a single form field
+const VARIABLE_ELIGIBLE_TYPES = new Set(["text", "textarea", "url", "image"]);
+
 function PropField({
   prop,
   value,
   onChange,
   onLiveStyle,
   onBrowseMedia,
+  onInsertVariable,
 }: {
   prop: {
     key: string;
@@ -914,6 +918,7 @@ function PropField({
   onChange: (val: string) => void;
   onLiveStyle?: (val: string) => void;
   onBrowseMedia?: () => void;
+  onInsertVariable?: (token: string) => void;
 }) {
   const placeholderText = prop.placeholder || prop.default;
 
@@ -989,13 +994,20 @@ function PropField({
   }
   if (prop.type === "textarea") {
     return (
-      <textarea
-        value={value || ""}
-        onChange={(e) => onChange(e.target.value)}
-        rows={3}
-        className="w-full bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm resize-none"
-        placeholder={placeholderText}
-      />
+      <div className="relative">
+        <textarea
+          value={value || ""}
+          onChange={(e) => onChange(e.target.value)}
+          rows={3}
+          className="w-full bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm resize-none"
+          placeholder={placeholderText}
+        />
+        {onInsertVariable && (
+          <div className="absolute top-1 right-1">
+            <VariablePickerButton onInsert={onInsertVariable} />
+          </div>
+        )}
+      </div>
     );
   }
   if (prop.type === "image") {
@@ -1008,6 +1020,9 @@ function PropField({
           className="flex-1 min-w-0 bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
           placeholder={placeholderText || "Image URL..."}
         />
+        {onInsertVariable && (
+          <VariablePickerButton onInsert={onInsertVariable} />
+        )}
         {onBrowseMedia && (
           <button
             type="button"
@@ -1034,6 +1049,22 @@ function PropField({
       </button>
     );
   }
+  // Text/URL/number — variable picker for eligible types
+  if (onInsertVariable && prop.type !== "number") {
+    return (
+      <div className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={value || ""}
+          onChange={(e) => onChange(e.target.value)}
+          className="flex-1 min-w-0 bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
+          placeholder={placeholderText}
+        />
+        <VariablePickerButton onInsert={onInsertVariable} />
+      </div>
+    );
+  }
+
   return (
     <input
       type={prop.type === "number" ? "number" : "text"}
@@ -1986,6 +2017,7 @@ function ComponentPropsRenderer({
   onPropChange,
   onLiveStyle,
   onBrowseMedia,
+  onInsertVariable,
   previewWidth,
 }: {
   schema: { name?: string; repeatableGroups?: RepeatableGroup[] };
@@ -2008,6 +2040,7 @@ function ComponentPropsRenderer({
   onPropChange: (key: string, val: string) => void;
   onLiveStyle?: (key: string, val: string) => void;
   onBrowseMedia?: (propKey: string) => void;
+  onInsertVariable?: (propKey: string, token: string) => void;
   previewWidth: 'desktop' | 'mobile';
 }) {
   const groups = schema.repeatableGroups || [];
@@ -2166,6 +2199,12 @@ function ComponentPropsRenderer({
       );
     };
 
+    // Helper: generate onInsertVariable callback for eligible prop types
+    const varPickerFor = (p: { type: string }, effectiveKey: string, _currentVal: string) =>
+      VARIABLE_ELIGIBLE_TYPES.has(p.type) && onInsertVariable
+        ? (token: string) => onInsertVariable(effectiveKey, token)
+        : undefined;
+
     const elements: React.ReactNode[] = [];
     let i = 0;
     const pairHalfFields = false;
@@ -2231,6 +2270,7 @@ function ComponentPropsRenderer({
                         ? () => onBrowseMedia(prop.key)
                         : undefined
                     }
+                    onInsertVariable={varPickerFor(prop, r.effectiveKey, r.value)}
                   />
                 </>
               )}
@@ -2277,6 +2317,7 @@ function ComponentPropsRenderer({
                         ? () => onBrowseMedia(nextProp.key)
                         : undefined
                     }
+                    onInsertVariable={varPickerFor(nextProp, rNext.effectiveKey, rNext.value)}
                   />
                 </>
               )}
@@ -2327,6 +2368,7 @@ function ComponentPropsRenderer({
                   ? () => onBrowseMedia(prop.key)
                   : undefined
               }
+              onInsertVariable={varPickerFor(prop, r.effectiveKey, r.value)}
             />
           </div>,
         );
@@ -2424,6 +2466,11 @@ function ComponentPropsRenderer({
                   prop={prop}
                   value={compProps[prop.key] || ""}
                   onChange={(val) => onPropChange(prop.key, val)}
+                  onInsertVariable={
+                    VARIABLE_ELIGIBLE_TYPES.has(prop.type) && onInsertVariable
+                      ? (token: string) => onInsertVariable(prop.key, token)
+                      : undefined
+                  }
                 />
               </div>
               <button
@@ -3464,6 +3511,19 @@ export default function TemplateEditorPage() {
             }
           })
           .catch((err) => console.error("Error loading library template:", err));
+      } else {
+        // Brand new blank ESP template — initialize with minimal structure
+        const blank = `---\ntitle: Untitled Template\npreheader: ""\nrooftop: preview\n---\n\n<x-base>\n\n  <x-core.spacer size="40" />\n\n  <x-core.copy\n    greeting="Hello,"\n    body="Start building your email by adding components."\n  />\n\n  <x-core.spacer size="40" />\n\n</x-base>\n`;
+        setCode(blank);
+        setOriginalCode(blank);
+        setEspTemplateName("Untitled Template");
+        const p = parseTemplate(blank);
+        if (p?.frontmatter) {
+          setParsed(p);
+          compilePreview(serializeTemplateForPreview(p, new Set()));
+        } else {
+          compilePreview(blank);
+        }
       }
       return;
     }
@@ -5219,13 +5279,16 @@ export default function TemplateEditorPage() {
                             AI
                           </button>
                         </div>
-                        <input
-                          type="text"
-                          value={espSubject}
-                          onChange={(e) => setEspSubject(e.target.value)}
-                          placeholder="Enter subject line..."
-                          className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={espSubject}
+                            onChange={(e) => setEspSubject(e.target.value)}
+                            placeholder="Enter subject line..."
+                            className="flex-1 min-w-0 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
+                          />
+                          <VariablePickerButton onInsert={(token) => setEspSubject((prev) => prev + token)} />
+                        </div>
                       </div>
                       {/* Preview Text */}
                       <div>
@@ -5245,13 +5308,16 @@ export default function TemplateEditorPage() {
                             AI
                           </button>
                         </div>
-                        <input
-                          type="text"
-                          value={espPreviewText}
-                          onChange={(e) => setEspPreviewText(e.target.value)}
-                          placeholder="Enter preview text..."
-                          className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={espPreviewText}
+                            onChange={(e) => setEspPreviewText(e.target.value)}
+                            placeholder="Enter preview text..."
+                            className="flex-1 min-w-0 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
+                          />
+                          <VariablePickerButton onInsert={(token) => setEspPreviewText((prev) => prev + token)} />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -5362,6 +5428,11 @@ export default function TemplateEditorPage() {
                                       value={r1.val}
                                       onChange={r1.handleChange}
                                       onLiveStyle={r1.handleLiveStyle}
+                                      onInsertVariable={
+                                        VARIABLE_ELIGIBLE_TYPES.has(field.type)
+                                          ? (token: string) => r1.handleChange(r1.val + token)
+                                          : undefined
+                                      }
                                     />
                                   </div>
                                   <div className="flex-1 min-w-0">
@@ -5373,6 +5444,11 @@ export default function TemplateEditorPage() {
                                       value={r2.val}
                                       onChange={r2.handleChange}
                                       onLiveStyle={r2.handleLiveStyle}
+                                      onInsertVariable={
+                                        VARIABLE_ELIGIBLE_TYPES.has(next.type)
+                                          ? (token: string) => r2.handleChange(r2.val + token)
+                                          : undefined
+                                      }
                                     />
                                   </div>
                                 </div>,
@@ -5390,6 +5466,11 @@ export default function TemplateEditorPage() {
                                     value={r.val}
                                     onChange={r.handleChange}
                                     onLiveStyle={r.handleLiveStyle}
+                                    onInsertVariable={
+                                      VARIABLE_ELIGIBLE_TYPES.has(field.type)
+                                        ? (token: string) => r.handleChange(r.val + token)
+                                        : undefined
+                                    }
                                   />
                                 </div>,
                               );
@@ -5638,6 +5719,9 @@ export default function TemplateEditorPage() {
                                     }}
                                     onBrowseMedia={(propKey) =>
                                       handleBrowseMedia(index, propKey)
+                                    }
+                                    onInsertVariable={(propKey, token) =>
+                                      updateComponentProp(index, propKey, (comp.props[propKey] || '') + token)
                                     }
                                   />
                                 ) : (

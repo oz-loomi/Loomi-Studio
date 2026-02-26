@@ -21,6 +21,7 @@ import { AccountAvatar } from '@/components/account-avatar';
 import { roleDisplayName } from '@/lib/roles';
 import { getAccountOems, industryHasBrands, brandsForIndustry } from '@/lib/oems';
 import { formatAccountCityState, resolveAccountLocationId } from '@/lib/account-resolvers';
+import { SUPPORTED_INDUSTRIES, getIndustryDefaults } from '@/data/industry-defaults';
 import { providerDisplayName, providerUnsupportedMessage } from '@/lib/esp/provider-display';
 import {
   extractProviderCatalog,
@@ -117,7 +118,7 @@ export default function SettingsPage() {
   if (isAccount) tabs.push({ key: 'account', label: 'Sub-Account', icon: BuildingStorefrontIcon });
   if (hasAdminAccess) tabs.push({ key: 'users', label: 'Users', icon: UsersIcon });
   if (isAccount && hasAdminAccess) tabs.push({ key: 'integrations', label: 'Integrations', icon: LinkIcon });
-  if (hasAdminAccess) tabs.push({ key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon });
+  if (userRole === 'developer' || userRole === 'super_admin') tabs.push({ key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon });
   if (hasAdminAccess && isAdmin) tabs.push({ key: 'knowledge', label: 'Knowledge Base', icon: BookOpenIcon });
   tabs.push({ key: 'appearance', label: 'Appearance', icon: SwatchIcon });
 
@@ -1155,7 +1156,38 @@ function CustomValuesTab() {
     results: GhlBulkLinkResult[];
   } | null>(null);
 
+  // Industry defaults loader
+  const [selectedIndustry, setSelectedIndustry] = useState('');
+
+  // ── Pagination for account sync table ──
+  const SYNC_PAGE_SIZE = 10;
+  const [syncPage, setSyncPage] = useState(0);
+
   const hasDefaultChanges = JSON.stringify(defaults) !== JSON.stringify(savedDefaults);
+
+  function handleLoadIndustryDefaults() {
+    if (!selectedIndustry) return;
+    const template = getIndustryDefaults(selectedIndustry);
+    if (!template) return;
+
+    // Merge: only add fields that don't already exist in current defaults
+    const merged = { ...defaults };
+    let addedCount = 0;
+    for (const [key, def] of Object.entries(template)) {
+      if (!merged[key]) {
+        merged[key] = def;
+        addedCount++;
+      }
+    }
+
+    if (addedCount === 0) {
+      toast('All industry fields already exist in your defaults');
+      return;
+    }
+
+    setDefaults(merged);
+    toast.success(`Added ${addedCount} field${addedCount !== 1 ? 's' : ''} from ${selectedIndustry} template`);
+  }
 
   // ── Load global defaults ──
   useEffect(() => {
@@ -1633,6 +1665,15 @@ function CustomValuesTab() {
   const bulkPreviewValidRows = bulkLinkPreview.filter((row) => !row.error);
   const bulkPreviewInvalidRows = bulkLinkPreview.filter((row) => row.error);
   const allSelected = connectedAccounts.length > 0 && connectedAccounts.every(a => selectedKeys.has(a.key));
+
+  // Pagination derived values
+  const syncTotalPages = Math.max(1, Math.ceil(accountStatuses.length / SYNC_PAGE_SIZE));
+  const safeSyncPage = Math.min(syncPage, syncTotalPages - 1);
+  const paginatedAccounts = accountStatuses.slice(
+    safeSyncPage * SYNC_PAGE_SIZE,
+    (safeSyncPage + 1) * SYNC_PAGE_SIZE,
+  );
+
   const inputClass = 'w-full px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
   const sectionCardClass = 'glass-section-card rounded-xl p-6';
 
@@ -1659,6 +1700,31 @@ function CustomValuesTab() {
               {savingDefaults ? 'Saving...' : 'Save Defaults'}
             </button>
           </div>
+        </div>
+
+        {/* Industry template loader */}
+        <div className="flex items-center gap-2 mb-4 pb-4 border-b border-[var(--border)]">
+          <label className="text-xs text-[var(--muted-foreground)] whitespace-nowrap">Load industry template:</label>
+          <select
+            value={selectedIndustry}
+            onChange={e => setSelectedIndustry(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]"
+          >
+            <option value="">Select industry…</option>
+            {SUPPORTED_INDUSTRIES.map(ind => (
+              <option key={ind} value={ind}>{ind}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleLoadIndustryDefaults}
+            disabled={!selectedIndustry}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-40"
+          >
+            Load Defaults
+          </button>
+          <span className="text-[10px] text-[var(--muted-foreground)]">
+            Only adds missing fields — won&apos;t overwrite existing values
+          </span>
         </div>
 
         {loadingDefaults ? (
@@ -2064,7 +2130,7 @@ function CustomValuesTab() {
                 </tr>
               </thead>
               <tbody>
-                {accountStatuses.map(acct => (
+                {paginatedAccounts.map(acct => (
                   <tr key={acct.key} className="border-b border-[var(--border)] last:border-b-0">
                     <td className="px-4 py-3">
                       <input
@@ -2187,6 +2253,58 @@ function CustomValuesTab() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {accountStatuses.length > SYNC_PAGE_SIZE && (
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-[var(--border)]">
+            <span className="text-xs text-[var(--muted-foreground)]">
+              Showing {safeSyncPage * SYNC_PAGE_SIZE + 1}–{Math.min((safeSyncPage + 1) * SYNC_PAGE_SIZE, accountStatuses.length)} of {accountStatuses.length} sub-accounts
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setSyncPage(0)}
+                disabled={safeSyncPage === 0}
+                className="px-2 py-1 text-xs rounded-md border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                First
+              </button>
+              <button
+                onClick={() => setSyncPage((p) => Math.max(0, p - 1))}
+                disabled={safeSyncPage === 0}
+                className="px-2.5 py-1 text-xs rounded-md border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                ‹ Prev
+              </button>
+              {Array.from({ length: syncTotalPages }, (_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setSyncPage(i)}
+                  className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                    i === safeSyncPage
+                      ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)] font-medium'
+                      : 'border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)]'
+                  }`}
+                >
+                  {i + 1}
+                </button>
+              ))}
+              <button
+                onClick={() => setSyncPage((p) => Math.min(syncTotalPages - 1, p + 1))}
+                disabled={safeSyncPage >= syncTotalPages - 1}
+                className="px-2.5 py-1 text-xs rounded-md border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Next ›
+              </button>
+              <button
+                onClick={() => setSyncPage(syncTotalPages - 1)}
+                disabled={safeSyncPage >= syncTotalPages - 1}
+                className="px-2 py-1 text-xs rounded-md border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Last
+              </button>
+            </div>
           </div>
         )}
       </section>

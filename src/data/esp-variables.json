@@ -25,14 +25,14 @@
     { "variable": "{{contact.purchase_date}}", "label": "Purchase Date", "description": "Date vehicle was purchased" }
   ],
   "Location": [
-    { "variable": "{{location.name}}", "label": "Business Name", "description": "Location/dealership name" },
-    { "variable": "{{location.phone}}", "label": "Business Phone", "description": "Location phone number" },
-    { "variable": "{{location.email}}", "label": "Business Email", "description": "Location email address" },
-    { "variable": "{{location.address}}", "label": "Business Address", "description": "Location street address" },
-    { "variable": "{{location.city}}", "label": "Business City", "description": "Location city" },
-    { "variable": "{{location.state}}", "label": "Business State", "description": "Location state" },
-    { "variable": "{{location.postal_code}}", "label": "Business Zip", "description": "Location postal code" },
-    { "variable": "{{location.website}}", "label": "Website", "description": "Location website URL" }
+    { "variable": "{{location.name}}", "label": "Business Name", "description": "Dealership name" },
+    { "variable": "{{location.phone}}", "label": "Business Phone", "description": "Dealership phone number" },
+    { "variable": "{{location.email}}", "label": "Business Email", "description": "Dealership email address" },
+    { "variable": "{{location.address}}", "label": "Business Address", "description": "Dealership street address" },
+    { "variable": "{{location.city}}", "label": "Business City", "description": "Dealership city" },
+    { "variable": "{{location.state}}", "label": "Business State", "description": "Dealership state" },
+    { "variable": "{{location.postal_code}}", "label": "Business Zip", "description": "Dealership postal code" },
+    { "variable": "{{location.website}}", "label": "Website", "description": "Dealership website URL" }
   ],
   "Custom Values": [
     { "variable": "{{custom_values.sales_phone}}", "label": "Sales Phone", "description": "Sales department phone number" },

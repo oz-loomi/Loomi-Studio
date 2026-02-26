@@ -36,7 +36,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
 ) {
-  const { error } = await requireRole('developer');
+  const { error } = await requireRole('developer', 'super_admin');
   if (error) return error;
 
   try {

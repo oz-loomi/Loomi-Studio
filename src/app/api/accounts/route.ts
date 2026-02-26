@@ -11,6 +11,7 @@ import { parseEspProvider, providerValidationMessage } from '@/lib/esp/provider-
 import { listOAuthConnections } from '@/lib/esp/oauth-connections';
 import { listApiKeyConnections } from '@/lib/esp/api-key-connections';
 import { listAccountProviderLinks } from '@/lib/esp/account-provider-links';
+import { getIndustryDefaults } from '@/data/industry-defaults';
 
 export async function GET() {
   try {
@@ -193,6 +194,14 @@ export async function POST(req: NextRequest) {
     if (website) accountData.website = website;
     if (timezone) accountData.timezone = timezone;
     if (accountRepId) accountData.accountRepId = accountRepId;
+
+    // Auto-populate custom values from industry template when category matches
+    if (!accountData.customValues && accountData.category) {
+      const industryDefaults = getIndustryDefaults(accountData.category);
+      if (industryDefaults) {
+        accountData.customValues = JSON.stringify(industryDefaults);
+      }
+    }
 
     const account = await accountService.createAccount(accountData);
     return NextResponse.json({ key: account.key, dealer: account.dealer });

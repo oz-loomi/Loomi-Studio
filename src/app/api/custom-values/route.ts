@@ -40,7 +40,7 @@ async function writeDefaults(defaults: Record<string, CustomValueDef>): Promise<
  * Returns the global custom value defaults stored in _customValueDefaults.
  */
 export async function GET() {
-  const { error } = await requireRole('developer');
+  const { error } = await requireRole('developer', 'super_admin');
   if (error) return error;
 
   const defaults = await readDefaults();
@@ -54,7 +54,7 @@ export async function GET() {
  * Body: Record<string, { name: string; value: string }>
  */
 export async function PUT(req: NextRequest) {
-  const { error } = await requireRole('developer');
+  const { error } = await requireRole('developer', 'super_admin');
   if (error) return error;
 
   try {

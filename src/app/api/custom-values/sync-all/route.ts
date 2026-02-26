@@ -44,7 +44,7 @@ function delay(ms: number) {
  * Returns: Record<accountKey, SyncResult | { error: string; skipped: true }>
  */
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole('developer');
+  const { error } = await requireRole('developer', 'super_admin');
   if (error) return error;
 
   try {
