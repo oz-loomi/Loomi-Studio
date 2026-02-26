@@ -12,7 +12,6 @@ import { normalizeAccountOutputPayload } from '@/lib/account-output';
 import { listOAuthConnections } from '@/lib/esp/oauth-connections';
 import { listApiKeyConnections } from '@/lib/esp/api-key-connections';
 import { listAccountProviderLinks } from '@/lib/esp/account-provider-links';
-import { isInternalAccountKey } from '@/lib/services/accounts';
 
 async function resolveAccountConnectionMetadata(account: {
   key: string;
@@ -65,9 +64,6 @@ export async function PATCH(
 
   try {
     const { key } = await params;
-    if (isInternalAccountKey(key)) {
-      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
-    }
 
     // Admin can only edit assigned accounts
     if (session!.user.role === 'admin' && !session!.user.accountKeys.includes(key)) {
@@ -269,9 +265,6 @@ export async function GET(
 
   try {
     const { key } = await params;
-    if (isInternalAccountKey(key)) {
-      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
-    }
 
     // Admin can only view assigned accounts
     if (session!.user.role === 'admin' && !session!.user.accountKeys.includes(key)) {
