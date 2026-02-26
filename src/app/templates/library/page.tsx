@@ -10,7 +10,7 @@ import {
   TrashIcon,
   EllipsisVerticalIcon,
   TagIcon,
-  DocumentDuplicateIcon,
+  Square2StackIcon,
   PencilIcon,
   ArrowPathIcon,
   AdjustmentsHorizontalIcon,
@@ -593,7 +593,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                               onClick={() => { cloneTemplate(t.design); setMenuOpen(null); }}
                               className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
                             >
-                              <DocumentDuplicateIcon className="w-4 h-4" />
+                              <Square2StackIcon className="w-4 h-4" />
                               Clone
                             </button>
                             <button

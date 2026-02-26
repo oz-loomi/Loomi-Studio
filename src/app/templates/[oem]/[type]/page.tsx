@@ -6,7 +6,7 @@ import {
   ArrowLeftIcon,
   DevicePhoneMobileIcon,
   ComputerDesktopIcon,
-  DocumentDuplicateIcon,
+  Square2StackIcon,
   CheckIcon,
   ArrowPathIcon,
   DocumentArrowDownIcon,
@@ -27,7 +27,6 @@ import {
   UserCircleIcon,
   SparklesIcon,
   PaperAirplaneIcon,
-  ClipboardDocumentIcon,
   ExclamationTriangleIcon,
   EnvelopeIcon,
   QuestionMarkCircleIcon,
@@ -3275,7 +3274,7 @@ export default function TemplateEditorPage() {
                                   className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors flex-shrink-0"
                                   title="Duplicate section"
                                 >
-                                  <DocumentDuplicateIcon className="w-3.5 h-3.5" />
+                                  <Square2StackIcon className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -3492,7 +3491,7 @@ export default function TemplateEditorPage() {
                   {copied ? (
                     <CheckIcon className="w-4 h-4" />
                   ) : (
-                    <ClipboardDocumentIcon className="w-4 h-4" />
+                    <Square2StackIcon className="w-4 h-4" />
                   )}
                 </button>
                 {showCopyDropdown && (
@@ -3508,7 +3507,7 @@ export default function TemplateEditorPage() {
                       onClick={() => handleCopyHtml("source")}
                       className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--accent)] transition-colors text-left"
                     >
-                      <DocumentDuplicateIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                      <Square2StackIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
                       Source Template
                     </button>
                     <button
@@ -3699,7 +3698,7 @@ export default function TemplateEditorPage() {
                                     {copiedSuggestion === suggestion ? (
                                       <CheckIcon className="w-3.5 h-3.5 text-green-400" />
                                     ) : (
-                                      <ClipboardDocumentIcon className="w-3.5 h-3.5" />
+                                      <Square2StackIcon className="w-3.5 h-3.5" />
                                     )}
                                   </button>
                                 </div>

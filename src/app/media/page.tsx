@@ -9,7 +9,7 @@ import {
   TrashIcon,
   PencilSquareIcon,
   ArrowUpTrayIcon,
-  ClipboardDocumentIcon,
+  Square2StackIcon,
   ExclamationTriangleIcon,
   ChevronRightIcon,
   FolderIcon,
@@ -258,7 +258,7 @@ function MediaCard({
                     onClick={() => { onMenuClose(); onCopyUrl(); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                   >
-                    <ClipboardDocumentIcon className="w-4 h-4" /> Copy URL
+                    <Square2StackIcon className="w-4 h-4" /> Copy URL
                   </button>
                   {caps?.canMove && onMove && (
                     <button
@@ -2421,7 +2421,7 @@ export default function MediaPage() {
                     onClick={() => copyUrl(previewFile.url)}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
                   >
-                    <ClipboardDocumentIcon className="w-3.5 h-3.5" /> Copy URL
+                    <Square2StackIcon className="w-3.5 h-3.5" /> Copy URL
                   </button>
                   {capabilities?.canDelete && (
                     <button
