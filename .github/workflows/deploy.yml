@@ -27,17 +27,42 @@ jobs:
             fi
 
             cd /var/www/loomi-studio
+
+            echo "=== Pre-deploy: current commit ==="
+            git log --oneline -1
+
             git pull origin main
+
+            echo "=== Post-pull: latest commit ==="
+            git log --oneline -1
+
             npm install --legacy-peer-deps
 
             # Stop the running process BEFORE building so it doesn't
             # serve stale HTML that references old CSS chunk hashes
             # while `next build` is replacing the .next directory.
             pm2 stop loomi-studio || true
+            pm2 delete loomi-studio || true
 
             # Clear Next.js build cache to prevent serving stale bundles
             rm -rf .next
 
-            npm run build
+            # Load env vars for the build (Prisma needs DATABASE_URL, etc.)
             set -a && source .env.local && set +a
-            pm2 start loomi-studio --update-env || pm2 restart loomi-studio --update-env
+
+            npm run build
+
+            echo "=== Build complete, .next dir size ==="
+            du -sh .next
+
+            # Start fresh from ecosystem config (ensures correct cwd + command)
+            pm2 start ecosystem.config.js --update-env
+            pm2 save
+
+            echo "=== PM2 process status ==="
+            pm2 list
+
+            # Verify the server is responding
+            sleep 3
+            echo "=== Health check ==="
+            curl -s -o /dev/null -w "HTTP %{http_code}" http://localhost:3000 || echo "WARNING: Health check failed"
