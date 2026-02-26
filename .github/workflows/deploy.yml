@@ -31,6 +31,10 @@ jobs:
             echo "=== Pre-deploy: current commit ==="
             git log --oneline -1
 
+            # Reset any locally-modified tracked files (e.g. package-lock.json
+            # dirtied by npm install) so git pull doesn't abort.
+            git checkout -- .
+
             git pull origin main
 
             echo "=== Post-pull: latest commit ==="
