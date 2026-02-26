@@ -27,6 +27,7 @@ import {
   ClockIcon,
   UserCircleIcon,
   SparklesIcon,
+  PencilSquareIcon,
   PaperAirplaneIcon,
   ClipboardDocumentIcon,
   ExclamationTriangleIcon,
@@ -2674,19 +2675,6 @@ const HERO_BUTTON_PROP_MAP: Record<string, string[]> = {
 // Settings sections with static defaults (no theme system)
 const SETTINGS_SECTIONS: SettingsSection[] = [
   {
-    label: "Email Meta",
-    key: "meta",
-    fields: [
-      { key: "fm:title", label: "Title", type: "text", target: "frontmatter" },
-      {
-        key: "fm:preheader",
-        label: "Preheader",
-        type: "text",
-        target: "frontmatter",
-      },
-    ],
-  },
-  {
     label: "Layout",
     key: "layout",
     fields: [
@@ -3114,6 +3102,7 @@ export default function TemplateEditorPage() {
   const [espRecordId, setEspRecordId] = useState<string | null>(null);
   const [espTemplateName, setEspTemplateName] = useState("");
   const [espSubject, setEspSubject] = useState("");
+  const [espPreviewText, setEspPreviewText] = useState("");
 
   const [code, setCode] = useState("");
   const [originalCode, setOriginalCode] = useState("");
@@ -3149,6 +3138,10 @@ export default function TemplateEditorPage() {
   const [previewContactsError, setPreviewContactsError] = useState("");
   const [selectedPreviewContactId, setSelectedPreviewContactId] =
     useState("__sample__");
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState("");
+  const [aiMetaLoading, setAiMetaLoading] = useState(false);
+  const [aiMetaField, setAiMetaField] = useState<"subject" | "previewText" | null>(null);
   const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -3415,6 +3408,7 @@ export default function TemplateEditorPage() {
           const t = data.template;
           setEspTemplateName(t.name || "");
           setEspSubject(t.subject || "");
+          setEspPreviewText(t.previewText || "");
           const raw = t.source || t.html || "";
           setCode(raw);
           setOriginalCode(raw);
@@ -3519,6 +3513,7 @@ export default function TemplateEditorPage() {
             body: JSON.stringify({
               name: espTemplateName || undefined,
               subject: espSubject || undefined,
+              previewText: espPreviewText || undefined,
               source: code,
               editorType: editorMode,
             }),
@@ -3537,6 +3532,7 @@ export default function TemplateEditorPage() {
               accountKey: effectiveAccountKey,
               name: espTemplateName || "Untitled Template",
               subject: espSubject || null,
+              previewText: espPreviewText || null,
               source: code,
               html: code,
               editorType: editorMode,
@@ -3567,7 +3563,7 @@ export default function TemplateEditorPage() {
     }, 3000);
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, originalCode, design, templateName, espMode, espRecordId, effectiveAccountKey]);
+  }, [code, originalCode, design, templateName, espMode, espRecordId, effectiveAccountKey, espTemplateName, espSubject, espPreviewText]);
 
   useEffect(() => {
     if (isHtmlOnlyBuilder) {
@@ -3821,6 +3817,44 @@ export default function TemplateEditorPage() {
     },
     [parsed, selectedComponent, syncVisualToCode],
   );
+
+  const handleGenerateEmailMeta = useCallback(async (field: "subject" | "previewText") => {
+    setAiMetaLoading(true);
+    setAiMetaField(field);
+    try {
+      const textContent = previewHtml
+        ? (() => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(previewHtml, "text/html");
+            return doc.body.textContent?.trim() || "";
+          })()
+        : "";
+
+      const res = await fetch("/api/ai/generate-email-meta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          field,
+          emailTextContent: textContent.slice(0, 3000),
+          currentSubject: espSubject,
+          currentPreviewText: espPreviewText,
+        }),
+      });
+      const data = await res.json();
+      if (data.result) {
+        if (field === "subject") setEspSubject(data.result);
+        else setEspPreviewText(data.result);
+      } else if (data.error) {
+        toast.error(data.error);
+      }
+    } catch (err) {
+      console.error("AI generation failed:", err);
+      toast.error("Failed to generate — check AI configuration");
+    } finally {
+      setAiMetaLoading(false);
+      setAiMetaField(null);
+    }
+  }, [previewHtml, espSubject, espPreviewText]);
 
   const handleAskAssistant = useCallback(async () => {
     const prompt = aiPrompt.trim();
@@ -4146,6 +4180,7 @@ export default function TemplateEditorPage() {
           body: JSON.stringify({
             name: espTemplateName || undefined,
             subject: espSubject || undefined,
+            previewText: espPreviewText || undefined,
             source: code,
             editorType: editorMode,
           }),
@@ -4158,6 +4193,7 @@ export default function TemplateEditorPage() {
             accountKey: effectiveAccountKey,
             name: espTemplateName || "Untitled Template",
             subject: espSubject || null,
+            previewText: espPreviewText || null,
             source: code,
             html: code,
             editorType: editorMode,
@@ -4976,7 +5012,51 @@ export default function TemplateEditorPage() {
             <ArrowLeftIcon className="w-4 h-4" />
           </Link>
           <div>
-            <h2 className="text-lg font-bold capitalize">{designLabel}</h2>
+            {isEditingTitle ? (
+              <input
+                type="text"
+                value={editTitleValue}
+                onChange={(e) => setEditTitleValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const trimmed = editTitleValue.trim();
+                    if (trimmed && espMode) {
+                      setEspTemplateName(trimmed);
+                    } else if (trimmed && !espMode && parsed) {
+                      updateFrontmatter("title", trimmed);
+                    }
+                    setIsEditingTitle(false);
+                  } else if (e.key === "Escape") {
+                    setIsEditingTitle(false);
+                  }
+                }}
+                onBlur={() => {
+                  const trimmed = editTitleValue.trim();
+                  if (trimmed && espMode) {
+                    setEspTemplateName(trimmed);
+                  } else if (trimmed && !espMode && parsed) {
+                    updateFrontmatter("title", trimmed);
+                  }
+                  setIsEditingTitle(false);
+                }}
+                autoFocus
+                className="text-lg font-bold bg-transparent border-b-2 border-[var(--primary)] text-[var(--foreground)] focus:outline-none w-64"
+              />
+            ) : (
+              <div className="group/title flex items-center gap-1.5">
+                <h2 className="text-lg font-bold capitalize">{designLabel}</h2>
+                <button
+                  onClick={() => {
+                    setEditTitleValue(espMode ? espTemplateName : (parsed?.frontmatter?.title || designLabel));
+                    setIsEditingTitle(true);
+                  }}
+                  className="p-1 rounded text-[var(--muted-foreground)] opacity-0 group-hover/title:opacity-100 hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-all"
+                  title="Rename template"
+                >
+                  <PencilSquareIcon className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
             <p className="text-xs text-[var(--muted-foreground)]">
               {editorMode === "code"
                 ? `${lineCount} lines`
@@ -5101,12 +5181,73 @@ export default function TemplateEditorPage() {
             <div className="flex-1 min-h-0 overflow-y-auto">
               <div className="p-4 space-y-2">
                 {/* Settings sub-tab */}
+                {visualTab === "settings" && espMode && (
+                  <div>
+                    <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
+                      Email Meta
+                    </h3>
+                    <div className="space-y-3">
+                      {/* Subject Line */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs text-[var(--muted-foreground)]">Subject Line</label>
+                          <button
+                            onClick={() => handleGenerateEmailMeta("subject")}
+                            disabled={aiMetaLoading}
+                            className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors disabled:opacity-50"
+                            title="Generate with AI"
+                          >
+                            {aiMetaLoading && aiMetaField === "subject" ? (
+                              <ArrowPathIcon className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <SparklesIcon className="w-3 h-3" />
+                            )}
+                            AI
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          value={espSubject}
+                          onChange={(e) => setEspSubject(e.target.value)}
+                          placeholder="Enter subject line..."
+                          className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
+                        />
+                      </div>
+                      {/* Preview Text */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs text-[var(--muted-foreground)]">Preview Text</label>
+                          <button
+                            onClick={() => handleGenerateEmailMeta("previewText")}
+                            disabled={aiMetaLoading}
+                            className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors disabled:opacity-50"
+                            title="Generate with AI"
+                          >
+                            {aiMetaLoading && aiMetaField === "previewText" ? (
+                              <ArrowPathIcon className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <SparklesIcon className="w-3 h-3" />
+                            )}
+                            AI
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          value={espPreviewText}
+                          onChange={(e) => setEspPreviewText(e.target.value)}
+                          placeholder="Enter preview text..."
+                          className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {visualTab === "settings" &&
                   parsed &&
                   SETTINGS_SECTIONS.map((section, sectionIdx) => (
                     <div key={section.key}>
                       <h3
-                        className={`text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider ${sectionIdx > 0 ? "mt-4" : ""} mb-2`}
+                        className={`text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider ${sectionIdx > 0 || espMode ? "mt-4" : ""} mb-2`}
                       >
                         {section.label}
                       </h3>
