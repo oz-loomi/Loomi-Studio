@@ -11,12 +11,13 @@ const ACCOUNT_REP_SELECT = {
 export async function getAccounts(userAccountKeys?: string[]) {
   if (userAccountKeys && userAccountKeys.length > 0) {
     return prisma.account.findMany({
-      where: { key: { in: userAccountKeys } },
+      where: { key: { in: userAccountKeys, not: { startsWith: '_' } } },
       orderBy: { dealer: 'asc' },
       include: { accountRep: { select: ACCOUNT_REP_SELECT } },
     });
   }
   return prisma.account.findMany({
+    where: { key: { not: { startsWith: '_' } } },
     orderBy: { dealer: 'asc' },
     include: { accountRep: { select: ACCOUNT_REP_SELECT } },
   });
@@ -88,6 +89,9 @@ export async function deleteAccount(key: string) {
 }
 
 export async function getAllAccountKeys() {
-  const accounts = await prisma.account.findMany({ select: { key: true } });
+  const accounts = await prisma.account.findMany({
+    where: { key: { not: { startsWith: '_' } } },
+    select: { key: true },
+  });
   return accounts.map((a) => a.key);
 }
