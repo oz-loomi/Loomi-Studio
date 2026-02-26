@@ -21,12 +21,13 @@ import {
   ArrowLeftIcon,
   ChevronDownIcon,
   CheckIcon,
+  CheckCircleIcon,
   CursorArrowRaysIcon,
   BookOpenIcon,
   EyeIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
-import { useAccount } from '@/contexts/account-context';
+import { useAccount, type AccountData } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
 
 // ── Types ──
@@ -109,345 +110,174 @@ function providerIcon(provider: string): string | undefined {
   return PROVIDER_META[provider]?.iconSrc;
 }
 
-// ── Page ──
+// ── Extracted sub-components (stable references — never defined inside a render) ──
 
-export default function TemplatesPage() {
-  const { isAdmin, isAccount, accountKey, accountData, accounts } = useAccount();
-  const router = useRouter();
-  const pathname = usePathname();
+function ProviderPill({ provider }: { provider: string }) {
+  const icon = providerIcon(provider);
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--muted)] text-[10px] font-medium text-[var(--muted-foreground)]">
+      {icon && (
+        <img src={icon} alt={providerLabel(provider)} className="w-3.5 h-3.5 rounded-full object-cover" />
+      )}
+      {providerLabel(provider)}
+    </span>
+  );
+}
 
-  // State
-  const [allTemplates, setAllTemplates] = useState<EspTemplateRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
-  const [search, setSearch] = useState('');
-  const [providerFilter, setProviderFilter] = useState<string>('all');
-  const [accountFilter, setAccountFilter] = useState<string>('all');
+interface AccountPillProps {
+  acctKey: string;
+  accounts: Record<string, AccountData>;
+}
 
-  // Modals
-  const [showCreateChoice, setShowCreateChoice] = useState(false);
-  const [deleteTemplate, setDeleteTemplate] = useState<EspTemplateRecord | null>(null);
-  const [previewTemplate, setPreviewTemplate] = useState<EspTemplateRecord | null>(null);
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
+function AccountPill({ acctKey, accounts }: AccountPillProps) {
+  const name = accounts[acctKey]?.dealer || acctKey;
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[10px] font-medium text-[var(--primary)]">
+      <BuildingStorefrontIcon className="w-3 h-3" />
+      {name}
+    </span>
+  );
+}
 
-  // Library picker (inside create modal)
-  const [libraryPickerMode, setLibraryPickerMode] = useState(false);
-  const [libraryTemplates, setLibraryTemplates] = useState<{ design: string; name: string }[]>([]);
-  const [loadingLibrary, setLoadingLibrary] = useState(false);
-  const [createAccountKey, setCreateAccountKey] = useState<string | null>(null);
+interface EspHtmlPreviewProps {
+  html: string;
+  height?: number;
+}
 
-  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
-  const accountDropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setViewMode(loadView());
-  }, []);
-
-  // Close menus on outside click
-  useEffect(() => {
-    const handler = () => setOpenMenu(null);
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
-  }, []);
-
-  // Close account dropdown on outside click
-  useEffect(() => {
-    if (!accountDropdownOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (accountDropdownRef.current && !accountDropdownRef.current.contains(e.target as Node)) {
-        setAccountDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [accountDropdownOpen]);
-
-  // Derive the effective account key for single-account mode
-  const effectiveAccountKey = isAccount ? accountKey : null;
-
-  // ── Data Loading ──
-
-  const loadTemplates = useCallback(async () => {
-    try {
-      const url = effectiveAccountKey
-        ? `/api/esp/templates?accountKey=${encodeURIComponent(effectiveAccountKey)}`
-        : '/api/esp/templates';
-      const res = await fetch(url);
-      const data = await res.json();
-      if (res.ok) {
-        setAllTemplates(data.templates || []);
-      } else {
-        console.error('Failed to load templates:', data.error);
-      }
-    } catch (err) {
-      console.error('Failed to load templates:', err);
-    }
-    setLoading(false);
-  }, [effectiveAccountKey]);
+function EspHtmlPreview({ html, height = 160 }: EspHtmlPreviewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
-    setLoading(true);
-    loadTemplates();
-  }, [loadTemplates]);
-
-  // ── Sync from ESP ──
-
-  const handleSync = async () => {
-    const syncKey = accountFilter !== 'all' ? accountFilter : effectiveAccountKey;
-    if (!syncKey || syncing) return;
-    setSyncing(true);
-    try {
-      const res = await fetch(`/api/esp/templates/sync?accountKey=${encodeURIComponent(syncKey)}`, {
-        method: 'POST',
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(`Synced ${data.sync.total} templates (${data.sync.created} new, ${data.sync.updated} updated)`);
-        await loadTemplates();
-      } else {
-        toast.error(data.error || 'Failed to sync');
-      }
-    } catch {
-      toast.error('Failed to sync templates');
-    }
-    setSyncing(false);
-  };
-
-  // ── Grouped data for admin overview ──
-
-  const accountGroups = useMemo(() => {
-    const groups: Record<string, { templates: EspTemplateRecord[]; providers: Set<string> }> = {};
-    for (const t of allTemplates) {
-      if (!groups[t.accountKey]) {
-        groups[t.accountKey] = { templates: [], providers: new Set() };
-      }
-      groups[t.accountKey].templates.push(t);
-      groups[t.accountKey].providers.add(t.provider);
-    }
-    return groups;
-  }, [allTemplates]);
-
-  // All account keys that have templates OR are accessible
-  const allAccountKeys = useMemo(() => {
-    const keys = new Set(Object.keys(accounts));
-    Object.keys(accountGroups).forEach(k => keys.add(k));
-    return Array.from(keys).sort((a, b) => {
-      const nameA = accounts[a]?.dealer || a;
-      const nameB = accounts[b]?.dealer || b;
-      return nameA.localeCompare(nameB);
+    const el = containerRef.current;
+    if (!el) return;
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) setContainerWidth(entry.contentRect.width);
     });
-  }, [accounts, accountGroups]);
+    resizeObserver.observe(el);
+    setContainerWidth(el.clientWidth);
+    return () => resizeObserver.disconnect();
+  }, []);
 
-  // Account filter label
-  const selectedAccountData = accountFilter !== 'all' ? accounts[accountFilter] : null;
-  const accountFilterLabel = accountFilter === 'all'
-    ? 'All Accounts'
-    : selectedAccountData?.dealer || accountFilter;
+  const iframeWidth = 600;
+  const scale = containerWidth > 0 ? containerWidth / iframeWidth : 0.4;
 
-  // ── Filtering (for flat list view and account-level view) ──
+  return (
+    <div ref={containerRef} className="relative overflow-hidden bg-[var(--muted)]" style={{ height }}>
+      {html && containerWidth > 0 && (
+        <iframe
+          srcDoc={`<style>html,body{overflow:hidden !important;margin:0;}</style>${html}`}
+          className="border-0 pointer-events-none absolute top-0 left-0"
+          scrolling="no"
+          style={{
+            width: `${iframeWidth}px`,
+            height: `${Math.round(height / scale)}px`,
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+          }}
+          title="Template preview"
+          sandbox="allow-same-origin"
+          tabIndex={-1}
+        />
+      )}
+      {!html && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <EnvelopeIcon className="w-10 h-10 text-[var(--muted-foreground)] opacity-30" />
+        </div>
+      )}
+    </div>
+  );
+}
 
-  const filtered = useMemo(() => {
-    let result = allTemplates;
+interface TemplateCardProps {
+  t: EspTemplateRecord;
+  showAccount?: boolean;
+  isMenuOpen: boolean;
+  isSelected: boolean;
+  selectMode: boolean;
+  accounts: Record<string, AccountData>;
+  onMenuToggle: (id: string | null) => void;
+  onPreview: (t: EspTemplateRecord) => void;
+  onEdit: (id: string) => void;
+  onDelete: (t: EspTemplateRecord) => void;
+  onSelect: (id: string) => void;
+}
 
-    // Account filter
-    if (accountFilter !== 'all') {
-      result = result.filter(t => t.accountKey === accountFilter);
-    }
+function TemplateCard({
+  t,
+  showAccount = false,
+  isMenuOpen,
+  isSelected,
+  selectMode,
+  accounts,
+  onMenuToggle,
+  onPreview,
+  onEdit,
+  onDelete,
+  onSelect,
+}: TemplateCardProps) {
+  const sc = statusColors[t.status] || statusColors.draft;
 
-    // Provider filter
-    if (providerFilter !== 'all') {
-      result = result.filter(t => t.provider === providerFilter);
-    }
-
-    // Search
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(t =>
-        t.name.toLowerCase().includes(q) ||
-        (t.subject && t.subject.toLowerCase().includes(q)) ||
-        (isAdmin && (accounts[t.accountKey]?.dealer || '').toLowerCase().includes(q))
-      );
-    }
-
-    return result;
-  }, [allTemplates, providerFilter, search, accountFilter, isAdmin, accounts]);
-
-  const uniqueProviders = useMemo(() => {
-    const set = new Set(allTemplates.map(t => t.provider));
-    return Array.from(set).sort();
-  }, [allTemplates]);
-
-  const toggleView = (mode: 'card' | 'list') => { setViewMode(mode); saveView(mode); };
-
-  // ── Handlers ──
-
-  const navigateToEditor = (templateId: string) => {
-    router.push(`/templates/editor?id=${templateId}`);
-  };
-
-  const handleCreateChoice = (mode: 'visual' | 'code') => {
-    const createKey = createAccountKey || (accountFilter !== 'all' ? accountFilter : null) || effectiveAccountKey;
-    if (!createKey) return;
-    setShowCreateChoice(false);
-    setLibraryPickerMode(false);
-    setCreateAccountKey(null);
-    router.push(`/templates/editor?mode=${mode}&accountKey=${encodeURIComponent(createKey)}`);
-  };
-
-  const openLibraryPicker = async () => {
-    setLibraryPickerMode(true);
-    if (libraryTemplates.length > 0) return;
-    setLoadingLibrary(true);
-    try {
-      const res = await fetch('/api/templates');
-      if (res.ok) {
-        const data = await res.json();
-        setLibraryTemplates(data.map((t: { design: string; name: string }) => ({ design: t.design, name: t.name })));
-      }
-    } catch { /* ignore */ }
-    setLoadingLibrary(false);
-  };
-
-  const selectLibraryTemplate = (slug: string) => {
-    const createKey = createAccountKey || (accountFilter !== 'all' ? accountFilter : null) || effectiveAccountKey;
-    if (!createKey) return;
-    setShowCreateChoice(false);
-    setLibraryPickerMode(false);
-    setCreateAccountKey(null);
-    router.push(`/templates/editor?mode=visual&accountKey=${encodeURIComponent(createKey)}&libraryTemplate=${encodeURIComponent(slug)}`);
-  };
-
-  const handleDelete = async (deleteFromRemote: boolean) => {
-    if (!deleteTemplate) return;
-    try {
-      const url = `/api/esp/templates/${deleteTemplate.id}${deleteFromRemote ? '?deleteFromRemote=true' : ''}`;
-      const res = await fetch(url, { method: 'DELETE' });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(data.remoteDeleted ? 'Template deleted from Loomi and connected platform' : 'Template deleted locally');
-        setDeleteTemplate(null);
-        await loadTemplates();
-      } else {
-        toast.error(data.error || 'Failed to delete');
-      }
-    } catch {
-      toast.error('Failed to delete template');
-    }
-  };
-
-  // ── Shared Sub-components ──
-
-  const ProviderPill = ({ provider }: { provider: string }) => {
-    const icon = providerIcon(provider);
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--muted)] text-[10px] font-medium text-[var(--muted-foreground)]">
-        {icon && (
-          <img src={icon} alt={providerLabel(provider)} className="w-3.5 h-3.5 rounded-full object-cover" />
+  return (
+    <div className={`glass-card rounded-xl group animate-fade-in-up relative ${isMenuOpen ? 'z-10' : ''}`}>
+      {/* Selection ring overlay – renders above iframe */}
+      {isSelected && (
+        <div className="absolute inset-0 border-3 border-[var(--primary)] rounded-xl z-20 pointer-events-none" />
+      )}
+      <div
+        className="rounded-t-xl cursor-pointer relative overflow-hidden"
+        onClick={() => selectMode ? onSelect(t.id) : onPreview(t)}
+      >
+        {t.thumbnailUrl ? (
+          <div className="h-[160px] bg-[var(--muted)]">
+            <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
+          </div>
+        ) : (
+          <EspHtmlPreview html={t.html} height={160} />
         )}
-        {providerLabel(provider)}
-      </span>
-    );
-  };
-
-  const AccountPill = ({ acctKey }: { acctKey: string }) => {
-    const name = accounts[acctKey]?.dealer || acctKey;
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[10px] font-medium text-[var(--primary)]">
-        <BuildingStorefrontIcon className="w-3 h-3" />
-        {name}
-      </span>
-    );
-  };
-
-  const EspHtmlPreview = ({ html, height = 160 }: { html: string; height?: number }) => {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const [containerWidth, setContainerWidth] = useState(0);
-
-    useEffect(() => {
-      const el = containerRef.current;
-      if (!el) return;
-      const resizeObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) setContainerWidth(entry.contentRect.width);
-      });
-      resizeObserver.observe(el);
-      setContainerWidth(el.clientWidth);
-      return () => resizeObserver.disconnect();
-    }, []);
-
-    const iframeWidth = 600;
-    const scale = containerWidth > 0 ? containerWidth / iframeWidth : 0.4;
-
-    return (
-      <div ref={containerRef} className="relative overflow-hidden bg-[var(--muted)]" style={{ height }}>
-        {html && containerWidth > 0 && (
-          <iframe
-            srcDoc={html}
-            className="border-0 pointer-events-none absolute top-0 left-0"
-            style={{
-              width: `${iframeWidth}px`,
-              height: `${Math.round(height / scale)}px`,
-              transform: `scale(${scale})`,
-              transformOrigin: 'top left',
-            }}
-            title="Template preview"
-            sandbox="allow-same-origin"
-            tabIndex={-1}
-          />
-        )}
-        {!html && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <EnvelopeIcon className="w-10 h-10 text-[var(--muted-foreground)] opacity-30" />
+        {/* Selection overlay */}
+        {selectMode && (
+          <div className="absolute inset-0 bg-black/10">
+            <div className={`absolute top-2.5 left-2.5 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+              isSelected
+                ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+                : 'border-white/80 bg-black/20'
+            }`}>
+              {isSelected && <CheckIcon className="w-3.5 h-3.5" />}
+            </div>
           </div>
         )}
       </div>
-    );
-  };
-
-  const TemplateCard = ({ t, showAccount = false }: { t: EspTemplateRecord; showAccount?: boolean }) => {
-    const sc = statusColors[t.status] || statusColors.draft;
-    const isMenuOpen = openMenu === t.id;
-
-    return (
-      <div className="glass-card rounded-xl group animate-fade-in-up overflow-hidden">
-        <div className="rounded-t-xl cursor-pointer" onClick={() => setPreviewTemplate(t)}>
-          {t.thumbnailUrl ? (
-            <div className="h-[160px] bg-[var(--muted)] overflow-hidden">
-              <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
-            </div>
-          ) : (
-            <EspHtmlPreview html={t.html} height={160} />
-          )}
-        </div>
-        <div className="p-4">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <ProviderPill provider={t.provider} />
-              {showAccount && <AccountPill acctKey={t.accountKey} />}
-            </div>
+      <div className="p-4">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <ProviderPill provider={t.provider} />
+            {showAccount && <AccountPill acctKey={t.accountKey} accounts={accounts} />}
+          </div>
+          {!selectMode && (
             <div className="relative flex-shrink-0">
               <button
-                onClick={(e) => { e.stopPropagation(); setOpenMenu(isMenuOpen ? null : t.id); }}
-                className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors opacity-0 group-hover:opacity-100"
+                onClick={(e) => { e.stopPropagation(); onMenuToggle(isMenuOpen ? null : t.id); }}
+                className={`p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors ${isMenuOpen ? 'opacity-100 bg-[var(--muted)]' : 'opacity-0 group-hover:opacity-100'}`}
               >
                 <EllipsisVerticalIcon className="w-4 h-4" />
               </button>
               {isMenuOpen && (
                 <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onClick={(e) => e.stopPropagation()}>
                   <button
-                    onClick={() => { setOpenMenu(null); setPreviewTemplate(t); }}
+                    onClick={() => { onMenuToggle(null); onPreview(t); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                   >
                     <EyeIcon className="w-4 h-4" /> View
                   </button>
                   <button
-                    onClick={() => { setOpenMenu(null); navigateToEditor(t.id); }}
+                    onClick={() => { onMenuToggle(null); onEdit(t.id); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                   >
                     <PencilSquareIcon className="w-4 h-4" /> Edit
                   </button>
                   <button
-                    onClick={() => { setOpenMenu(null); setDeleteTemplate(t); }}
+                    onClick={() => { onMenuToggle(null); onDelete(t); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
                   >
                     <TrashIcon className="w-4 h-4" /> Delete
@@ -455,69 +285,113 @@ export default function TemplatesPage() {
                 </div>
               )}
             </div>
-          </div>
-          <h3
-            className="text-sm font-semibold cursor-pointer hover:text-[var(--primary)] transition-colors truncate"
-            onClick={() => navigateToEditor(t.id)}
-          >
-            {t.name}
-          </h3>
-          {t.subject && (
-            <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 truncate">{t.subject}</p>
           )}
-          <div className="flex items-center gap-2 mt-2">
-            <span
-              className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full"
-              style={{ backgroundColor: sc.bg, color: sc.text }}
-            >
-              {t.status}
-            </span>
-            {t.remoteId && (
-              <ArrowUpTrayIcon className="w-3 h-3 text-[var(--muted-foreground)]" title="Published" />
-            )}
-            <span className="text-[10px] text-[var(--muted-foreground)] ml-auto">{timeAgo(t.updatedAt)}</span>
-          </div>
+        </div>
+        <h3
+          className="text-sm font-semibold cursor-pointer hover:text-[var(--primary)] transition-colors truncate"
+          onClick={() => selectMode ? onSelect(t.id) : onEdit(t.id)}
+        >
+          {t.name}
+        </h3>
+        {t.subject && (
+          <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 truncate">{t.subject}</p>
+        )}
+        <div className="flex items-center gap-2 mt-2">
+          <span
+            className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full"
+            style={{ backgroundColor: sc.bg, color: sc.text }}
+          >
+            {t.status}
+          </span>
+          {t.remoteId && (
+            <ArrowUpTrayIcon className="w-3 h-3 text-[var(--muted-foreground)]" title="Published" />
+          )}
+          <span className="text-[10px] text-[var(--muted-foreground)] ml-auto">{timeAgo(t.updatedAt)}</span>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+}
 
-  const TemplateRow = ({ t, showAccount = false }: { t: EspTemplateRecord; showAccount?: boolean }) => {
-    const sc = statusColors[t.status] || statusColors.draft;
-    const isMenuOpen = openMenu === t.id;
+interface TemplateRowProps {
+  t: EspTemplateRecord;
+  showAccount?: boolean;
+  isMenuOpen: boolean;
+  isSelected: boolean;
+  selectMode: boolean;
+  accounts: Record<string, AccountData>;
+  onMenuToggle: (id: string | null) => void;
+  onPreview: (t: EspTemplateRecord) => void;
+  onEdit: (id: string) => void;
+  onDelete: (t: EspTemplateRecord) => void;
+  onSelect: (id: string) => void;
+}
 
-    return (
-      <div className="flex items-center gap-4 p-3 glass-card rounded-xl group animate-fade-in-up">
-        <div className="w-10 h-10 rounded-lg bg-[var(--muted)] flex items-center justify-center flex-shrink-0 overflow-hidden">
-          {t.thumbnailUrl ? (
-            <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
-          ) : (
-            <EnvelopeIcon className="w-5 h-5 text-[var(--muted-foreground)] opacity-40" />
-          )}
+function TemplateRow({
+  t,
+  showAccount = false,
+  isMenuOpen,
+  isSelected,
+  selectMode,
+  accounts,
+  onMenuToggle,
+  onPreview,
+  onEdit,
+  onDelete,
+  onSelect,
+}: TemplateRowProps) {
+  const sc = statusColors[t.status] || statusColors.draft;
+
+  return (
+    <div
+      className={`flex items-center gap-4 p-3 glass-card rounded-xl group animate-fade-in-up relative ${isMenuOpen ? 'z-10' : ''}`}
+      onClick={selectMode ? () => onSelect(t.id) : undefined}
+    >
+      {/* Selection ring overlay */}
+      {isSelected && (
+        <div className="absolute inset-0 border-3 border-[var(--primary)] rounded-xl z-20 pointer-events-none" />
+      )}
+      {/* Selection checkbox */}
+      {selectMode && (
+        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 cursor-pointer transition-colors ${
+          isSelected
+            ? 'bg-[var(--primary)] border-[var(--primary)] text-white'
+            : 'border-[var(--border)] hover:border-[var(--primary)]'
+        }`}>
+          {isSelected && <CheckIcon className="w-3 h-3" />}
         </div>
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigateToEditor(t.id)}>
-          <h3 className="font-semibold text-sm truncate">{t.name}</h3>
-          <p className="text-[10px] text-[var(--muted-foreground)] truncate">
-            {t.subject || 'No subject'}
-          </p>
-        </div>
-        {showAccount && <AccountPill acctKey={t.accountKey} />}
-        <ProviderPill provider={t.provider} />
-        <span
-          className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0"
-          style={{ backgroundColor: sc.bg, color: sc.text }}
-        >
-          {t.status}
-        </span>
-        {t.remoteId && (
-          <ArrowUpTrayIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" title="Published" />
+      )}
+      <div className="w-10 h-10 rounded-lg bg-[var(--muted)] flex items-center justify-center flex-shrink-0 overflow-hidden">
+        {t.thumbnailUrl ? (
+          <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
+        ) : (
+          <EnvelopeIcon className="w-5 h-5 text-[var(--muted-foreground)] opacity-40" />
         )}
-        <span className="text-[10px] text-[var(--muted-foreground)] flex-shrink-0 w-14 text-right">
-          {timeAgo(t.updatedAt)}
-        </span>
+      </div>
+      <div className="flex-1 min-w-0 cursor-pointer" onClick={selectMode ? undefined : () => onEdit(t.id)}>
+        <h3 className="font-semibold text-sm truncate">{t.name}</h3>
+        <p className="text-[10px] text-[var(--muted-foreground)] truncate">
+          {t.subject || 'No subject'}
+        </p>
+      </div>
+      {showAccount && <AccountPill acctKey={t.accountKey} accounts={accounts} />}
+      <ProviderPill provider={t.provider} />
+      <span
+        className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0"
+        style={{ backgroundColor: sc.bg, color: sc.text }}
+      >
+        {t.status}
+      </span>
+      {t.remoteId && (
+        <ArrowUpTrayIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0" title="Published" />
+      )}
+      <span className="text-[10px] text-[var(--muted-foreground)] flex-shrink-0 w-14 text-right">
+        {timeAgo(t.updatedAt)}
+      </span>
+      {!selectMode && (
         <div className="relative flex-shrink-0">
           <button
-            onClick={(e) => { e.stopPropagation(); setOpenMenu(isMenuOpen ? null : t.id); }}
+            onClick={(e) => { e.stopPropagation(); onMenuToggle(isMenuOpen ? null : t.id); }}
             className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
           >
             <EllipsisVerticalIcon className="w-4 h-4" />
@@ -525,19 +399,19 @@ export default function TemplatesPage() {
           {isMenuOpen && (
             <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onClick={(e) => e.stopPropagation()}>
               <button
-                onClick={() => { setOpenMenu(null); setPreviewTemplate(t); }}
+                onClick={() => { onMenuToggle(null); onPreview(t); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
               >
                 <EyeIcon className="w-4 h-4" /> View
               </button>
               <button
-                onClick={() => { setOpenMenu(null); navigateToEditor(t.id); }}
+                onClick={() => { onMenuToggle(null); onEdit(t.id); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
               >
                 <PencilSquareIcon className="w-4 h-4" /> Edit
               </button>
               <button
-                onClick={() => { setOpenMenu(null); setDeleteTemplate(t); }}
+                onClick={() => { onMenuToggle(null); onDelete(t); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
               >
                 <TrashIcon className="w-4 h-4" /> Delete
@@ -545,13 +419,120 @@ export default function TemplatesPage() {
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+interface ToolbarProps {
+  showAccountFilter?: boolean;
+  search: string;
+  setSearch: (v: string) => void;
+  isAdmin: boolean;
+  accountFilter: string;
+  setAccountFilter: (v: string) => void;
+  accountDropdownOpen: boolean;
+  setAccountDropdownOpen: (v: boolean) => void;
+  accountDropdownRef: React.RefObject<HTMLDivElement | null>;
+  accountFilterLabel: string;
+  selectedAccountData: AccountData | null;
+  allAccountKeys: string[];
+  accounts: Record<string, AccountData>;
+  providerFilter: string;
+  setProviderFilter: (v: string) => void;
+  uniqueProviders: string[];
+  viewMode: 'card' | 'list';
+  toggleView: (mode: 'card' | 'list') => void;
+  syncing: boolean;
+  handleSync: () => void;
+  effectiveAccountKey: string | null;
+  setShowCreateChoice: (v: boolean) => void;
+  setCreateAccountKey: (v: string | null) => void;
+  // Bulk selection
+  selectMode: boolean;
+  setSelectMode: (v: boolean) => void;
+  selectedIds: Set<string>;
+  setSelectedIds: (v: Set<string>) => void;
+  filteredCount: number;
+  filteredIds: string[];
+  onBulkDelete: () => void;
+}
+
+function Toolbar({
+  showAccountFilter = false,
+  search,
+  setSearch,
+  isAdmin,
+  accountFilter,
+  setAccountFilter,
+  accountDropdownOpen,
+  setAccountDropdownOpen,
+  accountDropdownRef,
+  accountFilterLabel,
+  selectedAccountData,
+  allAccountKeys,
+  accounts,
+  providerFilter,
+  setProviderFilter,
+  uniqueProviders,
+  viewMode,
+  toggleView,
+  syncing,
+  handleSync,
+  effectiveAccountKey,
+  setShowCreateChoice,
+  setCreateAccountKey,
+  selectMode,
+  setSelectMode,
+  selectedIds,
+  setSelectedIds,
+  filteredCount,
+  filteredIds,
+  onBulkDelete,
+}: ToolbarProps) {
+  // Selection toolbar when items are selected
+  if (selectMode) {
+    return (
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-[var(--foreground)]">
+            <CheckCircleIcon className="w-4 h-4 inline mr-1.5 text-[var(--primary)]" />
+            {selectedIds.size} selected
+          </span>
+          <button
+            onClick={() => {
+              if (selectedIds.size === filteredCount) {
+                setSelectedIds(new Set());
+              } else {
+                setSelectedIds(new Set(filteredIds));
+              }
+            }}
+            className="text-xs text-[var(--primary)] hover:underline"
+          >
+            {selectedIds.size === filteredCount ? 'Deselect All' : 'Select All'}
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <button
+              onClick={onBulkDelete}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-400 border border-red-400/30 rounded-lg hover:bg-red-500/10 transition-colors"
+            >
+              <TrashIcon className="w-4 h-4" /> Delete Selected
+            </button>
+          )}
+          <button
+            onClick={() => { setSelectMode(false); setSelectedIds(new Set()); }}
+            className="px-3 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     );
-  };
+  }
 
-  // ── Toolbar (shared between account view and admin flat list) ──
-
-  const Toolbar = ({ showAccountFilter = false }: { showAccountFilter?: boolean }) => (
+  return (
     <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {/* Search */}
@@ -685,6 +666,14 @@ export default function TemplatesPage() {
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Select toggle */}
+        <button
+          onClick={() => setSelectMode(true)}
+          className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors"
+        >
+          <CheckCircleIcon className="w-4 h-4" /> Select
+        </button>
+
         {/* View toggle */}
         <div className="flex items-center bg-[var(--muted)] rounded-lg p-0.5">
           <button
@@ -730,10 +719,46 @@ export default function TemplatesPage() {
       </div>
     </div>
   );
+}
 
-  // ── Template Grid/List Renderer ──
+interface TemplateListViewProps {
+  templates: EspTemplateRecord[];
+  showAccount?: boolean;
+  loading: boolean;
+  allTemplatesEmpty: boolean;
+  viewMode: 'card' | 'list';
+  providerFilter: string;
+  search: string;
+  openMenu: string | null;
+  selectMode: boolean;
+  selectedIds: Set<string>;
+  accounts: Record<string, AccountData>;
+  onMenuToggle: (id: string | null) => void;
+  onPreview: (t: EspTemplateRecord) => void;
+  onEdit: (id: string) => void;
+  onDelete: (t: EspTemplateRecord) => void;
+  onSelect: (id: string) => void;
+}
 
-  const TemplateListView = ({ templates: items, showAccount = false }: { templates: EspTemplateRecord[]; showAccount?: boolean }) => (
+function TemplateListView({
+  templates: items,
+  showAccount = false,
+  loading,
+  allTemplatesEmpty,
+  viewMode,
+  providerFilter,
+  search,
+  openMenu,
+  selectMode,
+  selectedIds,
+  accounts,
+  onMenuToggle,
+  onPreview,
+  onEdit,
+  onDelete,
+  onSelect,
+}: TemplateListViewProps) {
+  return (
     <>
       <p className="text-xs text-[var(--muted-foreground)] mb-4">
         {loading ? 'Loading...' : `${items.length} template${items.length !== 1 ? 's' : ''}`}
@@ -759,7 +784,7 @@ export default function TemplatesPage() {
       {!loading && items.length === 0 && (
         <div className="text-center py-16 text-[var(--muted-foreground)]">
           <EnvelopeIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          {allTemplates.length === 0 ? (
+          {allTemplatesEmpty ? (
             <>
               <p className="text-sm font-medium mb-1">No templates yet</p>
               <p className="text-xs mb-4">Click &quot;Sync&quot; to pull templates from your connected platform, or create a new one.</p>
@@ -773,20 +798,376 @@ export default function TemplatesPage() {
       {!loading && items.length > 0 && (
         viewMode === 'card' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {items.map(t => <TemplateCard key={t.id} t={t} showAccount={showAccount} />)}
+            {items.map(t => (
+              <TemplateCard
+                key={t.id}
+                t={t}
+                showAccount={showAccount}
+                isMenuOpen={openMenu === t.id}
+                isSelected={selectedIds.has(t.id)}
+                selectMode={selectMode}
+                accounts={accounts}
+                onMenuToggle={onMenuToggle}
+                onPreview={onPreview}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onSelect={onSelect}
+              />
+            ))}
           </div>
         ) : (
           <div className="space-y-1.5">
-            {items.map(t => <TemplateRow key={t.id} t={t} showAccount={showAccount} />)}
+            {items.map(t => (
+              <TemplateRow
+                key={t.id}
+                t={t}
+                showAccount={showAccount}
+                isMenuOpen={openMenu === t.id}
+                isSelected={selectedIds.has(t.id)}
+                selectMode={selectMode}
+                accounts={accounts}
+                onMenuToggle={onMenuToggle}
+                onPreview={onPreview}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onSelect={onSelect}
+              />
+            ))}
           </div>
         )
       )}
     </>
   );
+}
+
+// ── Page ──
+
+export default function TemplatesPage() {
+  const { isAdmin, isAccount, accountKey, accountData, accounts } = useAccount();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // State
+  const [allTemplates, setAllTemplates] = useState<EspTemplateRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
+  const [search, setSearch] = useState('');
+  const [providerFilter, setProviderFilter] = useState<string>('all');
+  const [accountFilter, setAccountFilter] = useState<string>('all');
+
+  // Modals
+  const [showCreateChoice, setShowCreateChoice] = useState(false);
+  const [deleteTemplate, setDeleteTemplate] = useState<EspTemplateRecord | null>(null);
+  const [previewTemplate, setPreviewTemplate] = useState<EspTemplateRecord | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+
+  // Library picker (inside create modal)
+  const [libraryPickerMode, setLibraryPickerMode] = useState(false);
+  const [libraryTemplates, setLibraryTemplates] = useState<{ design: string; name: string }[]>([]);
+  const [loadingLibrary, setLoadingLibrary] = useState(false);
+  const [createAccountKey, setCreateAccountKey] = useState<string | null>(null);
+
+  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
+  const accountDropdownRef = useRef<HTMLDivElement>(null);
+  const menuClickRef = useRef(false);
+
+  // Bulk selection
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setViewMode(loadView());
+  }, []);
+
+  // Close menus on outside click
+  useEffect(() => {
+    const handler = () => {
+      if (menuClickRef.current) { menuClickRef.current = false; return; }
+      setOpenMenu(null);
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
+
+  // Close account dropdown on outside click
+  useEffect(() => {
+    if (!accountDropdownOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (accountDropdownRef.current && !accountDropdownRef.current.contains(e.target as Node)) {
+        setAccountDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [accountDropdownOpen]);
+
+  // Derive the effective account key for single-account mode
+  const effectiveAccountKey = isAccount ? accountKey : null;
+
+  // ── Data Loading ──
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      const url = effectiveAccountKey
+        ? `/api/esp/templates?accountKey=${encodeURIComponent(effectiveAccountKey)}`
+        : '/api/esp/templates';
+      const res = await fetch(url);
+      const data = await res.json();
+      if (res.ok) {
+        setAllTemplates(data.templates || []);
+      } else {
+        console.error('Failed to load templates:', data.error);
+      }
+    } catch (err) {
+      console.error('Failed to load templates:', err);
+    }
+    setLoading(false);
+  }, [effectiveAccountKey]);
+
+  useEffect(() => {
+    setLoading(true);
+    loadTemplates();
+  }, [loadTemplates]);
+
+  // ── Sync from ESP ──
+
+  const handleSync = async () => {
+    const syncKey = accountFilter !== 'all' ? accountFilter : effectiveAccountKey;
+    if (!syncKey || syncing) return;
+    setSyncing(true);
+    try {
+      const res = await fetch(`/api/esp/templates/sync?accountKey=${encodeURIComponent(syncKey)}`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Synced ${data.sync.total} templates (${data.sync.created} new, ${data.sync.updated} updated)`);
+        await loadTemplates();
+      } else {
+        toast.error(data.error || 'Failed to sync');
+      }
+    } catch {
+      toast.error('Failed to sync templates');
+    }
+    setSyncing(false);
+  };
+
+  // ── Grouped data for admin overview ──
+
+  const accountGroups = useMemo(() => {
+    const groups: Record<string, { templates: EspTemplateRecord[]; providers: Set<string> }> = {};
+    for (const t of allTemplates) {
+      if (!groups[t.accountKey]) {
+        groups[t.accountKey] = { templates: [], providers: new Set() };
+      }
+      groups[t.accountKey].templates.push(t);
+      groups[t.accountKey].providers.add(t.provider);
+    }
+    return groups;
+  }, [allTemplates]);
+
+  // All account keys that have templates OR are accessible
+  const allAccountKeys = useMemo(() => {
+    const keys = new Set(Object.keys(accounts));
+    Object.keys(accountGroups).forEach(k => keys.add(k));
+    return Array.from(keys).sort((a, b) => {
+      const nameA = accounts[a]?.dealer || a;
+      const nameB = accounts[b]?.dealer || b;
+      return nameA.localeCompare(nameB);
+    });
+  }, [accounts, accountGroups]);
+
+  // Account filter label
+  const selectedAccountData = accountFilter !== 'all' ? accounts[accountFilter] : null;
+  const accountFilterLabel = accountFilter === 'all'
+    ? 'All Accounts'
+    : selectedAccountData?.dealer || accountFilter;
+
+  // ── Filtering (for flat list view and account-level view) ──
+
+  const filtered = useMemo(() => {
+    let result = allTemplates;
+
+    // Account filter
+    if (accountFilter !== 'all') {
+      result = result.filter(t => t.accountKey === accountFilter);
+    }
+
+    // Provider filter
+    if (providerFilter !== 'all') {
+      result = result.filter(t => t.provider === providerFilter);
+    }
+
+    // Search
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter(t =>
+        t.name.toLowerCase().includes(q) ||
+        (t.subject && t.subject.toLowerCase().includes(q)) ||
+        (isAdmin && (accounts[t.accountKey]?.dealer || '').toLowerCase().includes(q))
+      );
+    }
+
+    return result;
+  }, [allTemplates, providerFilter, search, accountFilter, isAdmin, accounts]);
+
+  const filteredIds = useMemo(() => filtered.map(t => t.id), [filtered]);
+
+  const uniqueProviders = useMemo(() => {
+    const set = new Set(allTemplates.map(t => t.provider));
+    return Array.from(set).sort();
+  }, [allTemplates]);
+
+  const toggleView = (mode: 'card' | 'list') => { setViewMode(mode); saveView(mode); };
+
+  // ── Handlers ──
+
+  const navigateToEditor = (templateId: string) => {
+    router.push(`/templates/editor?id=${templateId}`);
+  };
+
+  const handleCreateChoice = (mode: 'visual' | 'code') => {
+    const createKey = createAccountKey || (accountFilter !== 'all' ? accountFilter : null) || effectiveAccountKey;
+    if (!createKey) return;
+    setShowCreateChoice(false);
+    setLibraryPickerMode(false);
+    setCreateAccountKey(null);
+    router.push(`/templates/editor?mode=${mode}&accountKey=${encodeURIComponent(createKey)}`);
+  };
+
+  const openLibraryPicker = async () => {
+    setLibraryPickerMode(true);
+    if (libraryTemplates.length > 0) return;
+    setLoadingLibrary(true);
+    try {
+      const res = await fetch('/api/templates');
+      if (res.ok) {
+        const data = await res.json();
+        setLibraryTemplates(data.map((t: { design: string; name: string }) => ({ design: t.design, name: t.name })));
+      }
+    } catch { /* ignore */ }
+    setLoadingLibrary(false);
+  };
+
+  const selectLibraryTemplate = (slug: string) => {
+    const createKey = createAccountKey || (accountFilter !== 'all' ? accountFilter : null) || effectiveAccountKey;
+    if (!createKey) return;
+    setShowCreateChoice(false);
+    setLibraryPickerMode(false);
+    setCreateAccountKey(null);
+    router.push(`/templates/editor?mode=visual&accountKey=${encodeURIComponent(createKey)}&libraryTemplate=${encodeURIComponent(slug)}`);
+  };
+
+  const handleDelete = async (deleteFromRemote: boolean) => {
+    if (!deleteTemplate) return;
+    try {
+      const url = `/api/esp/templates/${deleteTemplate.id}${deleteFromRemote ? '?deleteFromRemote=true' : ''}`;
+      const res = await fetch(url, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.remoteDeleted ? 'Template deleted from Loomi and connected platform' : 'Template deleted locally');
+        setDeleteTemplate(null);
+        await loadTemplates();
+      } else {
+        toast.error(data.error || 'Failed to delete');
+      }
+    } catch {
+      toast.error('Failed to delete template');
+    }
+  };
+
+  const handleToggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    const confirmed = confirm(`Delete ${selectedIds.size} template${selectedIds.size !== 1 ? 's' : ''}?`);
+    if (!confirmed) return;
+
+    const results = await Promise.allSettled(
+      Array.from(selectedIds).map(id =>
+        fetch(`/api/esp/templates/${id}`, { method: 'DELETE' })
+      )
+    );
+
+    const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+
+    if (failed > 0) {
+      toast.error(`Deleted ${succeeded}, failed ${failed}`);
+    } else {
+      toast.success(`Deleted ${succeeded} template${succeeded !== 1 ? 's' : ''}`);
+    }
+
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    await loadTemplates();
+  };
 
   // ── No connection state (account-level) ──
   const connectedProviders = accountData?.connectedProviders;
   const hasConnection = effectiveAccountKey && connectedProviders && connectedProviders.length > 0;
+
+  // Shared toolbar props
+  const toolbarProps = {
+    search,
+    setSearch,
+    isAdmin,
+    accountFilter,
+    setAccountFilter,
+    accountDropdownOpen,
+    setAccountDropdownOpen,
+    accountDropdownRef,
+    accountFilterLabel,
+    selectedAccountData: selectedAccountData || null,
+    allAccountKeys,
+    accounts,
+    providerFilter,
+    setProviderFilter,
+    uniqueProviders,
+    viewMode,
+    toggleView,
+    syncing,
+    handleSync,
+    effectiveAccountKey,
+    setShowCreateChoice,
+    setCreateAccountKey,
+    selectMode,
+    setSelectMode,
+    selectedIds,
+    setSelectedIds,
+    filteredCount: filtered.length,
+    filteredIds,
+    onBulkDelete: handleBulkDelete,
+  };
+
+  // Shared list view props
+  const listViewProps = {
+    loading,
+    allTemplatesEmpty: allTemplates.length === 0,
+    viewMode,
+    providerFilter,
+    search,
+    openMenu,
+    selectMode,
+    selectedIds,
+    accounts,
+    onMenuToggle: (id: string | null) => { if (id !== null) menuClickRef.current = true; setOpenMenu(id); },
+    onPreview: setPreviewTemplate,
+    onEdit: navigateToEditor,
+    onDelete: setDeleteTemplate,
+    onSelect: handleToggleSelect,
+  };
 
   // ── Render ──
 
@@ -839,8 +1220,8 @@ export default function TemplatesPage() {
       {/* ── Admin Mode — flat list with account filter ── */}
       {isAdmin && (
         <>
-          <Toolbar showAccountFilter />
-          <TemplateListView templates={filtered} showAccount />
+          <Toolbar showAccountFilter {...toolbarProps} />
+          <TemplateListView templates={filtered} showAccount {...listViewProps} />
         </>
       )}
 
@@ -867,8 +1248,8 @@ export default function TemplatesPage() {
           {/* Account-level template view */}
           {effectiveAccountKey && (hasConnection || loading) && (
             <>
-              <Toolbar />
-              <TemplateListView templates={filtered} />
+              <Toolbar {...toolbarProps} />
+              <TemplateListView templates={filtered} {...listViewProps} />
             </>
           )}
         </>
@@ -1104,7 +1485,7 @@ export default function TemplatesPage() {
                 <h3 className="text-base font-semibold truncate">{previewTemplate.name}</h3>
                 <div className="flex items-center gap-2 mt-1">
                   <ProviderPill provider={previewTemplate.provider} />
-                  {isAdmin && <AccountPill acctKey={previewTemplate.accountKey} />}
+                  {isAdmin && <AccountPill acctKey={previewTemplate.accountKey} accounts={accounts} />}
                   {previewTemplate.subject && (
                     <span className="text-[10px] text-[var(--muted-foreground)] truncate">
                       Subject: {previewTemplate.subject}

@@ -179,8 +179,9 @@ export function TemplatePreview({ design, height = 280, className = '', onClick,
         />
       ) : containerWidth > 0 ? (
         <iframe
-          srcDoc={html}
+          srcDoc={`<style>html,body{overflow:hidden !important;margin:0;}</style>${html}`}
           className="border-0 pointer-events-none absolute top-0 left-0"
+          scrolling="no"
           style={{
             width: `${iframeWidth}px`,
             height: `${Math.round(height / scale)}px`,

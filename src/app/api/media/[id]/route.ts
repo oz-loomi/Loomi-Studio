@@ -77,7 +77,7 @@ export async function PATCH(
  * Delete a media asset from S3 and the database.
  */
 export async function DELETE(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { session, error } = await requireAuth();

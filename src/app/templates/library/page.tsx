@@ -20,6 +20,7 @@ import {
   MagnifyingGlassIcon,
   EyeIcon,
   PencilSquareIcon,
+  CheckCircleIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
@@ -147,6 +148,8 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [previewDesign, setPreviewDesign] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedDesigns, setSelectedDesigns] = useState<Set<string>>(new Set());
   const menuRef = useRef<HTMLDivElement>(null);
 
   const loadTemplates = async () => {
@@ -251,6 +254,40 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
     } catch { toast.error('Failed to clone'); }
   };
 
+  const handleToggleSelect = (design: string) => {
+    setSelectedDesigns((prev) => {
+      const next = new Set(prev);
+      if (next.has(design)) next.delete(design);
+      else next.add(design);
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedDesigns.size === 0) return;
+    const count = selectedDesigns.size;
+    if (!confirm(`Delete ${count} template${count !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+
+    const results = await Promise.allSettled(
+      Array.from(selectedDesigns).map((design) =>
+        fetch(`/api/templates?design=${encodeURIComponent(design)}`, { method: 'DELETE' }),
+      ),
+    );
+
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.filter((r) => r.status === 'rejected').length;
+
+    if (failed > 0) {
+      toast.error(`Deleted ${succeeded}, failed ${failed}`);
+    } else {
+      toast.success(`Deleted ${succeeded} template${succeeded !== 1 ? 's' : ''}`);
+    }
+
+    setSelectMode(false);
+    setSelectedDesigns(new Set());
+    await loadTemplates();
+  };
+
   const saveTagData = async (data: TagData) => {
     try {
       await fetch('/api/template-tags', {
@@ -274,73 +311,122 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   return (
     <div>
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="relative flex-1 max-w-xs">
-            <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search templates..."
-              className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
-            />
+      {selectMode ? (
+        <div className="flex items-center justify-between gap-3 mb-4 px-4 py-3 rounded-xl bg-[var(--primary)]/5 border border-[var(--primary)]/20">
+          <div className="flex items-center gap-3">
+            <CheckCircleIcon className="w-5 h-5 text-[var(--primary)]" />
+            <span className="text-sm font-medium">
+              {selectedDesigns.size} selected
+            </span>
+            <button
+              onClick={() => {
+                const allFilteredDesigns = filtered.map((t) => t.design);
+                if (selectedDesigns.size === allFilteredDesigns.length) {
+                  setSelectedDesigns(new Set());
+                } else {
+                  setSelectedDesigns(new Set(allFilteredDesigns));
+                }
+              }}
+              className="text-xs text-[var(--primary)] hover:underline"
+            >
+              {selectedDesigns.size === filtered.length ? 'Deselect All' : 'Select All'}
+            </button>
           </div>
-          {tagData.tags.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-2">
+            {selectedDesigns.size > 0 && (
               <button
-                onClick={() => setSelectedTag(null)}
-                className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
-                  !selectedTag
-                    ? 'bg-[var(--primary)] text-white'
-                    : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                }`}
+                onClick={handleBulkDelete}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-400 border border-red-400/30 rounded-lg hover:bg-red-500/10 transition-colors"
               >
-                All
+                <TrashIcon className="w-4 h-4" />
+                Delete Selected
               </button>
-              {tagData.tags.map((tag) => (
+            )}
+            <button
+              onClick={() => { setSelectMode(false); setSelectedDesigns(new Set()); }}
+              className="px-3 py-1.5 text-sm font-medium text-[var(--muted-foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="relative flex-1 max-w-xs">
+              <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search templates..."
+                className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
+              />
+            </div>
+            {tagData.tags.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
-                  key={tag}
-                  onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                  onClick={() => setSelectedTag(null)}
                   className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
-                    selectedTag === tag
+                    !selectedTag
                       ? 'bg-[var(--primary)] text-white'
                       : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
                   }`}
                 >
-                  {tag}
+                  All
                 </button>
-              ))}
-            </div>
-          )}
-        </div>
+                {tagData.tags.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                    className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+                      selectedTag === tag
+                        ? 'bg-[var(--primary)] text-white'
+                        : 'bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            onClick={() => setShowTagModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
-            title="Manage Tags"
-          >
-            <TagIcon className="w-4 h-4" />
-            Tags
-          </button>
-          <button
-            onClick={() => setShowBulkModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
-            title="Bulk Edit"
-          >
-            <AdjustmentsHorizontalIcon className="w-4 h-4" />
-            Bulk Edit
-          </button>
-          <button
-            onClick={() => { setShowCreateChoice(true); setCreateStep('choice'); setNewName(''); }}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
-          >
-            <PlusIcon className="w-4 h-4" />
-            Create Template
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setSelectMode(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
+              title="Select templates"
+            >
+              <CheckCircleIcon className="w-4 h-4" />
+              Select
+            </button>
+            <button
+              onClick={() => setShowTagModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
+              title="Manage Tags"
+            >
+              <TagIcon className="w-4 h-4" />
+              Tags
+            </button>
+            <button
+              onClick={() => setShowBulkModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
+              title="Bulk Edit"
+            >
+              <AdjustmentsHorizontalIcon className="w-4 h-4" />
+              Bulk Edit
+            </button>
+            <button
+              onClick={() => { setShowCreateChoice(true); setCreateStep('choice'); setNewName(''); }}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
+            >
+              <PlusIcon className="w-4 h-4" />
+              Create Template
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Create choice modal */}
       {showCreateChoice && (
@@ -430,14 +516,32 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
           {filtered.map((t) => {
             const tags = tagData.assignments[t.design] || [];
             const isOpen = menuOpen === t.design;
+            const isSelected = selectedDesigns.has(t.design);
             return (
               <div
                 key={t.design}
-                className="group relative glass-card rounded-xl overflow-hidden"
+                className={`group relative glass-card rounded-xl overflow-hidden ${isOpen ? 'z-10' : ''}`}
               >
+                {/* Selection ring overlay – renders above iframe */}
+                {isSelected && (
+                  <div className="absolute inset-0 border-3 border-[var(--primary)] rounded-xl z-20 pointer-events-none" />
+                )}
                 {/* Preview area */}
-                <div className="cursor-pointer" onClick={() => setPreviewDesign(t.design)}>
+                <div
+                  className="cursor-pointer relative"
+                  onClick={() => {
+                    if (selectMode) { handleToggleSelect(t.design); return; }
+                    setPreviewDesign(t.design);
+                  }}
+                >
                   <TemplatePreview design={t.design} height={220} />
+                  {selectMode && (
+                    <div className="absolute inset-0 bg-black/10">
+                      <div className={`absolute top-2.5 left-2.5 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-[var(--primary)] border-[var(--primary)] text-white' : 'border-white/80 bg-black/20'}`}>
+                        {isSelected && <CheckCircleIcon className="w-4 h-4" />}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Info */}
@@ -445,52 +549,57 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                   <div className="flex items-center justify-between gap-1">
                     <span
                       className="text-sm font-medium truncate hover:text-[var(--primary)] transition-colors cursor-pointer"
-                      onClick={() => setPreviewDesign(t.design)}
+                      onClick={() => {
+                        if (selectMode) { handleToggleSelect(t.design); return; }
+                        setPreviewDesign(t.design);
+                      }}
                     >
                       {t.name || formatDesign(t.design)}
                     </span>
 
                     {/* Menu */}
-                    <div className="relative" ref={isOpen ? menuRef : undefined}>
-                      <button
-                        onClick={() => setMenuOpen(isOpen ? null : t.design)}
-                        className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                      >
-                        <EllipsisVerticalIcon className="w-4 h-4" />
-                      </button>
-                      {isOpen && (
-                        <div className="absolute right-0 top-full mt-1 z-50 w-40 glass-dropdown">
-                          <button
-                            onClick={() => { setMenuOpen(null); setPreviewDesign(t.design); }}
-                            className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
-                          >
-                            <EyeIcon className="w-4 h-4" />
-                            View
-                          </button>
-                          <button
-                            onClick={() => { router.push(editorHref(t.design)); setMenuOpen(null); }}
-                            className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
-                          >
-                            <PencilIcon className="w-4 h-4" />
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => { cloneTemplate(t.design); setMenuOpen(null); }}
-                            className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
-                          >
-                            <DocumentDuplicateIcon className="w-4 h-4" />
-                            Clone
-                          </button>
-                          <button
-                            onClick={() => { deleteTemplate(t.design); setMenuOpen(null); }}
-                            className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2"
-                          >
-                            <TrashIcon className="w-4 h-4" />
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    {!selectMode && (
+                      <div className="relative" ref={isOpen ? menuRef : undefined}>
+                        <button
+                          onClick={() => setMenuOpen(isOpen ? null : t.design)}
+                          className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                        >
+                          <EllipsisVerticalIcon className="w-4 h-4" />
+                        </button>
+                        {isOpen && (
+                          <div className="absolute right-0 top-full mt-1 z-50 w-40 glass-dropdown">
+                            <button
+                              onClick={() => { setMenuOpen(null); setPreviewDesign(t.design); }}
+                              className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                            >
+                              <EyeIcon className="w-4 h-4" />
+                              View
+                            </button>
+                            <button
+                              onClick={() => { router.push(editorHref(t.design)); setMenuOpen(null); }}
+                              className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                            >
+                              <PencilIcon className="w-4 h-4" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => { cloneTemplate(t.design); setMenuOpen(null); }}
+                              className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                            >
+                              <DocumentDuplicateIcon className="w-4 h-4" />
+                              Clone
+                            </button>
+                            <button
+                              onClick={() => { deleteTemplate(t.design); setMenuOpen(null); }}
+                              className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2"
+                            >
+                              <TrashIcon className="w-4 h-4" />
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {tags.length > 0 && (
