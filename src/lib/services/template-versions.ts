@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma';
 
 const MAX_VERSIONS = 5;
 
-export async function createVersion(templateId: string, content: string) {
+export async function createVersion(templateId: string, content: string, userId?: string) {
   // Check if latest version has the same content (skip duplicate snapshots)
   const latest = await prisma.templateVersion.findFirst({
     where: { templateId },
@@ -12,7 +12,11 @@ export async function createVersion(templateId: string, content: string) {
 
   // Create the new version
   const version = await prisma.templateVersion.create({
-    data: { templateId, content },
+    data: {
+      templateId,
+      content,
+      createdByUserId: userId || null,
+    },
   });
 
   // Prune old versions beyond the limit
@@ -39,6 +43,9 @@ export async function getVersions(templateId: string) {
     select: {
       id: true,
       createdAt: true,
+      createdByUser: {
+        select: { id: true, name: true, avatarUrl: true },
+      },
     },
   });
 }
@@ -47,7 +54,7 @@ export async function getVersion(versionId: string) {
   return prisma.templateVersion.findUnique({ where: { id: versionId } });
 }
 
-export async function restoreVersion(templateId: string, versionId: string) {
+export async function restoreVersion(templateId: string, versionId: string, userId?: string) {
   const version = await prisma.templateVersion.findUnique({
     where: { id: versionId },
   });
@@ -57,12 +64,16 @@ export async function restoreVersion(templateId: string, versionId: string) {
   // Snapshot current content before restoring
   const current = await prisma.template.findUnique({ where: { id: templateId } });
   if (current) {
-    await createVersion(templateId, current.content);
+    await createVersion(templateId, current.content, userId);
   }
 
   // Update template with the restored version's content
   return prisma.template.update({
     where: { id: templateId },
-    data: { content: version.content, updatedAt: new Date() },
+    data: {
+      content: version.content,
+      updatedByUserId: userId || null,
+      updatedAt: new Date(),
+    },
   });
 }

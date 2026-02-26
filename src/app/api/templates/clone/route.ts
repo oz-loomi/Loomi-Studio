@@ -4,7 +4,7 @@ import { MANAGEMENT_ROLES } from '@/lib/auth';
 import * as templateService from '@/lib/services/templates';
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole(...MANAGEMENT_ROLES);
+  const { session, error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Source design is required' }, { status: 400 });
     }
 
-    const cloned = await templateService.cloneTemplate(sourceDesign, newDesign || undefined);
+    const cloned = await templateService.cloneTemplate(sourceDesign, newDesign || undefined, session!.user.id);
 
     return NextResponse.json({
       success: true,

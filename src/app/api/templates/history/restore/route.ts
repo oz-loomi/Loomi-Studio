@@ -5,7 +5,7 @@ import * as templateService from '@/lib/services/templates';
 import * as versionService from '@/lib/services/template-versions';
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole(...MANAGEMENT_ROLES);
+  const { session, error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Template not found' }, { status: 404 });
     }
 
-    const restored = await versionService.restoreVersion(template.id, versionId);
+    const restored = await versionService.restoreVersion(template.id, versionId, session!.user.id);
 
     return NextResponse.json({ success: true, raw: restored.content });
   } catch (err: any) {

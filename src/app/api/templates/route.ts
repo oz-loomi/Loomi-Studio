@@ -42,12 +42,16 @@ export async function GET(req: NextRequest) {
       type: t.type,
       category: t.category,
       updatedAt: t.updatedAt.toISOString(),
+      createdBy: t.createdByUser?.name || null,
+      createdByAvatar: t.createdByUser?.avatarUrl || null,
+      updatedBy: t.updatedByUser?.name || null,
+      updatedByAvatar: t.updatedByUser?.avatarUrl || null,
     })),
   );
 }
 
 export async function PUT(req: NextRequest) {
-  const { error } = await requireRole(...MANAGEMENT_ROLES);
+  const { session, error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {
@@ -79,16 +83,21 @@ export async function PUT(req: NextRequest) {
       if (phMatch) preheader = phMatch[1].trim().replace(/^["']|["']$/g, '');
     }
 
-    await templateService.updateTemplate(design, { content, title, preheader }, createSnapshot);
+    const updated = await templateService.updateTemplate(
+      design,
+      { content, title, preheader },
+      createSnapshot,
+      session!.user.id,
+    );
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, slug: updated.slug });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole(...MANAGEMENT_ROLES);
+  const { session, error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {
@@ -116,7 +125,6 @@ export async function POST(req: NextRequest) {
 
     const starter = `---
 title: ${designLabel}
-preheader: ""
 ---
 
 <x-base>
@@ -147,6 +155,7 @@ preheader: ""
       title: designLabel,
       type: templateType || 'design',
       content: starter,
+      createdByUserId: session!.user.id,
     });
 
     return NextResponse.json({ design: safeSlug });

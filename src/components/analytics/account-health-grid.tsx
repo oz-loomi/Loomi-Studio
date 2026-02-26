@@ -107,25 +107,25 @@ export function AccountHealthGrid({ accounts, crmStats, emailsByAccount, loading
                 accountKey={key}
                 storefrontImage={account.storefrontImage}
                 logos={account.logos}
-                size={40}
-                className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
+                size={44}
+                className="h-11 w-11 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <p className="text-sm font-semibold truncate">{account.dealer}</p>
-                  <ArrowRightIcon className="w-3 h-3 text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                  <ArrowRightIcon className="h-4 w-4 text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 flex-shrink-0" />
                 </div>
                 <div className="flex items-center gap-1.5">
                   {connected ? (
-                    <SignalIcon className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                    <SignalIcon className="h-4 w-4 text-emerald-400 flex-shrink-0" />
                   ) : (
-                    <SignalSlashIcon className="w-3 h-3 text-[var(--muted-foreground)] flex-shrink-0" />
+                    <SignalSlashIcon className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
                   )}
-                  <span className={`text-[10px] ${connected ? 'text-emerald-400' : 'text-[var(--muted-foreground)]'}`}>
+                  <span className={`text-xs ${connected ? 'text-emerald-400' : 'text-[var(--muted-foreground)]'}`}>
                     {connected ? 'Connected' : 'Not connected'}
                   </span>
                   {crm?.error && (
-                    <ExclamationTriangleIcon className="w-3 h-3 text-amber-400 flex-shrink-0" title={crm.error} />
+                    <ExclamationTriangleIcon className="h-4 w-4 text-amber-400 flex-shrink-0" title={crm.error} />
                   )}
                 </div>
               </div>
@@ -190,10 +190,10 @@ function MiniStat({
   return (
     <div className="text-center">
       <div className="flex items-center justify-center mb-0.5">
-        <Icon className={`w-3 h-3 ${color}`} />
+        <Icon className={`h-4 w-4 ${color}`} />
       </div>
       <p className="text-sm font-bold tabular-nums">{value}</p>
-      <p className="text-[9px] text-[var(--muted-foreground)]">{label}</p>
+      <p className="text-[10px] text-[var(--muted-foreground)]">{label}</p>
     </div>
   );
 }

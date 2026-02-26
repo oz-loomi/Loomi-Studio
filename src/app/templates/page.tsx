@@ -309,9 +309,6 @@ function TemplateCard({
         >
           {t.name}
         </h3>
-        {t.subject && (
-          <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 truncate">{t.subject}</p>
-        )}
         <div className="flex items-center gap-2 mt-2">
           <span
             className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full"
@@ -387,9 +384,6 @@ function TemplateRow({
       </div>
       <div className="flex-1 min-w-0 cursor-pointer" onClick={selectMode ? undefined : () => onEdit(t.id)}>
         <h3 className="font-semibold text-sm truncate">{t.name}</h3>
-        <p className="text-[10px] text-[var(--muted-foreground)] truncate">
-          {t.subject || 'No subject'}
-        </p>
       </div>
       {showAccount && <AccountPill acctKey={t.accountKey} accounts={accounts} />}
       <ProviderPill provider={t.provider} />

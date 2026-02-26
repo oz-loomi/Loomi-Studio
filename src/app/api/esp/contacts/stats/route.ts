@@ -21,7 +21,11 @@ export async function GET() {
 
     const userRole = session!.user.role;
     const userAccountKeys: string[] = session!.user.accountKeys ?? [];
-    const allowedKeys = userRole === 'developer'
+    const hasUnrestrictedAccess =
+      userRole === 'developer'
+      || userRole === 'super_admin'
+      || (userRole === 'admin' && userAccountKeys.length === 0);
+    const allowedKeys = hasUnrestrictedAccess
       ? allKeys
       : allKeys.filter(k => userAccountKeys.includes(k));
 

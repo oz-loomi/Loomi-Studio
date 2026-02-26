@@ -14,6 +14,12 @@ export async function getTemplates(type?: string) {
       preheader: true,
       createdAt: true,
       updatedAt: true,
+      createdByUser: {
+        select: { id: true, name: true, avatarUrl: true },
+      },
+      updatedByUser: {
+        select: { id: true, name: true, avatarUrl: true },
+      },
     },
   });
 }
@@ -33,6 +39,7 @@ export async function createTemplate(data: {
   content: string;
   category?: string;
   preheader?: string;
+  createdByUserId?: string;
 }) {
   return prisma.template.create({ data });
 }
@@ -41,18 +48,41 @@ export async function updateTemplate(
   slug: string,
   data: { content?: string; title?: string; preheader?: string; category?: string },
   snapshot = true,
+  userId?: string,
 ) {
   const existing = await prisma.template.findUnique({ where: { slug } });
   if (!existing) throw new Error(`Template "${slug}" not found`);
 
   // Create a version snapshot before updating
   if (snapshot && data.content && data.content !== existing.content) {
-    await createVersion(existing.id, existing.content);
+    await createVersion(existing.id, existing.content, userId);
+  }
+
+  // Derive new slug from title when title changes
+  const updateData: Record<string, unknown> = {
+    ...data,
+    updatedAt: new Date(),
+    updatedByUserId: userId || null,
+  };
+  if (data.title && data.title !== existing.title) {
+    const newSlug = data.title
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    if (newSlug && newSlug !== slug) {
+      // Only rename if the new slug doesn't collide with another template
+      const collision = await prisma.template.findUnique({ where: { slug: newSlug } });
+      if (!collision) {
+        updateData.slug = newSlug;
+      }
+    }
   }
 
   return prisma.template.update({
     where: { slug },
-    data: { ...data, updatedAt: new Date() },
+    data: updateData,
   });
 }
 
@@ -60,7 +90,7 @@ export async function deleteTemplate(slug: string) {
   return prisma.template.delete({ where: { slug } });
 }
 
-export async function cloneTemplate(sourceSlug: string, targetSlug?: string) {
+export async function cloneTemplate(sourceSlug: string, targetSlug?: string, userId?: string) {
   const source = await prisma.template.findUnique({ where: { slug: sourceSlug } });
   if (!source) throw new Error(`Template "${sourceSlug}" not found`);
 
@@ -85,6 +115,7 @@ export async function cloneTemplate(sourceSlug: string, targetSlug?: string) {
       category: source.category,
       content: source.content,
       preheader: source.preheader,
+      createdByUserId: userId || null,
     },
   });
 }

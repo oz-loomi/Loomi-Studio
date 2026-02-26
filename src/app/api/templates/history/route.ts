@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
       versions: versions.map((v) => ({
         id: v.id,
         createdAt: v.createdAt.toISOString(),
+        createdBy: v.createdByUser?.name || null,
       })),
     });
   } catch (err: any) {

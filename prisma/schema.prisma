@@ -26,6 +26,10 @@ model User {
 
   invites  UserInvite[]
   accounts Account[]   // accounts where this user is the rep
+
+  templatesCreated  Template[]        @relation("TemplateCreatedBy")
+  templatesUpdated  Template[]        @relation("TemplateUpdatedBy")
+  templateVersions  TemplateVersion[] @relation("TemplateVersionCreatedBy")
 }
 
 model UserInvite {
@@ -179,27 +183,34 @@ model EspAccountProviderLink {
 // ─────────────────────────────────────────────────────
 
 model Template {
-  id        String   @id @default(cuid())
-  slug      String   @unique // "service-reminder", "modern-dark"
-  title     String // "Service Reminder", "Modern Dark"
-  type      String // "lifecycle" | "design"
-  category  String? // "service", "sales", "loyalty", etc.
-  content   String // full raw HTML template source
-  preheader String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(cuid())
+  slug            String   @unique // "service-reminder", "modern-dark"
+  title           String // "Service Reminder", "Modern Dark"
+  type            String // "lifecycle" | "design"
+  category        String? // "service", "sales", "loyalty", etc.
+  content         String // full raw HTML template source
+  preheader       String?
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  versions TemplateVersion[]
-  tags     TemplateTagAssignment[]
-  emails   AccountEmail[]
+  createdByUser User? @relation("TemplateCreatedBy", fields: [createdByUserId], references: [id])
+  updatedByUser User? @relation("TemplateUpdatedBy", fields: [updatedByUserId], references: [id])
+  versions      TemplateVersion[]
+  tags          TemplateTagAssignment[]
+  emails        AccountEmail[]
 }
 
 model TemplateVersion {
-  id         String   @id @default(cuid())
-  templateId String
-  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  content    String // snapshot of full HTML at this version
-  createdAt  DateTime @default(now())
+  id              String   @id @default(cuid())
+  templateId      String
+  template        Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  content         String // snapshot of full HTML at this version
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  createdByUser User? @relation("TemplateVersionCreatedBy", fields: [createdByUserId], references: [id])
 
   @@index([templateId])
 }

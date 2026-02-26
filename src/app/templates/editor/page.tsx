@@ -63,6 +63,7 @@ interface TemplateHistoryVersion {
   id: string;
   createdAt: string;
   size: number;
+  createdBy?: string | null;
 }
 
 interface SimpleDiffLine {
@@ -2730,12 +2731,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     key: "meta",
     fields: [
       { key: "fm:title", label: "Title", type: "text", target: "frontmatter" },
-      {
-        key: "fm:preheader",
-        label: "Preheader",
-        type: "text",
-        target: "frontmatter",
-      },
     ],
   },
   {
@@ -3149,7 +3144,8 @@ function serializeTemplateClient(template: ParsedTemplate): string {
 
 export default function TemplateEditorPage() {
   const searchParams = useSearchParams();
-  const design = searchParams.get("design") || "";
+  const designParam = searchParams.get("design") || "";
+  const [design, setDesign] = useState(designParam);
   const templateName = "template";
   const espTemplateId = searchParams.get("id") || "";
   const modeParam = searchParams.get("mode");
@@ -3521,7 +3517,7 @@ export default function TemplateEditorPage() {
           .catch((err) => console.error("Error loading library template:", err));
       } else {
         // Brand new blank ESP template — initialize with minimal structure
-        const blank = `---\ntitle: Untitled Template\npreheader: ""\nrooftop: preview\n---\n\n<x-base>\n\n  <x-core.spacer size="40" />\n\n  <x-core.copy\n    greeting="Hello,"\n    body="Start building your email by adding components."\n  />\n\n  <x-core.spacer size="40" />\n\n</x-base>\n`;
+        const blank = `---\ntitle: Untitled Template\nrooftop: preview\n---\n\n<x-base>\n\n  <x-core.spacer size="40" />\n\n  <x-core.copy\n    greeting="Hello,"\n    body="Start building your email by adding components."\n  />\n\n  <x-core.spacer size="40" />\n\n</x-base>\n`;
         setCode(blank);
         setOriginalCode(blank);
         setEspTemplateName("Untitled Template");
@@ -3635,6 +3631,8 @@ export default function TemplateEditorPage() {
             body: JSON.stringify({ design, type: templateName, raw: code }),
           });
           if (res.ok) {
+            const data = await res.json();
+            if (data.slug && data.slug !== design) setDesign(data.slug);
             setOriginalCode(code);
             setMessage("Saved");
             setTimeout(() => setMessage(""), 2000);
@@ -4294,6 +4292,8 @@ export default function TemplateEditorPage() {
         });
       }
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.slug && data.slug !== design) setDesign(data.slug);
         setOriginalCode(code);
         setMessage("Saved");
         setTimeout(() => setMessage(""), 3000);
@@ -4440,7 +4440,7 @@ export default function TemplateEditorPage() {
         body: JSON.stringify({
           accountKey,
           name: templateTitle,
-          subject: parsed?.frontmatter?.preheader || "",
+          subject: espSubject || parsed?.frontmatter?.title || "",
           html: compiledHtml,
           source: code,
           editorType: editorMode === "code" ? "code" : "visual",
@@ -5280,15 +5280,15 @@ export default function TemplateEditorPage() {
                           <button
                             onClick={() => handleGenerateEmailMeta("subject")}
                             disabled={aiMetaLoading}
-                            className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors disabled:opacity-50"
-                            title="Generate with AI"
+                            className="group flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md ai-ed-btn-inactive border border-[var(--ai-ed-btn-border)] hover:ring-1 hover:ring-cyan-300/25 hover:shadow-[0_4px_12px_rgba(45,212,191,0.18)] transition-all duration-200 disabled:opacity-50"
+                            title="Generate with Loomi AI"
                           >
                             {aiMetaLoading && aiMetaField === "subject" ? (
                               <ArrowPathIcon className="w-3 h-3 animate-spin" />
                             ) : (
-                              <SparklesIcon className="w-3 h-3" />
+                              <SparklesIcon className="w-3 h-3 transition-transform group-hover:scale-110 group-hover:rotate-6" />
                             )}
-                            AI
+                            Generate with Loomi AI
                           </button>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -5309,15 +5309,15 @@ export default function TemplateEditorPage() {
                           <button
                             onClick={() => handleGenerateEmailMeta("previewText")}
                             disabled={aiMetaLoading}
-                            className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors disabled:opacity-50"
-                            title="Generate with AI"
+                            className="group flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md ai-ed-btn-inactive border border-[var(--ai-ed-btn-border)] hover:ring-1 hover:ring-cyan-300/25 hover:shadow-[0_4px_12px_rgba(45,212,191,0.18)] transition-all duration-200 disabled:opacity-50"
+                            title="Generate with Loomi AI"
                           >
                             {aiMetaLoading && aiMetaField === "previewText" ? (
                               <ArrowPathIcon className="w-3 h-3 animate-spin" />
                             ) : (
-                              <SparklesIcon className="w-3 h-3" />
+                              <SparklesIcon className="w-3 h-3 transition-transform group-hover:scale-110 group-hover:rotate-6" />
                             )}
-                            AI
+                            Generate with Loomi AI
                           </button>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -6330,9 +6330,17 @@ export default function TemplateEditorPage() {
                           <p className="text-xs font-medium">
                             {formatHistoryDate(version.createdAt)}
                           </p>
-                          <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
-                            {formatBytes(version.size)}
-                          </p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {version.createdBy && (
+                              <span className="text-[10px] text-[var(--muted-foreground)]">
+                                {version.createdBy}
+                              </span>
+                            )}
+                            {version.createdBy && <span className="text-[10px] text-[var(--muted-foreground)] opacity-40">·</span>}
+                            <span className="text-[10px] text-[var(--muted-foreground)]">
+                              {formatBytes(version.size)}
+                            </span>
+                          </div>
                         </button>
                         <button
                           onClick={() => handleRestoreVersion(version.id)}

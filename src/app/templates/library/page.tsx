@@ -36,6 +36,10 @@ interface TemplateEntry {
   design: string;
   name: string;
   updatedAt?: string;
+  createdBy?: string | null;
+  createdByAvatar?: string | null;
+  updatedBy?: string | null;
+  updatedByAvatar?: string | null;
 }
 
 interface TagData {
@@ -615,7 +619,23 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                     </div>
                   )}
 
-                  <p className="text-[10px] text-[var(--muted-foreground)] mt-1">{t.design}</p>
+                  {(t.createdBy || t.updatedBy) && (
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      {(() => {
+                        const avatar = t.updatedByAvatar || t.createdByAvatar;
+                        const name = t.updatedBy || t.createdBy;
+                        const initials = name ? name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '';
+                        return avatar ? (
+                          <img src={avatar} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
+                        ) : (
+                          <span className="w-4 h-4 rounded-full bg-[var(--muted)] flex items-center justify-center text-[7px] font-semibold text-[var(--muted-foreground)] flex-shrink-0">{initials}</span>
+                        );
+                      })()}
+                      <span className="text-[10px] text-[var(--muted-foreground)] truncate">
+                        {t.updatedBy ? `Edited by ${t.updatedBy}` : `By ${t.createdBy}`}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -824,7 +844,23 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                       ))}
                     </div>
                   )}
-                  <p className="text-[10px] text-[var(--muted-foreground)] mt-1">{t.design}</p>
+                  {(t.createdBy || t.updatedBy) && (
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      {(() => {
+                        const avatar = t.updatedByAvatar || t.createdByAvatar;
+                        const name = t.updatedBy || t.createdBy;
+                        const initials = name ? name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '';
+                        return avatar ? (
+                          <img src={avatar} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
+                        ) : (
+                          <span className="w-4 h-4 rounded-full bg-[var(--muted)] flex items-center justify-center text-[7px] font-semibold text-[var(--muted-foreground)] flex-shrink-0">{initials}</span>
+                        );
+                      })()}
+                      <span className="text-[10px] text-[var(--muted-foreground)] truncate">
+                        {t.updatedBy ? `Edited by ${t.updatedBy}` : `By ${t.createdBy}`}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             );
