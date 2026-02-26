@@ -378,6 +378,16 @@ main[data-scrolled='true'] .page-sticky-header {
     inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
 }
 
+/* Keep Apex charts transparent so Loomi glass gradients show through in both themes */
+.apexcharts-canvas,
+.apexcharts-svg,
+.apexcharts-inner,
+.apexcharts-graphical,
+.apexcharts-grid,
+.apexcharts-plot-series {
+  background: transparent !important;
+}
+
 /* ── Glass section card ── non-lifting frosted cards for form sections */
 .glass-section-card {
   background: var(--card);
