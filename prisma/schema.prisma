@@ -80,6 +80,7 @@ model Account {
   audiences     Audience[]
   loomiFlows    LoomiFlow[]
   espTemplates  EspTemplate[]
+  mediaAssets   MediaAsset[]
 
   @@index([accountRepId])
 }
@@ -459,4 +460,30 @@ model ChangelogEntry {
   updatedAt   DateTime @updatedAt
 
   @@index([publishedAt])
+}
+
+// ─────────────────────────────────────────────────────
+// S3 Media Assets (supplementary storage alongside ESP)
+// ─────────────────────────────────────────────────────
+
+model MediaAsset {
+  id           String   @id @default(cuid())
+  accountKey   String?  // null = admin-level (Loomi media library)
+  account      Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  s3Key        String   // "media/_admin/{id}/{filename}" or "media/{accountKey}/{id}/{filename}"
+  filename     String
+  mimeType     String
+  size         Int      // bytes
+  width        Int?     // image-only
+  height       Int?     // image-only
+  thumbnailKey String?  // "media/_admin/{id}/thumb.webp"
+  category     String?  // "brand" | "ad-creative" | "oem" | "general"
+  tags         String?  // JSON string[] for future DAM filtering
+  uploadedBy   String?  // User ID
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([s3Key])
+  @@index([accountKey, createdAt])
+  @@index([accountKey, category])
 }

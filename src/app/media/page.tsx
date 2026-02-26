@@ -38,6 +38,8 @@ interface MediaFile {
   thumbnailUrl?: string;
   createdAt?: string;
   updatedAt?: string;
+  source?: 'esp' | 's3';
+  category?: string;
 }
 
 interface MediaFolder {
@@ -90,6 +92,20 @@ const PROVIDER_META: Record<string, ProviderInfo> = {
     displayName: 'Klaviyo',
     iconSrc: 'https://storage.googleapis.com/msgsndr/CVpny6EUSHRxlXfqAFb7/media/6992d3ac3b3cc9155bdaf06e.png',
   },
+  s3: {
+    id: 's3',
+    displayName: 'Loomi',
+    iconSrc: undefined,
+  },
+};
+
+const S3_CAPABILITIES: MediaCapabilities = {
+  canUpload: true,
+  canDelete: true,
+  canRename: true,
+  canMove: false,
+  canCreateFolders: false,
+  canNavigateFolders: false,
 };
 
 function providerLabel(provider: string): string {
@@ -176,6 +192,7 @@ function MediaCard({
   onDelete,
 }: MediaCardProps) {
   const isImage = f.type?.startsWith('image') || f.url?.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
+  const caps = f.source === 's3' ? S3_CAPABILITIES : activeCaps;
 
   return (
     <div
@@ -221,7 +238,7 @@ function MediaCard({
       {/* Info */}
       <div className="p-3">
         <div className="flex items-center justify-between gap-2 mb-1.5">
-          {activeProvider && <ProviderPill prov={activeProvider} />}
+          {(f.source === 's3' ? <ProviderPill prov="s3" /> : activeProvider ? <ProviderPill prov={activeProvider} /> : null)}
           {!selectMode && (
             <div className="relative flex-shrink-0">
               <button
@@ -243,7 +260,7 @@ function MediaCard({
                   >
                     <ClipboardDocumentIcon className="w-4 h-4" /> Copy URL
                   </button>
-                  {activeCaps?.canMove && onMove && (
+                  {caps?.canMove && onMove && (
                     <button
                       onClick={() => { onMenuClose(); onMove(); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
@@ -251,7 +268,7 @@ function MediaCard({
                       <FolderArrowDownIcon className="w-4 h-4" /> Move
                     </button>
                   )}
-                  {activeCaps?.canRename && onRename && (
+                  {caps?.canRename && onRename && (
                     <button
                       onClick={() => { onMenuClose(); onRename(); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
@@ -259,7 +276,7 @@ function MediaCard({
                       <PencilSquareIcon className="w-4 h-4" /> Rename
                     </button>
                   )}
-                  {activeCaps?.canDelete && onDelete && (
+                  {caps?.canDelete && onDelete && (
                     <button
                       onClick={() => { onMenuClose(); onDelete(); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
@@ -387,6 +404,8 @@ export default function MediaPage() {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadDestination, setUploadDestination] = useState<'esp' | 's3'>('esp');
+  const [uploadAccountKeys, setUploadAccountKeys] = useState<Set<string>>(new Set());
 
   // Modals
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -425,6 +444,16 @@ export default function MediaPage() {
   const [overviewData, setOverviewData] = useState<Record<string, AccountMediaPreview>>({});
   const [overviewLoaded, setOverviewLoaded] = useState(false);
   const [overviewSearch, setOverviewSearch] = useState('');
+
+  // ── Admin S3 media state ──
+  const [adminMediaFiles, setAdminMediaFiles] = useState<MediaFile[]>([]);
+  const [adminMediaTotal, setAdminMediaTotal] = useState(0);
+  const [adminMediaLoading, setAdminMediaLoading] = useState(false);
+
+  // ── Push to Sub-accounts modal ──
+  const [showPushModal, setShowPushModal] = useState(false);
+  const [pushAccountKeys, setPushAccountKeys] = useState<Set<string>>(new Set());
+  const [pushing, setPushing] = useState(false);
 
   // Derive the effective account key
   const effectiveAccountKey = isAccount
@@ -504,22 +533,22 @@ export default function MediaPage() {
     }
     setOverviewData(initialState);
 
-    // Fetch total file counts for all connected accounts in parallel
+    // Fetch total file counts for all connected accounts (ESP only — S3 is admin-level)
     const results = await Promise.allSettled(
       connectedAccountKeys.map(async (key) => {
         const params = new URLSearchParams({
           accountKey: key,
           countOnly: 'true',
         });
-        const res = await fetch(`/api/esp/media?${params.toString()}`);
-        const data = await res.json();
+        const espRes = await fetch(`/api/esp/media?${params.toString()}`);
+        const espData = await espRes.json();
 
-        if (res.ok) {
+        if (espRes.ok) {
           return {
             accountKey: key,
-            totalCount: (data.total as number) || 0,
-            provider: data.provider || null,
-            capabilities: data.capabilities || null,
+            totalCount: (espData.total as number) || 0,
+            provider: espData.provider || null,
+            capabilities: espData.capabilities || null,
           };
         } else {
           return {
@@ -527,7 +556,7 @@ export default function MediaPage() {
             totalCount: 0,
             provider: null,
             capabilities: null,
-            error: data.error || 'Failed to load',
+            error: espData.error || 'Failed to load',
           };
         }
       })
@@ -580,6 +609,41 @@ export default function MediaPage() {
     }
   }, [showOverview, overviewLoaded, connectedAccountKeys, loadOverview]);
 
+  // ── Admin S3 Media Loading ──
+
+  const loadAdminMedia = useCallback(async (searchQuery?: string) => {
+    if (!isAdmin) return;
+    setAdminMediaLoading(true);
+
+    try {
+      const params = new URLSearchParams({ limit: '50' });
+      if (searchQuery?.trim()) params.set('search', searchQuery.trim());
+
+      const res = await fetch(`/api/media?${params.toString()}`);
+      const data = await res.json();
+
+      if (res.ok) {
+        setAdminMediaFiles(data.files || []);
+        setAdminMediaTotal(data.total || 0);
+      } else {
+        toast.error(data.error || 'Failed to load Loomi media');
+      }
+    } catch {
+      toast.error('Failed to load Loomi media');
+    }
+
+    setAdminMediaLoading(false);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (showOverview) {
+      loadAdminMedia();
+    } else {
+      setAdminMediaFiles([]);
+      setAdminMediaTotal(0);
+    }
+  }, [showOverview, loadAdminMedia]);
+
   // ── Single-Account Data Loading ──
 
   const loadMedia = useCallback(async (cursor?: string) => {
@@ -594,28 +658,32 @@ export default function MediaPage() {
     }
 
     try {
-      const params = new URLSearchParams({
+      const espParams = new URLSearchParams({
         accountKey: effectiveAccountKey,
       });
-      if (cursor) params.set('cursor', cursor);
-      if (currentFolderId) params.set('parentId', currentFolderId);
-      params.set('limit', '50');
+      if (cursor) espParams.set('cursor', cursor);
+      if (currentFolderId) espParams.set('parentId', currentFolderId);
+      espParams.set('limit', '50');
 
-      const res = await fetch(`/api/esp/media?${params.toString()}`);
-      const data = await res.json();
+      // Sub-account view: fetch ESP only (S3 files are admin-level only)
+      const espRes = await fetch(`/api/esp/media?${espParams.toString()}`);
+      const espData = await espRes.json();
 
-      if (res.ok) {
+      if (espRes.ok) {
+        // Tag ESP files with source
+        const espFiles = (espData.files || []).map((f: MediaFile) => ({ ...f, source: 'esp' as const }));
+
         if (cursor) {
-          setFiles(prev => [...prev, ...(data.files || [])]);
+          setFiles(prev => [...prev, ...espFiles]);
         } else {
-          setFiles(data.files || []);
-          setFolders(data.folders || []);
+          setFiles(espFiles);
+          setFolders(espData.folders || []);
         }
-        setNextCursor(data.nextCursor || undefined);
-        setProvider(data.provider || null);
-        setCapabilities(data.capabilities || null);
+        setNextCursor(espData.nextCursor || undefined);
+        setProvider(espData.provider || null);
+        setCapabilities(espData.capabilities || null);
       } else {
-        toast.error(data.error || 'Failed to load media');
+        toast.error(espData.error || 'Failed to load media');
       }
     } catch {
       toast.error('Failed to load media');
@@ -642,38 +710,100 @@ export default function MediaPage() {
   // ── Upload ──
 
   const handleUpload = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0 || !effectiveAccountKey) return;
+    if (!fileList || fileList.length === 0) return;
 
-    setUploading(true);
-    const uploadedFiles: MediaFile[] = [];
-
-    for (let i = 0; i < fileList.length; i++) {
-      const file = fileList[i];
-      const formData = new FormData();
-      formData.append('accountKey', effectiveAccountKey);
-      formData.append('file', file);
-      if (currentFolderId) formData.append('parentId', currentFolderId);
-
-      try {
-        const res = await fetch('/api/esp/media', {
-          method: 'POST',
-          body: formData,
-        });
-        const { ok, data, error } = await safeJson<{ file: MediaFile }>(res);
-
-        if (ok && data?.file) {
-          uploadedFiles.push(data.file);
-        } else {
-          toast.error(`Failed to upload ${file.name}: ${error || 'Unknown error'}`);
-        }
-      } catch {
-        toast.error(`Failed to upload ${file.name}`);
+    // Determine target account keys for ESP uploads
+    const targetKeys: string[] = [];
+    if (uploadDestination === 'esp') {
+      if (showOverview) {
+        targetKeys.push(...Array.from(uploadAccountKeys));
+      } else if (effectiveAccountKey) {
+        targetKeys.push(effectiveAccountKey);
+      }
+      if (targetKeys.length === 0) {
+        toast.error('No account selected');
+        return;
       }
     }
 
-    if (uploadedFiles.length > 0) {
+    setUploading(true);
+    const uploadedFiles: MediaFile[] = [];
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+
+      if (uploadDestination === 's3') {
+        // Upload to Loomi S3 storage (admin-level, no accountKey)
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('category', 'general');
+
+        try {
+          const res = await fetch('/api/media', { method: 'POST', body: formData });
+          const { ok, data, error } = await safeJson<{ file: MediaFile }>(res);
+
+          if (ok && data?.file) {
+            uploadedFiles.push(data.file);
+            successCount++;
+          } else {
+            toast.error(`Failed to upload ${file.name}: ${error || 'Unknown error'}`);
+            failCount++;
+          }
+        } catch {
+          toast.error(`Failed to upload ${file.name}`);
+          failCount++;
+        }
+      } else {
+        // Upload to ESP — potentially multiple accounts
+        const results = await Promise.allSettled(
+          targetKeys.map(async (acctKey) => {
+            const formData = new FormData();
+            formData.append('accountKey', acctKey);
+            formData.append('file', file);
+            if (currentFolderId && targetKeys.length === 1) formData.append('parentId', currentFolderId);
+
+            const res = await fetch('/api/esp/media', { method: 'POST', body: formData });
+            const { ok, data, error } = await safeJson<{ file: MediaFile }>(res);
+
+            if (ok && data?.file) return { acctKey, file: data.file };
+            throw new Error(error || 'Unknown error');
+          })
+        );
+
+        for (const result of results) {
+          if (result.status === 'fulfilled') {
+            // Only add to the current view if it's the active account
+            if (result.value.acctKey === effectiveAccountKey) {
+              uploadedFiles.push(result.value.file);
+            }
+            successCount++;
+          } else {
+            failCount++;
+          }
+        }
+
+        if (failCount > 0 && targetKeys.length > 1) {
+          toast.error(`${failCount} upload${failCount > 1 ? 's' : ''} failed`);
+        }
+      }
+    }
+
+    if (uploadDestination === 's3' && uploadedFiles.length > 0) {
+      // Refresh admin media after S3 upload
+      setAdminMediaFiles(prev => [...uploadedFiles, ...prev]);
+      setAdminMediaTotal(prev => prev + uploadedFiles.length);
+    } else if (uploadedFiles.length > 0) {
       setFiles(prev => [...uploadedFiles, ...prev]);
-      toast.success(`Uploaded ${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''}`);
+    }
+    if (successCount > 0) {
+      const label = uploadDestination === 's3'
+        ? `Uploaded ${successCount} file${successCount > 1 ? 's' : ''} to Loomi`
+        : targetKeys.length > 1
+          ? `Uploaded to ${targetKeys.length} accounts`
+          : `Uploaded ${successCount} file${successCount > 1 ? 's' : ''}`;
+      toast.success(label);
     }
 
     setUploading(false);
@@ -703,24 +833,33 @@ export default function MediaPage() {
   // ── Rename ──
 
   const handleRename = async () => {
-    if (!renameFile || !renameValue.trim() || !effectiveAccountKey) return;
+    if (!renameFile || !renameValue.trim()) return;
+    // S3 admin files don't require effectiveAccountKey; ESP files do
+    if (renameFile.source !== 's3' && !effectiveAccountKey) return;
     setRenaming(true);
 
     try {
-      const res = await fetch(`/api/esp/media/${encodeURIComponent(renameFile.id)}`, {
+      const apiBase = renameFile.source === 's3' ? '/api/media' : '/api/esp/media';
+      const body: Record<string, string> = { name: renameValue.trim() };
+      if (effectiveAccountKey) body.accountKey = effectiveAccountKey;
+
+      const res = await fetch(`${apiBase}/${encodeURIComponent(renameFile.id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountKey: effectiveAccountKey,
-          name: renameValue.trim(),
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
 
       if (res.ok && data.file) {
-        setFiles(prev =>
-          prev.map(f => (f.id === renameFile.id ? { ...f, ...data.file } : f))
-        );
+        if (showOverview && renameFile.source === 's3') {
+          setAdminMediaFiles(prev =>
+            prev.map(f => (f.id === renameFile.id ? { ...f, ...data.file, source: 's3' as const } : f))
+          );
+        } else {
+          setFiles(prev =>
+            prev.map(f => (f.id === renameFile.id ? { ...f, ...data.file, source: renameFile.source } : f))
+          );
+        }
         toast.success('File renamed');
         setRenameFile(null);
       } else {
@@ -736,18 +875,27 @@ export default function MediaPage() {
   // ── Delete ──
 
   const handleDelete = async () => {
-    if (!deleteFile || !effectiveAccountKey) return;
+    if (!deleteFile) return;
+    // S3 admin files don't require effectiveAccountKey; ESP files do
+    if (deleteFile.source !== 's3' && !effectiveAccountKey) return;
     setDeleting(true);
 
     try {
+      const apiBase = deleteFile.source === 's3' ? '/api/media' : '/api/esp/media';
+      const params = effectiveAccountKey ? `?accountKey=${encodeURIComponent(effectiveAccountKey)}` : '';
       const res = await fetch(
-        `/api/esp/media/${encodeURIComponent(deleteFile.id)}?accountKey=${encodeURIComponent(effectiveAccountKey)}`,
+        `${apiBase}/${encodeURIComponent(deleteFile.id)}${params}`,
         { method: 'DELETE' },
       );
       const data = await res.json();
 
       if (res.ok) {
-        setFiles(prev => prev.filter(f => f.id !== deleteFile.id));
+        if (showOverview && deleteFile.source === 's3') {
+          setAdminMediaFiles(prev => prev.filter(f => f.id !== deleteFile.id));
+          setAdminMediaTotal(prev => prev - 1);
+        } else {
+          setFiles(prev => prev.filter(f => f.id !== deleteFile.id));
+        }
         toast.success('File deleted');
         setDeleteFile(null);
       } else {
@@ -886,6 +1034,72 @@ export default function MediaPage() {
     }
 
     setDeleting(false);
+    clearSelection();
+  };
+
+  // ── Bulk Delete Admin S3 Files ──
+
+  const handleBulkDeleteAdmin = async () => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (!window.confirm(`Delete ${count} selected file${count > 1 ? 's' : ''} from Loomi? This cannot be undone.`)) return;
+
+    setDeleting(true);
+    let successCount = 0;
+
+    for (const id of selectedIds) {
+      try {
+        const res = await fetch(`/api/media/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (res.ok) successCount++;
+      } catch { /* skip */ }
+    }
+
+    if (successCount > 0) {
+      setAdminMediaFiles(prev => prev.filter(f => !selectedIds.has(f.id)));
+      setAdminMediaTotal(prev => prev - successCount);
+      toast.success(`Deleted ${successCount} file${successCount > 1 ? 's' : ''}`);
+    }
+
+    setDeleting(false);
+    clearSelection();
+  };
+
+  // ── Push to Sub-accounts ──
+
+  const handlePushToSubaccounts = async () => {
+    if (selectedIds.size === 0 || pushAccountKeys.size === 0) return;
+
+    setPushing(true);
+    const assetIds = Array.from(selectedIds);
+    const accountKeysArr = Array.from(pushAccountKeys);
+
+    try {
+      const res = await fetch('/api/media/push-to-esp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetIds, accountKeys: accountKeysArr }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        const succeeded = data.succeeded || 0;
+        const failed = data.failed || 0;
+        if (succeeded > 0) {
+          toast.success(`Pushed to ${succeeded} sub-account${succeeded > 1 ? 's' : ''}`);
+        }
+        if (failed > 0) {
+          toast.error(`${failed} push${failed > 1 ? 'es' : ''} failed`);
+        }
+      } else {
+        toast.error(data.error || 'Push failed');
+      }
+    } catch {
+      toast.error('Failed to push files');
+    }
+
+    setPushing(false);
+    setShowPushModal(false);
+    setPushAccountKeys(new Set());
     clearSelection();
   };
 
@@ -1029,6 +1243,13 @@ export default function MediaPage() {
     return folders.filter(f => f.name.toLowerCase().includes(q));
   }, [folders, search]);
 
+  // ── Filtered admin media (for overview search) ──
+  const filteredAdminMedia = useMemo(() => {
+    if (!overviewSearch.trim()) return adminMediaFiles;
+    const q = overviewSearch.toLowerCase();
+    return adminMediaFiles.filter(f => f.name.toLowerCase().includes(q));
+  }, [adminMediaFiles, overviewSearch]);
+
   // ── Connection state ──
   const connectedProviders = accountData?.connectedProviders;
   const hasConnection = effectiveAccountKey && connectedProviders && connectedProviders.length > 0;
@@ -1075,18 +1296,16 @@ export default function MediaPage() {
           </div>
 
           {/* Action buttons in header */}
-          {effectiveAccountKey && (hasConnection || isAdmin) && (
+          {effectiveAccountKey && (
             <div className="flex items-center gap-2">
-              {capabilities?.canUpload && (
-                <button
-                  onClick={() => setShowUploadModal(true)}
-                  disabled={uploading}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
-                >
-                  <ArrowUpTrayIcon className="w-3.5 h-3.5" />
-                  {uploading ? 'Uploading...' : 'Add Media'}
-                </button>
-              )}
+              <button
+                onClick={() => { setUploadDestination('esp'); setUploadAccountKeys(new Set()); setShowUploadModal(true); }}
+                disabled={uploading}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                <ArrowUpTrayIcon className="w-3.5 h-3.5" />
+                {uploading ? 'Uploading...' : 'Add Media'}
+              </button>
               {capabilities?.canCreateFolders && (
                 <button
                   onClick={() => setShowNewFolderInput(true)}
@@ -1104,34 +1323,167 @@ export default function MediaPage() {
       {/* ── Admin Overview Mode ── */}
       {showOverview && (
         <>
-          {connectedAccountKeys.length === 0 && (
-            <div className="text-center py-16 text-[var(--muted-foreground)]">
-              <PhotoIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-sm font-medium mb-1">No connected accounts</p>
-              <p className="text-xs">Connect an integration in account settings to manage media files.</p>
+          {/* Hidden file input for uploads (overview mode) */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            onChange={(e) => handleUpload(e.target.files)}
+            className="hidden"
+            id="media-upload-input"
+          />
+
+          {/* Overview toolbar: search + buttons */}
+          <div className="flex items-center justify-between mb-4 gap-3">
+            <div className="relative flex-1 max-w-xs">
+              <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+              <input
+                type="text"
+                value={overviewSearch}
+                onChange={(e) => setOverviewSearch(e.target.value)}
+                className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
+                placeholder="Search..."
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              {adminMediaFiles.length > 0 && !selectMode && (
+                <button
+                  onClick={() => { setSelectMode(true); setSelectedIds(new Set()); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                >
+                  <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                  Select
+                </button>
+              )}
+              <button
+                onClick={() => { setUploadDestination('s3'); setUploadAccountKeys(new Set()); setShowUploadModal(true); }}
+                disabled={uploading}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                <ArrowUpTrayIcon className="w-3.5 h-3.5" />
+                {uploading ? 'Uploading...' : 'Add Media'}
+              </button>
+            </div>
+          </div>
+
+          {/* Bulk selection toolbar (admin overview) */}
+          {selectMode && (
+            <div className="flex items-center justify-between mb-4 px-4 py-2.5 rounded-lg bg-[var(--primary)]/10 border border-[var(--primary)]/20 animate-fade-in-up">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-[var(--foreground)]">
+                  {selectedIds.size} selected
+                </span>
+                <button
+                  onClick={() => {
+                    if (selectedIds.size === filteredAdminMedia.length) {
+                      setSelectedIds(new Set());
+                    } else {
+                      setSelectedIds(new Set(filteredAdminMedia.map(f => f.id)));
+                    }
+                  }}
+                  className="text-xs text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                >
+                  {selectedIds.size === filteredAdminMedia.length ? 'Deselect All' : 'Select All'}
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                {connectedAccountKeys.length > 0 && selectedIds.size > 0 && (
+                  <button
+                    onClick={() => { setPushAccountKeys(new Set()); setShowPushModal(true); }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--primary)]/30 text-[var(--primary)] rounded-lg hover:bg-[var(--primary)]/10 transition-colors"
+                  >
+                    <ArrowUpTrayIcon className="w-3.5 h-3.5" /> Push to Sub-accounts
+                  </button>
+                )}
+                {selectedIds.size > 0 && (
+                  <button
+                    onClick={handleBulkDeleteAdmin}
+                    disabled={deleting}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                  >
+                    <TrashIcon className="w-3.5 h-3.5" /> Delete Selected
+                  </button>
+                )}
+                <button
+                  onClick={clearSelection}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
 
+          {/* ── Loomi Media Library section ── */}
+          {adminMediaLoading && adminMediaFiles.length === 0 && (
+            <div className="mb-8">
+              <h3 className="text-sm font-semibold text-[var(--foreground)] mb-3">Loomi Media Library</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="glass-card rounded-xl animate-pulse">
+                    <div className="h-[140px] rounded-t-xl bg-[var(--muted)]" />
+                    <div className="p-3 space-y-2">
+                      <div className="h-3 bg-[var(--muted)] rounded w-16" />
+                      <div className="h-3 bg-[var(--muted)] rounded w-3/4" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!adminMediaLoading && filteredAdminMedia.length > 0 && (
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-[var(--foreground)]">Loomi Media Library</h3>
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  {filteredAdminMedia.length} file{filteredAdminMedia.length !== 1 ? 's' : ''}
+                  {adminMediaTotal > filteredAdminMedia.length && ` of ${adminMediaTotal}`}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+                {filteredAdminMedia.map(f => (
+                  <MediaCard
+                    key={f.id}
+                    f={f}
+                    isMenuOpen={openMenu === f.id}
+                    isSelected={selectedIds.has(f.id)}
+                    selectMode={selectMode}
+                    provider="s3"
+                    capabilities={S3_CAPABILITIES}
+                    menuClickRef={menuClickRef}
+                    onMenuToggle={() => setOpenMenu(prev => prev === f.id ? null : f.id)}
+                    onMenuClose={() => setOpenMenu(null)}
+                    onSelect={() => toggleSelectFile(f.id)}
+                    onPreview={() => setPreviewFile(f)}
+                    onCopyUrl={() => copyUrl(f.url)}
+                    onRename={() => { setRenameValue(f.name); setRenameFile(f); }}
+                    onDelete={() => setDeleteFile(f)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Empty state: no admin files and no connected accounts */}
+          {!adminMediaLoading && adminMediaFiles.length === 0 && connectedAccountKeys.length === 0 && (
+            <div className="text-center py-16 text-[var(--muted-foreground)]">
+              <PhotoIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm font-medium mb-1">No media files yet</p>
+              <p className="text-xs">Upload files to Loomi or connect an integration in account settings.</p>
+            </div>
+          )}
+
+          {/* ── Sub-account cards section ── */}
           {connectedAccountKeys.length > 0 && (
             <>
-              {/* Overview search bar */}
-              <div className="flex items-center justify-between mb-4 gap-3">
-                <div className="relative flex-1 max-w-xs">
-                  <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
-                  <input
-                    type="text"
-                    value={overviewSearch}
-                    onChange={(e) => setOverviewSearch(e.target.value)}
-                    className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
-                    placeholder="Search accounts..."
-                  />
-                </div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-[var(--foreground)]">Sub-account Media</h3>
                 <p className="text-xs text-[var(--muted-foreground)]">
                   {filteredOverviewKeys.length} account{filteredOverviewKeys.length !== 1 ? 's' : ''}
                   {overviewSearch && ` matching "${overviewSearch}"`}
                 </p>
               </div>
-
               {filteredOverviewKeys.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                   {filteredOverviewKeys.map(key => (
@@ -1140,7 +1492,7 @@ export default function MediaPage() {
                       acctKey={key}
                       acctData={accounts[key]}
                       overviewRow={overviewData[key]}
-                      onSelect={() => { setAccountFilter(key); setSearch(''); }}
+                      onSelect={() => { setAccountFilter(key); setSearch(''); clearSelection(); }}
                     />
                   ))}
                 </div>
@@ -1163,7 +1515,6 @@ export default function MediaPage() {
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*"
             onChange={(e) => handleUpload(e.target.files)}
             className="hidden"
             id="media-upload-input"
@@ -1521,7 +1872,7 @@ export default function MediaPage() {
                 Are you sure you want to delete <strong>{deleteFile.name}</strong>?
               </p>
               <p className="text-xs text-[var(--muted-foreground)] mt-2">
-                This will permanently remove the file from {provider ? providerLabel(provider) : 'the connected platform'}. This action cannot be undone.
+                This will permanently remove the file from {deleteFile.source === 's3' ? 'Loomi' : provider ? providerLabel(provider) : 'the connected platform'}. This action cannot be undone.
               </p>
             </div>
             <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
@@ -1553,7 +1904,7 @@ export default function MediaPage() {
           ref={(el) => el?.focus()}
         >
           <div
-            className="glass-modal w-[520px]"
+            className="glass-modal w-[520px] max-h-[80vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
@@ -1568,7 +1919,87 @@ export default function MediaPage() {
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-5">
+            <div className="p-5 space-y-4">
+              {/* Destination picker (admin overview only) */}
+              {showOverview && (
+                <div>
+                  <p className="text-xs font-medium text-[var(--muted-foreground)] mb-2">Where would you like to upload?</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setUploadDestination('s3')}
+                      className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                        uploadDestination === 's3'
+                          ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                          : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
+                      }`}
+                    >
+                      Loomi
+                      <span className="block text-[10px] mt-0.5 opacity-70">Upload to Loomi&apos;s media library</span>
+                      <span className="block text-[10px] mt-0.5 opacity-50">Distribute to sub-accounts later</span>
+                    </button>
+                    <button
+                      onClick={() => setUploadDestination('esp')}
+                      className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                        uploadDestination === 'esp'
+                          ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                          : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
+                      }`}
+                    >
+                      Sub-account storage
+                      <span className="block text-[10px] mt-0.5 opacity-70">Upload to a sub-account&apos;s ESP</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Multi-account selector (admin overview mode + ESP destination) */}
+              {showOverview && uploadDestination === 'esp' && connectedAccountKeys.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium text-[var(--muted-foreground)]">Select accounts</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setUploadAccountKeys(new Set(connectedAccountKeys))}
+                        className="text-[10px] text-[var(--primary)] hover:underline"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={() => setUploadAccountKeys(new Set())}
+                        className="text-[10px] text-[var(--muted-foreground)] hover:underline"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto space-y-1 border border-[var(--border)] rounded-lg p-2">
+                    {connectedAccountKeys.map((key) => {
+                      const acct = accounts[key];
+                      const name = acct?.dealer || key;
+                      const checked = uploadAccountKeys.has(key);
+                      return (
+                        <label key={key} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-[var(--muted)] cursor-pointer transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setUploadAccountKeys(prev => {
+                                const next = new Set(prev);
+                                if (next.has(key)) next.delete(key); else next.add(key);
+                                return next;
+                              });
+                            }}
+                            className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                          />
+                          <span className="text-xs text-[var(--foreground)] truncate">{name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Drop zone */}
               <div
                 className={`border-2 border-dashed rounded-xl p-10 text-center transition-all cursor-pointer ${
                   dragOver
@@ -1589,10 +2020,16 @@ export default function MediaPage() {
                       Drop files here or click to browse
                     </p>
                     <p className="text-xs text-[var(--muted-foreground)]">
-                      Images will be uploaded to {provider ? providerLabel(provider) : 'your connected platform'}
-                      {currentFolderId && folderPath.length > 1 && (
-                        <> in <strong>{folderPath[folderPath.length - 1].name}</strong></>
-                      )}
+                      {showOverview
+                        ? (uploadDestination === 's3'
+                          ? 'Files will be stored in Loomi'
+                          : 'Files will be uploaded to the selected sub-accounts')
+                        : <>Files will be uploaded to {provider ? providerLabel(provider) : 'the connected ESP'}
+                            {currentFolderId && folderPath.length > 1 && (
+                              <> in <strong>{folderPath[folderPath.length - 1].name}</strong></>
+                            )}
+                          </>
+                      }
                     </p>
                   </>
                 )}
@@ -1750,15 +2187,105 @@ export default function MediaPage() {
         </div>
       )}
 
+      {/* ── Push to Sub-accounts Modal ── */}
+      {showPushModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in"
+          onClick={() => !pushing && setShowPushModal(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape' && !pushing) setShowPushModal(false); }}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+        >
+          <div className="glass-modal w-[480px] max-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <div>
+                <h3 className="text-base font-semibold">Push to Sub-accounts</h3>
+                <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                  {selectedIds.size} file{selectedIds.size !== 1 ? 's' : ''} selected
+                </p>
+              </div>
+              <button
+                onClick={() => setShowPushModal(false)}
+                className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-[var(--muted-foreground)]">Select sub-accounts</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPushAccountKeys(new Set(connectedAccountKeys))}
+                    className="text-[10px] text-[var(--primary)] hover:underline"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => setPushAccountKeys(new Set())}
+                    className="text-[10px] text-[var(--muted-foreground)] hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-60 overflow-y-auto space-y-1 border border-[var(--border)] rounded-lg p-2">
+                {connectedAccountKeys.map((key) => {
+                  const acct = accounts[key];
+                  const name = acct?.dealer || key;
+                  const checked = pushAccountKeys.has(key);
+                  return (
+                    <label key={key} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-[var(--muted)] cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setPushAccountKeys(prev => {
+                            const next = new Set(prev);
+                            if (next.has(key)) next.delete(key); else next.add(key);
+                            return next;
+                          });
+                        }}
+                        className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                      />
+                      <span className="text-xs text-[var(--foreground)] truncate">{name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
+              <button
+                onClick={() => setShowPushModal(false)}
+                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePushToSubaccounts}
+                disabled={pushing || pushAccountKeys.size === 0}
+                className="px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {pushing ? 'Pushing...' : `Push to ${pushAccountKeys.size} account${pushAccountKeys.size !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Image Preview Modal ── */}
       {previewFile && (() => {
         const previewIsImage = previewFile.type?.startsWith('image') || previewFile.url?.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
-        const currentIndex = filtered.findIndex(f => f.id === previewFile.id);
+        // Use the correct file list for navigation based on context
+        const previewList = showOverview ? filteredAdminMedia : filtered;
+        const currentIndex = previewList.findIndex(f => f.id === previewFile.id);
         const hasPrev = currentIndex > 0;
-        const hasNext = currentIndex < filtered.length - 1;
+        const hasNext = currentIndex < previewList.length - 1;
 
-        const goPrev = () => { if (hasPrev) setPreviewFile(filtered[currentIndex - 1]); };
-        const goNext = () => { if (hasNext) setPreviewFile(filtered[currentIndex + 1]); };
+        const goPrev = () => { if (hasPrev) setPreviewFile(previewList[currentIndex - 1]); };
+        const goNext = () => { if (hasNext) setPreviewFile(previewList[currentIndex + 1]); };
 
         return (
           <div
@@ -1782,7 +2309,7 @@ export default function MediaPage() {
                   </h3>
                   {currentIndex >= 0 && (
                     <span className="text-[10px] text-[var(--muted-foreground)] flex-shrink-0">
-                      {currentIndex + 1} / {filtered.length}
+                      {currentIndex + 1} / {previewList.length}
                     </span>
                   )}
                 </div>

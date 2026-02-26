@@ -23,7 +23,10 @@ interface MediaFile {
   thumbnailUrl?: string;
   createdAt?: string;
   updatedAt?: string;
+  source?: 'esp' | 's3';
 }
+
+type SourceFilter = 'all' | 'esp' | 's3';
 
 interface MediaFolder {
   id: string;
@@ -59,6 +62,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
   const [currentFolderId, setCurrentFolderId] = useState<string | undefined>();
   const [folderPath, setFolderPath] = useState<FolderBreadcrumb[]>([{ id: undefined, name: 'Root' }]);
   const [canNavigateFolders, setCanNavigateFolders] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
 
   // ── Fetch media ──
 
@@ -67,20 +71,48 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
     else { setLoading(true); setFolders([]); }
 
     try {
-      const params = new URLSearchParams({ accountKey, limit: '50' });
-      if (cursor) params.set('cursor', cursor);
-      if (currentFolderId) params.set('parentId', currentFolderId);
-      const res = await fetch(`/api/esp/media?${params.toString()}`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error((data as Record<string, string>)?.error || `Error ${res.status}`);
+      const espParams = new URLSearchParams({ accountKey, limit: '50' });
+      if (cursor) espParams.set('cursor', cursor);
+      if (currentFolderId) espParams.set('parentId', currentFolderId);
+
+      // Fetch ESP + admin S3 in parallel (S3 only at root, only on initial load)
+      // S3 fetches admin-level files (no accountKey) — Loomi media library
+      const fetchS3 = !currentFolderId && !cursor;
+      const [espRes, s3Res] = await Promise.all([
+        fetch(`/api/esp/media?${espParams.toString()}`),
+        fetchS3
+          ? fetch(`/api/media?${new URLSearchParams({ limit: '50' }).toString()}`)
+          : Promise.resolve(null),
+      ]);
+
+      if (!espRes.ok) {
+        const errData = await espRes.json().catch(() => ({}));
+        // Still try S3 even if ESP fails
+        let s3Files: MediaFile[] = [];
+        if (s3Res?.ok) {
+          const s3Data = await s3Res.json();
+          s3Files = s3Data.files || [];
+        }
+        if (s3Files.length > 0) {
+          setFiles(s3Files);
+        } else {
+          throw new Error((errData as Record<string, string>)?.error || `Error ${espRes.status}`);
+        }
+      } else {
+        const data = await espRes.json();
+        const espFiles: MediaFile[] = (data.files || []).map((f: MediaFile) => ({ ...f, source: 'esp' as const }));
+
+        let s3Files: MediaFile[] = [];
+        if (s3Res?.ok) {
+          const s3Data = await s3Res.json();
+          s3Files = s3Data.files || [];
+        }
+
+        setFiles((prev) => (cursor ? [...prev, ...espFiles] : [...espFiles, ...s3Files]));
+        if (!cursor) setFolders(data.folders || []);
+        setNextCursor(data.nextCursor || undefined);
+        if (data.capabilities?.canNavigateFolders) setCanNavigateFolders(true);
       }
-      const data = await res.json();
-      const newFiles: MediaFile[] = data.files || [];
-      setFiles((prev) => (cursor ? [...prev, ...newFiles] : newFiles));
-      if (!cursor) setFolders(data.folders || []);
-      setNextCursor(data.nextCursor || undefined);
-      if (data.capabilities?.canNavigateFolders) setCanNavigateFolders(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load media');
     } finally {
@@ -149,10 +181,16 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
   // ── Search ──
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return files;
-    const q = search.toLowerCase();
-    return files.filter((f) => f.name.toLowerCase().includes(q));
-  }, [files, search]);
+    let result = files;
+    if (sourceFilter !== 'all') {
+      result = result.filter((f) => (f.source || 'esp') === sourceFilter);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter((f) => f.name.toLowerCase().includes(q));
+    }
+    return result;
+  }, [files, search, sourceFilter]);
 
   const filteredFolders = useMemo(() => {
     if (!search.trim()) return folders;
@@ -201,6 +239,26 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
           >
             <XMarkIcon className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* ── Source filter tabs ── */}
+        <div className="flex items-center gap-1 px-4 pt-3">
+          {(['all', 'esp', 's3'] as SourceFilter[]).map((src) => {
+            const label = src === 'all' ? 'All' : src === 'esp' ? 'ESP' : 'Loomi';
+            return (
+              <button
+                key={src}
+                onClick={() => setSourceFilter(src)}
+                className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+                  sourceFilter === src
+                    ? 'bg-[var(--primary)] text-white'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {/* ── Upload zone ── */}
