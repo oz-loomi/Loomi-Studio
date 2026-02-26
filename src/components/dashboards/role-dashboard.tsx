@@ -467,11 +467,6 @@ function buildRoleCount(users: UserSummary[]): Array<{ role: string; count: numb
     .sort((a, b) => roleOrder(a.role) - roleOrder(b.role));
 }
 
-function valueOrDash(value: number | null): string {
-  if (value === null || Number.isNaN(value)) return '—';
-  return value.toLocaleString();
-}
-
 function toPossessiveLabel(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return 'Account';
@@ -1388,11 +1383,6 @@ function ManagementRoleDashboard({
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .slice(0, 10);
   }, [filteredLoomiEmailCampaigns, filteredLoomiSmsCampaigns]);
-
-  const roleCountMax = useMemo(
-    () => Math.max(1, ...roleCounts.map((entry) => entry.count)),
-    [roleCounts],
-  );
 
   const developerApiRows = useMemo(
     () =>

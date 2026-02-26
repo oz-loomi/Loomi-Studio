@@ -23,7 +23,7 @@ export function CloneToAccountsModal({
   templateDesign,
   templateName,
 }: CloneToAccountsModalProps) {
-  const { accounts, userRole } = useAccount();
+  const { accounts } = useAccount();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [cloning, setCloning] = useState(false);
