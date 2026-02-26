@@ -11,13 +11,11 @@ import {
   BuildingStorefrontIcon,
   ChartBarIcon,
   CheckCircleIcon,
-  CodeBracketSquareIcon,
   CommandLineIcon,
   ExclamationTriangleIcon,
   FunnelIcon,
   PaperAirplaneIcon,
   PhotoIcon,
-  ShieldCheckIcon,
   UserGroupIcon,
   UsersIcon,
   WrenchScrewdriverIcon,
@@ -42,6 +40,7 @@ import { ContactAnalytics } from '@/components/contacts/contact-analytics';
 import { CampaignPageAnalytics } from '@/components/campaigns/campaign-page-analytics';
 import { FlowAnalytics } from '@/components/flows/flow-analytics';
 import { AccountHealthGrid } from '@/components/analytics/account-health-grid';
+import { AccountAvatar } from '@/components/account-avatar';
 import { formatRatePct, sumCampaignEngagement } from '@/lib/campaign-engagement';
 import { FlowIcon } from '@/components/icon-map';
 
@@ -473,6 +472,12 @@ function valueOrDash(value: number | null): string {
   return value.toLocaleString();
 }
 
+function toPossessiveLabel(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return 'Account';
+  return /s$/i.test(trimmed) ? `${trimmed}'` : `${trimmed}'s`;
+}
+
 function loadJson(url: string) {
   return fetch(url)
     .then(async (res) => {
@@ -556,6 +561,9 @@ function ManagementRoleDashboard({
   userName: string | null;
 }) {
   const [loading, setLoading] = useState(true);
+  const [contactsAggregateLoading, setContactsAggregateLoading] = useState(true);
+  const [campaignsAggregateLoading, setCampaignsAggregateLoading] = useState(true);
+  const [workflowsAggregateLoading, setWorkflowsAggregateLoading] = useState(true);
   const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -620,6 +628,7 @@ function ManagementRoleDashboard({
   useEffect(() => {
     if (!isAccountMode || !focusedAccountKey) {
       lastFocusedRef.current = null;
+      setSelectedAccounts([]);
       return;
     }
     if (lastFocusedRef.current === focusedAccountKey) return;
@@ -706,6 +715,10 @@ function ManagementRoleDashboard({
 
     async function loadDashboard() {
       setLoading(true);
+      setContactsAggregateLoading(true);
+      setCampaignsAggregateLoading(true);
+      setWorkflowsAggregateLoading(true);
+      setErrors({});
 
       if (DASHBOARD_DUMMY_MODE) {
         const mock = buildMockManagementDataset(accounts);
@@ -723,55 +736,31 @@ function ManagementRoleDashboard({
         setErrors({});
         setUsingMockData(true);
         setLoading(false);
+        setContactsAggregateLoading(false);
+        setCampaignsAggregateLoading(false);
+        setWorkflowsAggregateLoading(false);
         return;
       }
+
+      const contactsAggregatePromise = loadJson('/api/esp/contacts/aggregate');
+      const campaignsAggregatePromise = loadJson('/api/esp/campaigns/aggregate');
+      const workflowsAggregatePromise = loadJson('/api/esp/workflows/aggregate');
 
       const [
         emailRes,
         contactStatsRes,
-        contactsAggregateRes,
-        campaignsAggregateRes,
-        workflowsAggregateRes,
         loomiEmailRes,
         loomiSmsRes,
         usersRes,
       ] = await Promise.all([
         loadJson('/api/emails'),
         loadJson('/api/esp/contacts/stats'),
-        loadJson('/api/esp/contacts/aggregate'),
-        loadJson('/api/esp/campaigns/aggregate'),
-        loadJson('/api/esp/workflows/aggregate'),
         loadJson('/api/campaigns/email?limit=50'),
         loadJson('/api/esp/messages/bulk?limit=50'),
-        loadJson('/api/users'),
+        loadJson('/api/users?summary=1'),
       ]);
 
       if (cancelled) return;
-
-      const shouldFallbackToMock =
-        process.env.NODE_ENV === 'development'
-        && !DASHBOARD_DUMMY_MODE
-        && !contactsAggregateRes.ok
-        && !campaignsAggregateRes.ok
-        && !workflowsAggregateRes.ok;
-
-      if (shouldFallbackToMock) {
-        const mock = buildMockManagementDataset(accounts);
-        setEmails(mock.emails);
-        setContactStats(mock.contactStats);
-        setContacts(mock.contacts);
-        setEspCampaigns(mock.espCampaigns);
-        setEspWorkflows(mock.espWorkflows);
-        setLoomiEmailCampaigns(mock.loomiEmailCampaigns);
-        setLoomiSmsCampaigns(mock.loomiSmsCampaigns);
-        setUsers(mock.users);
-        setCampaignPerAccount(mock.campaignPerAccount);
-        setWorkflowPerAccount(mock.workflowPerAccount);
-        setErrors({});
-        setUsingMockData(true);
-        setLoading(false);
-        return;
-      }
 
       const nextErrors: typeof errors = {};
       setUsingMockData(false);
@@ -806,42 +795,6 @@ function ManagementRoleDashboard({
         nextErrors.contactsStats = String((contactStatsRes.json as Record<string, unknown>).error || `Error ${contactStatsRes.status}`);
       }
 
-      if (contactsAggregateRes.ok) {
-        const rows = asArray<AggregateContact>((contactsAggregateRes.json as Record<string, unknown>).contacts);
-        setContacts(rows);
-      } else {
-        setContacts([]);
-        nextErrors.contactsAggregate = String((contactsAggregateRes.json as Record<string, unknown>).error || `Error ${contactsAggregateRes.status}`);
-      }
-
-      if (campaignsAggregateRes.ok) {
-        setEspCampaigns(asArray<EspCampaign>((campaignsAggregateRes.json as Record<string, unknown>).campaigns));
-        setCampaignPerAccount(
-          parseJsonSafe<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>(
-            (campaignsAggregateRes.json as Record<string, unknown>).perAccount,
-            {},
-          ),
-        );
-      } else {
-        setEspCampaigns([]);
-        setCampaignPerAccount({});
-        nextErrors.campaignsAggregate = String((campaignsAggregateRes.json as Record<string, unknown>).error || `Error ${campaignsAggregateRes.status}`);
-      }
-
-      if (workflowsAggregateRes.ok) {
-        setEspWorkflows(asArray<EspWorkflow>((workflowsAggregateRes.json as Record<string, unknown>).workflows));
-        setWorkflowPerAccount(
-          parseJsonSafe<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>(
-            (workflowsAggregateRes.json as Record<string, unknown>).perAccount,
-            {},
-          ),
-        );
-      } else {
-        setEspWorkflows([]);
-        setWorkflowPerAccount({});
-        nextErrors.workflowsAggregate = String((workflowsAggregateRes.json as Record<string, unknown>).error || `Error ${workflowsAggregateRes.status}`);
-      }
-
       if (loomiEmailRes.ok) {
         const rows = asArray<LoomiEmailCampaign>((loomiEmailRes.json as Record<string, unknown>).campaigns);
         setLoomiEmailCampaigns(rows);
@@ -873,6 +826,88 @@ function ManagementRoleDashboard({
 
       setErrors(nextErrors);
       setLoading(false);
+
+      const [
+        contactsAggregateRes,
+        campaignsAggregateRes,
+        workflowsAggregateRes,
+      ] = await Promise.all([
+        contactsAggregatePromise,
+        campaignsAggregatePromise,
+        workflowsAggregatePromise,
+      ]);
+
+      if (cancelled) return;
+
+      const shouldFallbackToMock =
+        process.env.NODE_ENV === 'development'
+        && !DASHBOARD_DUMMY_MODE
+        && !contactsAggregateRes.ok
+        && !campaignsAggregateRes.ok
+        && !workflowsAggregateRes.ok;
+
+      if (shouldFallbackToMock) {
+        const mock = buildMockManagementDataset(accounts);
+        setEmails(mock.emails);
+        setContactStats(mock.contactStats);
+        setContacts(mock.contacts);
+        setEspCampaigns(mock.espCampaigns);
+        setEspWorkflows(mock.espWorkflows);
+        setLoomiEmailCampaigns(mock.loomiEmailCampaigns);
+        setLoomiSmsCampaigns(mock.loomiSmsCampaigns);
+        setUsers(mock.users);
+        setCampaignPerAccount(mock.campaignPerAccount);
+        setWorkflowPerAccount(mock.workflowPerAccount);
+        setErrors({});
+        setUsingMockData(true);
+        setContactsAggregateLoading(false);
+        setCampaignsAggregateLoading(false);
+        setWorkflowsAggregateLoading(false);
+        return;
+      }
+
+      const fullErrors: typeof errors = { ...nextErrors };
+
+      if (contactsAggregateRes.ok) {
+        const rows = asArray<AggregateContact>((contactsAggregateRes.json as Record<string, unknown>).contacts);
+        setContacts(rows);
+      } else {
+        setContacts([]);
+        fullErrors.contactsAggregate = String((contactsAggregateRes.json as Record<string, unknown>).error || `Error ${contactsAggregateRes.status}`);
+      }
+      setContactsAggregateLoading(false);
+
+      if (campaignsAggregateRes.ok) {
+        setEspCampaigns(asArray<EspCampaign>((campaignsAggregateRes.json as Record<string, unknown>).campaigns));
+        setCampaignPerAccount(
+          parseJsonSafe<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>(
+            (campaignsAggregateRes.json as Record<string, unknown>).perAccount,
+            {},
+          ),
+        );
+      } else {
+        setEspCampaigns([]);
+        setCampaignPerAccount({});
+        fullErrors.campaignsAggregate = String((campaignsAggregateRes.json as Record<string, unknown>).error || `Error ${campaignsAggregateRes.status}`);
+      }
+      setCampaignsAggregateLoading(false);
+
+      if (workflowsAggregateRes.ok) {
+        setEspWorkflows(asArray<EspWorkflow>((workflowsAggregateRes.json as Record<string, unknown>).workflows));
+        setWorkflowPerAccount(
+          parseJsonSafe<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>(
+            (workflowsAggregateRes.json as Record<string, unknown>).perAccount,
+            {},
+          ),
+        );
+      } else {
+        setEspWorkflows([]);
+        setWorkflowPerAccount({});
+        fullErrors.workflowsAggregate = String((workflowsAggregateRes.json as Record<string, unknown>).error || `Error ${workflowsAggregateRes.status}`);
+      }
+      setWorkflowsAggregateLoading(false);
+
+      setErrors(fullErrors);
     }
 
     loadDashboard();
@@ -1044,16 +1079,48 @@ function ManagementRoleDashboard({
     return map;
   }, [filteredEmailsByAccount]);
 
+  const espCampaignCountByAccount = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const campaign of espCampaigns) {
+      if (!campaign.accountKey) continue;
+      map[campaign.accountKey] = (map[campaign.accountKey] || 0) + 1;
+    }
+    return map;
+  }, [espCampaigns]);
+
+  const espWorkflowCountByAccount = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const workflow of espWorkflows) {
+      if (!workflow.accountKey) continue;
+      map[workflow.accountKey] = (map[workflow.accountKey] || 0) + 1;
+    }
+    return map;
+  }, [espWorkflows]);
+
+  const loomiCampaignCountByAccount = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const campaign of loomiEmailCampaigns) {
+      for (const accountKey of campaign.accountKeys) {
+        map[accountKey] = (map[accountKey] || 0) + 1;
+      }
+    }
+    for (const campaign of loomiSmsCampaigns) {
+      for (const accountKey of campaign.accountKeys) {
+        map[accountKey] = (map[accountKey] || 0) + 1;
+      }
+    }
+    return map;
+  }, [loomiEmailCampaigns, loomiSmsCampaigns]);
+
   const accountRollups = useMemo(() => {
     const rollups: Record<string, AccountRollup> = {};
     const rollupKeys = Object.keys(accounts).length > 0 ? Object.keys(accounts) : Object.keys(contactStats);
     for (const accountKey of rollupKeys) {
       const contactCount = contactStats[accountKey]?.contactCount ?? 0;
       const emailCount = emailRollupByAccount[accountKey]?.total ?? 0;
-      const campaignCount = espCampaigns.filter((campaign) => campaign.accountKey === accountKey).length;
-      const workflowCount = espWorkflows.filter((workflow) => workflow.accountKey === accountKey).length;
-      const loomiCampaignCount = loomiEmailCampaigns.filter((campaign) => campaign.accountKeys.includes(accountKey)).length
-        + loomiSmsCampaigns.filter((campaign) => campaign.accountKeys.includes(accountKey)).length;
+      const campaignCount = espCampaignCountByAccount[accountKey] || 0;
+      const workflowCount = espWorkflowCountByAccount[accountKey] || 0;
+      const loomiCampaignCount = loomiCampaignCountByAccount[accountKey] || 0;
       const isConnected = Boolean(contactStats[accountKey]?.connected);
       const hasError = Boolean(contactStats[accountKey]?.error)
         || (campaignPerAccount[accountKey]?.connected === false)
@@ -1070,7 +1137,16 @@ function ManagementRoleDashboard({
       };
     }
     return rollups;
-  }, [accounts, contactStats, emailRollupByAccount, espCampaigns, espWorkflows, loomiEmailCampaigns, loomiSmsCampaigns, campaignPerAccount, workflowPerAccount]);
+  }, [
+    accounts,
+    contactStats,
+    emailRollupByAccount,
+    espCampaignCountByAccount,
+    espWorkflowCountByAccount,
+    loomiCampaignCountByAccount,
+    campaignPerAccount,
+    workflowPerAccount,
+  ]);
 
   const apiHealth = useMemo<ApiHealthSnapshot[]>(() => {
     return [
@@ -1081,19 +1157,31 @@ function ManagementRoleDashboard({
       },
       {
         label: 'Contact Aggregate',
-        ok: !errors.contactsAggregate,
-        detail: errors.contactsAggregate ? errors.contactsAggregate : `${contacts.length.toLocaleString()} contacts`,
+        ok: contactsAggregateLoading ? true : !errors.contactsAggregate,
+        detail: contactsAggregateLoading
+          ? 'Loading aggregate contacts...'
+          : errors.contactsAggregate
+            ? errors.contactsAggregate
+            : `${contacts.length.toLocaleString()} contacts`,
       },
       {
         label: 'ESP Campaigns',
-        ok: !errors.campaignsAggregate,
-        detail: errors.campaignsAggregate ? errors.campaignsAggregate : `${espCampaigns.length.toLocaleString()} campaigns`,
+        ok: campaignsAggregateLoading ? true : !errors.campaignsAggregate,
+        detail: campaignsAggregateLoading
+          ? 'Loading aggregate campaigns...'
+          : errors.campaignsAggregate
+            ? errors.campaignsAggregate
+            : `${espCampaigns.length.toLocaleString()} campaigns`,
         href: '/campaigns',
       },
       {
         label: 'ESP Workflows',
-        ok: !errors.workflowsAggregate,
-        detail: errors.workflowsAggregate ? errors.workflowsAggregate : `${espWorkflows.length.toLocaleString()} flows`,
+        ok: workflowsAggregateLoading ? true : !errors.workflowsAggregate,
+        detail: workflowsAggregateLoading
+          ? 'Loading aggregate workflows...'
+          : errors.workflowsAggregate
+            ? errors.workflowsAggregate
+            : `${espWorkflows.length.toLocaleString()} flows`,
         href: '/flows',
       },
       {
@@ -1109,7 +1197,18 @@ function ManagementRoleDashboard({
         href: '/campaigns',
       },
     ];
-  }, [errors, contactStats, contacts.length, espCampaigns.length, espWorkflows.length, loomiEmailCampaigns.length, loomiSmsCampaigns.length]);
+  }, [
+    errors,
+    contactStats,
+    contacts.length,
+    espCampaigns.length,
+    espWorkflows.length,
+    loomiEmailCampaigns.length,
+    loomiSmsCampaigns.length,
+    contactsAggregateLoading,
+    campaignsAggregateLoading,
+    workflowsAggregateLoading,
+  ]);
 
   const roleCounts = useMemo(() => buildRoleCount(users), [users]);
   const scopedAccountKeys = accountScopeKeys;
@@ -1202,26 +1301,16 @@ function ManagementRoleDashboard({
 
   const campaignMixRows = useMemo(
     () => [
-      { label: 'Campaigns', value: totals.campaignCount, gradient: 'from-blue-500 to-cyan-400' },
-      { label: 'Flows', value: totals.workflowCount, gradient: 'from-indigo-500 to-violet-400' },
-      { label: 'Loomi Messages', value: totals.loomiCampaignCount, gradient: 'from-emerald-500 to-teal-400' },
+      { label: 'Campaigns', value: totals.campaignCount },
+      { label: 'Flows', value: totals.workflowCount },
+      { label: 'Loomi Messages', value: totals.loomiCampaignCount },
     ],
     [totals.campaignCount, totals.workflowCount, totals.loomiCampaignCount],
-  );
-
-  const campaignMixMax = useMemo(
-    () => Math.max(1, ...campaignMixRows.map((row) => row.value)),
-    [campaignMixRows],
   );
 
   const topIndustryRows = useMemo(
     () => industryPortfolioRows.slice(0, 6),
     [industryPortfolioRows],
-  );
-
-  const topIndustryContactsMax = useMemo(
-    () => Math.max(1, ...topIndustryRows.map((row) => row.contactsTotal)),
-    [topIndustryRows],
   );
 
   const accountLeaderboard = useMemo(() => {
@@ -1643,12 +1732,12 @@ function ManagementRoleDashboard({
     [activeEmailRatePct, chartGridColor, chartMutedColor, chartTextColor, chartTooltipTheme, clickRatePct, connectedRatePct, openRatePct],
   );
 
-  const managementSubtitle = isDeveloper
-    ? 'Operate Loomi as a platform: switch between technical operations and performance analytics.'
-    : isSuperAdmin
-      ? 'Cross-account performance, health, and campaign outcomes across the full organization.'
-      : 'Deep analytics for assigned stores with actionable account-level reporting and campaign visibility.';
   const welcomeName = userName?.trim() || 'there';
+  const focusedAccountData = focusedAccountKey ? accounts[focusedAccountKey] : null;
+  const focusedAccountName = focusedAccountKey ? (accountNames[focusedAccountKey] || focusedAccountKey) : '';
+  const dashboardTitle = isAccountMode && focusedAccountName
+    ? `${toPossessiveLabel(focusedAccountName)} Dashboard`
+    : 'Dashboard';
   const developerShellClass = theme === 'dark'
     ? 'rounded-[28px] border border-violet-400/20 bg-[linear-gradient(145deg,rgba(15,16,34,0.94),rgba(27,16,41,0.9))] p-5 shadow-[0_28px_70px_rgba(7,8,20,0.55),inset_0_1px_0_rgba(255,255,255,0.05)]'
     : 'rounded-[28px] border border-white/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.46),rgba(238,244,255,0.42))] backdrop-blur-2xl p-5 shadow-[0_18px_42px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.78)]';
@@ -1746,27 +1835,21 @@ function ManagementRoleDashboard({
     <div>
       <div className="page-sticky-header mb-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="rounded-xl bg-[var(--primary)]/15 p-2 text-[var(--primary)]">
-              {isDeveloper ? (
-                <CodeBracketSquareIcon className="h-8 w-8" />
-              ) : isSuperAdmin ? (
-                <ShieldCheckIcon className="h-8 w-8" />
-              ) : (
-                <UsersIcon className="h-8 w-8" />
-              )}
-            </div>
+          <div className="flex items-center gap-3">
+            {isAccountMode && focusedAccountKey ? (
+              <AccountAvatar
+                name={focusedAccountName}
+                accountKey={focusedAccountKey}
+                storefrontImage={focusedAccountData?.storefrontImage}
+                logos={focusedAccountData?.logos}
+                size={44}
+                className="h-11 w-11 rounded-xl border border-[var(--border)] bg-[var(--card)] flex-shrink-0"
+              />
+            ) : null}
+
             <div>
-              <div className="mb-1 flex items-center gap-2">
-                {isAccountMode && focusedAccountKey ? (
-                  <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-                    Focused: {accountNames[focusedAccountKey] || focusedAccountKey}
-                  </span>
-                ) : null}
-              </div>
-              <h2 className="text-2xl font-bold">Dashboard</h2>
+              <h2 className="text-2xl font-bold">{dashboardTitle}</h2>
               <p className="mt-0.5 text-sm font-medium text-[var(--foreground)]">Welcome, {welcomeName}!</p>
-              <p className="mt-0.5 max-w-3xl text-sm text-[var(--muted-foreground)]">{managementSubtitle}</p>
               {usingMockData ? (
                 <p className="mt-1 inline-flex items-center rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
                   Dummy Data Mode
@@ -2183,92 +2266,28 @@ function ManagementRoleDashboard({
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                <div className="glass-card rounded-2xl border border-[var(--primary)]/20 bg-gradient-to-br from-[var(--primary)]/12 via-transparent to-cyan-500/10 p-5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Portfolio Pulse</h3>
-                    <span className="text-[10px] text-[var(--muted-foreground)]">Connection health</span>
+                <div className={developerPanelClass}>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Portfolio Pulse</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>connection + engagement</span>
                   </div>
-                  <div className="mt-4 flex items-center gap-4">
-                    <div
-                      className="relative h-28 w-28 rounded-full"
-                      style={{
-                        background: `conic-gradient(var(--primary) ${connectedRatePct}%, rgba(148, 163, 184, 0.18) ${connectedRatePct}% 100%)`,
-                      }}
-                    >
-                      <div className="absolute inset-[8px] flex items-center justify-center rounded-full bg-[var(--card)]">
-                        <div className="text-center">
-                          <p className="text-xl font-bold tabular-nums">{connectedRatePct}%</p>
-                          <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Connected</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex-1 space-y-2">
-                      <div className="rounded-lg border border-[var(--border)]/70 bg-[var(--card)]/70 px-3 py-2">
-                        <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Accounts</p>
-                        <p className="text-sm font-semibold tabular-nums">{totals.accountCount}</p>
-                      </div>
-                      <div className="rounded-lg border border-[var(--border)]/70 bg-[var(--card)]/70 px-3 py-2">
-                        <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Contacts</p>
-                        <p className="text-sm font-semibold tabular-nums">{formatCompactNumber(totals.contactsTotal)}</p>
-                      </div>
-                    </div>
-                  </div>
+                  <ApexChart type="radialBar" options={developerGaugeOptions} series={developerGaugeSeries} height={275} />
                 </div>
 
-                <div className="glass-card rounded-2xl p-5">
+                <div className={developerPanelClass}>
                   <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Campaign & Flow Mix</h3>
-                    <span className="text-[10px] text-[var(--muted-foreground)]">Current scope</span>
+                    <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Campaign &amp; Flow Mix</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>current scope</span>
                   </div>
-                  <div className="space-y-3">
-                    {campaignMixRows.map((row) => {
-                      const widthPct = Math.max(6, Math.round((row.value / campaignMixMax) * 100));
-                      return (
-                        <div key={row.label}>
-                          <div className="mb-1 flex items-center justify-between">
-                            <p className="text-xs font-medium">{row.label}</p>
-                            <p className="text-xs tabular-nums text-[var(--muted-foreground)]">{row.value}</p>
-                          </div>
-                          <div className="h-2.5 rounded-full bg-[var(--muted)]/40">
-                            <div
-                              className={`h-full rounded-full bg-gradient-to-r ${row.gradient}`}
-                              style={{ width: `${widthPct}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <ApexChart type="donut" options={developerMixOptions} series={developerMixSeries} height={275} />
                 </div>
 
-                <div className="glass-card rounded-2xl p-5">
+                <div className={developerPanelClass}>
                   <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Industry Signal</h3>
-                    <span className="text-[10px] text-[var(--muted-foreground)]">Top segments</span>
+                    <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Industry Signal</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>top segments</span>
                   </div>
-                  {topIndustryRows.length === 0 ? (
-                    <p className="text-sm text-[var(--muted-foreground)]">No industry data available in this scope.</p>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {topIndustryRows.map((row, index) => {
-                        const widthPct = Math.max(8, Math.round((row.contactsTotal / topIndustryContactsMax) * 100));
-                        return (
-                          <div key={row.industry}>
-                            <div className="mb-1 flex items-center justify-between">
-                              <p className="truncate text-xs font-medium">{index + 1}. {row.industry}</p>
-                              <p className="text-[10px] text-[var(--muted-foreground)]">{formatCompactNumber(row.contactsTotal)} contacts</p>
-                            </div>
-                            <div className="h-2 rounded-full bg-[var(--muted)]/35">
-                              <div
-                                className="h-full rounded-full bg-gradient-to-r from-fuchsia-500/80 via-violet-500/80 to-blue-500/80"
-                                style={{ width: `${widthPct}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <ApexChart type="bar" options={developerIndustryOptions} series={developerIndustrySeries} height={275} />
                 </div>
               </div>
             </>
@@ -2309,62 +2328,20 @@ function ManagementRoleDashboard({
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div className="glass-card rounded-xl border border-[var(--primary)]/20 bg-gradient-to-br from-[var(--primary)]/10 via-transparent to-cyan-500/10 p-4">
+              <div className={developerPanelClass}>
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">Portfolio Overview</h3>
-                  <span className="text-[10px] text-[var(--muted-foreground)]">All scoped sub-accounts</span>
+                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Portfolio Overview</h3>
+                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>all scoped sub-accounts</span>
                 </div>
-                <div className="space-y-2.5">
-                  {[
-                    { label: 'Connected Accounts', value: `${connectedRatePct}%`, width: connectedRatePct, color: 'from-blue-500 to-cyan-400' },
-                    { label: 'Active Email Ratio', value: `${activeEmailRatePct}%`, width: activeEmailRatePct, color: 'from-indigo-500 to-violet-400' },
-                    { label: 'Campaign Open Rate', value: formatRatePct(totals.engagement.openRate), width: openRatePct, color: 'from-emerald-500 to-teal-400' },
-                    { label: 'Campaign Click Rate', value: formatRatePct(totals.engagement.clickRate), width: clickRatePct, color: 'from-fuchsia-500 to-purple-400' },
-                  ].map((row) => (
-                    <div key={row.label} className="rounded-lg border border-[var(--border)]/70 bg-[var(--card)]/70 px-3 py-2">
-                      <div className="mb-1 flex items-center justify-between">
-                        <p className="text-xs font-medium">{row.label}</p>
-                        <p className="text-xs font-semibold tabular-nums">{row.value}</p>
-                      </div>
-                      <div className="h-2 rounded-full bg-[var(--muted)]/40">
-                        <div
-                          className={`h-full rounded-full bg-gradient-to-r ${row.color}`}
-                          style={{ width: `${Math.max(4, row.width)}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <ApexChart type="radialBar" options={developerGaugeOptions} series={developerGaugeSeries} height={275} />
               </div>
 
-              <div className="glass-card rounded-xl p-4">
+              <div className={developerPanelClass}>
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">Industry Breakdown</h3>
-                  <span className="text-[10px] text-[var(--muted-foreground)]">{industryPortfolioRows.length} segment{industryPortfolioRows.length === 1 ? '' : 's'}</span>
+                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Industry Breakdown</h3>
+                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>top segments</span>
                 </div>
-                {industryPortfolioRows.length === 0 ? (
-                  <p className="text-sm text-[var(--muted-foreground)]">No industry data in the current scope.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {industryPortfolioRows.map((row) => (
-                      <div key={row.industry} className="rounded-lg border border-[var(--border)] px-3 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium">{row.industry}</p>
-                          <p className="text-[10px] text-[var(--muted-foreground)]">{row.accountCount} account{row.accountCount === 1 ? '' : 's'}</p>
-                        </div>
-                        <div className="mt-1 h-1.5 rounded-full bg-[var(--muted)]/35">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-blue-500/80 via-violet-500/70 to-fuchsia-500/70"
-                            style={{ width: `${Math.min(100, Math.max(6, Math.round((row.contactsTotal / topIndustryContactsMax) * 100)))}%` }}
-                          />
-                        </div>
-                        <p className="text-[10px] text-[var(--muted-foreground)]">
-                          {formatCompactNumber(row.contactsTotal)} contacts · {row.campaignCount} campaigns · {row.workflowCount} flows · {row.connectedAccounts}/{row.accountCount} connected
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <ApexChart type="bar" options={developerIndustryOptions} series={developerIndustrySeries} height={275} />
               </div>
             </div>
           )}
@@ -2471,7 +2448,7 @@ function ManagementRoleDashboard({
             </div>
             <CampaignPageAnalytics
               campaigns={filteredEspCampaigns}
-              loading={loading}
+              loading={loading || campaignsAggregateLoading}
               showAccountBreakdown
               accountNames={accountNames}
             />
@@ -2486,7 +2463,7 @@ function ManagementRoleDashboard({
             </div>
             <FlowAnalytics
               workflows={filteredEspWorkflows}
-              loading={loading}
+              loading={loading || workflowsAggregateLoading}
               showAccountBreakdown
               accountNames={accountNames}
             />
@@ -2521,7 +2498,7 @@ function ManagementRoleDashboard({
             <ContactAnalytics
               contacts={filteredContacts}
               totalCount={totals.contactsTotal}
-              loading={loading}
+              loading={loading || contactsAggregateLoading}
               dateRange={dateRange}
               customRange={customRange}
             />
@@ -2584,6 +2561,17 @@ function ClientRoleDashboard({
   const [loomiSmsCampaigns, setLoomiSmsCampaigns] = useState<LoomiSmsCampaign[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [usingMockData, setUsingMockData] = useState(false);
+  const { theme } = useTheme();
+  const clientChartTextColor = theme === 'dark' ? '#cbd5e1' : '#334155';
+  const clientChartMutedColor = theme === 'dark' ? '#94a3b8' : '#64748b';
+  const clientChartGridColor = theme === 'dark' ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.24)';
+  const clientChartStrokeColor = theme === 'dark' ? 'rgba(16,15,35,0.95)' : 'rgba(248,250,252,0.96)';
+  const clientChartTooltipTheme: 'dark' | 'light' = theme === 'dark' ? 'dark' : 'light';
+  const clientPanelClass = theme === 'dark'
+    ? 'rounded-2xl border border-white/10 bg-[linear-gradient(155deg,rgba(24,24,43,0.86),rgba(31,18,42,0.82))] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+    : 'rounded-2xl border border-white/70 bg-[linear-gradient(155deg,rgba(255,255,255,0.44),rgba(237,243,255,0.38))] backdrop-blur-xl p-5 shadow-[0_8px_20px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,0.8)]';
+  const clientHeadingClass = theme === 'dark' ? 'text-white' : 'text-slate-900';
+  const clientSubtleClass = theme === 'dark' ? 'text-violet-100/70' : 'text-slate-500';
 
   useEffect(() => {
     if (!accountKey) {
@@ -2715,28 +2703,119 @@ function ClientRoleDashboard({
 
   const clientStatusMix = useMemo(
     () => [
-      { label: 'Scheduled', value: scheduledEsp, gradient: 'from-indigo-500 to-violet-400' },
-      { label: 'Sent / Complete', value: sentEsp, gradient: 'from-emerald-500 to-teal-400' },
-      { label: 'Other', value: otherEsp, gradient: 'from-slate-500 to-slate-300' },
+      { label: 'Scheduled', value: scheduledEsp },
+      { label: 'Sent / Complete', value: sentEsp },
+      { label: 'Other', value: otherEsp },
     ],
     [scheduledEsp, sentEsp, otherEsp],
-  );
-  const clientStatusMixMax = useMemo(
-    () => Math.max(1, ...clientStatusMix.map((row) => row.value)),
-    [clientStatusMix],
   );
 
   const clientChannelMix = useMemo(
     () => [
-      { label: 'ESP Campaigns', value: filteredEspCampaigns.length, gradient: 'from-blue-500 to-cyan-400' },
-      { label: 'Loomi Email', value: filteredLoomiEmailCampaigns.length, gradient: 'from-fuchsia-500 to-purple-400' },
-      { label: 'Loomi SMS', value: filteredLoomiSmsCampaigns.length, gradient: 'from-amber-500 to-orange-400' },
+      { label: 'ESP Campaigns', value: filteredEspCampaigns.length },
+      { label: 'Loomi Email', value: filteredLoomiEmailCampaigns.length },
+      { label: 'Loomi SMS', value: filteredLoomiSmsCampaigns.length },
     ],
     [filteredEspCampaigns.length, filteredLoomiEmailCampaigns.length, filteredLoomiSmsCampaigns.length],
   );
-  const clientChannelMixMax = useMemo(
-    () => Math.max(1, ...clientChannelMix.map((row) => row.value)),
+  const clientStatusMixLabels = useMemo(
+    () => clientStatusMix.map((row) => row.label),
+    [clientStatusMix],
+  );
+  const clientStatusMixSeries = useMemo(
+    () => clientStatusMix.map((row) => row.value),
+    [clientStatusMix],
+  );
+  const clientChannelCategories = useMemo(
+    () => clientChannelMix.map((row) => row.label),
     [clientChannelMix],
+  );
+  const clientChannelSeries = useMemo(
+    () => [{ name: 'Volume', data: clientChannelMix.map((row) => row.value) }],
+    [clientChannelMix],
+  );
+  const clientBarGrid = useMemo(
+    () => ({ borderColor: clientChartGridColor, strokeDashArray: 4 }),
+    [clientChartGridColor],
+  );
+  const clientGaugeSeries = [clientOpenRatePct, clientClickRatePct];
+
+  const clientGaugeOptions = useMemo<ApexOptions>(
+    () => ({
+      chart: { type: 'radialBar', background: 'transparent', toolbar: { show: false }, foreColor: clientChartTextColor },
+      labels: ['Open Rate', 'Click Rate'],
+      colors: ['#22d3ee', '#a78bfa'],
+      plotOptions: {
+        radialBar: {
+          hollow: { size: '34%' },
+          track: { background: clientChartGridColor },
+          dataLabels: {
+            name: { fontSize: '10px', color: clientChartMutedColor },
+            value: { fontSize: '12px', color: clientChartTextColor },
+            total: {
+              show: true,
+              label: 'Delivery',
+              color: clientChartTextColor,
+              formatter: () => `${Math.round((clientOpenRatePct + clientClickRatePct) / 2)}%`,
+            },
+          },
+        },
+      },
+      legend: { show: true, position: 'bottom', labels: { colors: clientChartTextColor }, fontSize: '11px' },
+      tooltip: { theme: clientChartTooltipTheme },
+      noData: { text: 'No delivery data', style: { color: clientChartMutedColor } },
+    }),
+    [
+      clientChartGridColor,
+      clientChartMutedColor,
+      clientChartTextColor,
+      clientChartTooltipTheme,
+      clientClickRatePct,
+      clientOpenRatePct,
+    ],
+  );
+
+  const clientStatusMixOptions = useMemo<ApexOptions>(
+    () => ({
+      chart: { type: 'donut', background: 'transparent', toolbar: { show: false }, foreColor: clientChartTextColor },
+      labels: clientStatusMixLabels,
+      colors: ['#818cf8', '#34d399', '#94a3b8'],
+      dataLabels: { enabled: false },
+      stroke: { width: 2, colors: [clientChartStrokeColor] },
+      legend: { show: true, position: 'bottom', labels: { colors: clientChartTextColor }, fontSize: '11px' },
+      plotOptions: { pie: { donut: { size: '70%' } } },
+      tooltip: { theme: clientChartTooltipTheme },
+      noData: { text: 'No status mix', style: { color: clientChartMutedColor } },
+    }),
+    [
+      clientChartMutedColor,
+      clientChartStrokeColor,
+      clientChartTextColor,
+      clientChartTooltipTheme,
+      clientStatusMixLabels,
+    ],
+  );
+
+  const clientChannelOptions = useMemo<ApexOptions>(
+    () => ({
+      chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, foreColor: clientChartTextColor },
+      colors: ['#60a5fa', '#f472b6', '#f59e0b'],
+      plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '58%', distributed: true } },
+      dataLabels: { enabled: false },
+      legend: { show: false },
+      xaxis: { categories: clientChannelCategories, labels: { style: { colors: clientChartMutedColor } } },
+      yaxis: { labels: { style: { colors: clientChartTextColor } } },
+      grid: clientBarGrid,
+      tooltip: { theme: clientChartTooltipTheme },
+      noData: { text: 'No channel output', style: { color: clientChartMutedColor } },
+    }),
+    [
+      clientBarGrid,
+      clientChannelCategories,
+      clientChartMutedColor,
+      clientChartTextColor,
+      clientChartTooltipTheme,
+    ],
   );
 
   const recentActivity = useMemo(() => {
@@ -2796,22 +2875,14 @@ function ClientRoleDashboard({
     <div>
       <div className="page-sticky-header mb-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="rounded-xl bg-[var(--primary)]/15 p-2 text-[var(--primary)]">
-              <PaperAirplaneIcon className="h-8 w-8" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">Dashboard</h2>
-              <p className="mt-0.5 text-sm font-medium text-[var(--foreground)]">Welcome, {userName?.trim() || 'there'}!</p>
-              <p className="mt-0.5 text-sm text-[var(--muted-foreground)]">
-                {accountData.dealer} · Campaign status and delivery performance for your account.
+          <div>
+            <h2 className="text-2xl font-bold">Dashboard</h2>
+            <p className="mt-0.5 text-sm font-medium text-[var(--foreground)]">Welcome, {userName?.trim() || 'there'}!</p>
+            {usingMockData ? (
+              <p className="mt-1 inline-flex items-center rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
+                Dummy Data Mode
               </p>
-              {usingMockData ? (
-                <p className="mt-1 inline-flex items-center rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
-                  Dummy Data Mode
-                </p>
-              ) : null}
-            </div>
+            ) : null}
           </div>
 
           <DashboardToolbar
@@ -2852,79 +2923,28 @@ function ClientRoleDashboard({
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="glass-card rounded-2xl border border-[var(--primary)]/20 bg-gradient-to-br from-[var(--primary)]/12 via-transparent to-cyan-500/10 p-5">
+            <div className={clientPanelClass}>
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Delivery Pulse</h3>
-                <span className="text-[10px] text-[var(--muted-foreground)]">Open rate</span>
+                <h3 className={`text-sm font-semibold ${clientHeadingClass}`}>Delivery Pulse</h3>
+                <span className={`text-[10px] uppercase tracking-wider ${clientSubtleClass}`}>open + click</span>
               </div>
-              <div className="flex items-center gap-4">
-                <div
-                  className="relative h-24 w-24 rounded-full"
-                  style={{
-                    background: `conic-gradient(var(--primary) ${clientOpenRatePct}%, rgba(148, 163, 184, 0.18) ${clientOpenRatePct}% 100%)`,
-                  }}
-                >
-                  <div className="absolute inset-[8px] flex items-center justify-center rounded-full bg-[var(--card)]">
-                    <p className="text-lg font-bold tabular-nums">{clientOpenRatePct}%</p>
-                  </div>
-                </div>
-                <div className="flex-1 space-y-2">
-                  <div className="rounded-lg border border-[var(--border)]/70 bg-[var(--card)]/70 px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Open Rate</p>
-                    <p className="text-sm font-semibold">{formatRatePct(clientEngagement.openRate)}</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--border)]/70 bg-[var(--card)]/70 px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Click Rate</p>
-                    <p className="text-sm font-semibold">{formatRatePct(clientEngagement.clickRate)}</p>
-                  </div>
-                </div>
-              </div>
+              <ApexChart type="radialBar" options={clientGaugeOptions} series={clientGaugeSeries} height={265} />
             </div>
 
-            <div className="glass-card rounded-2xl p-5">
+            <div className={clientPanelClass}>
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Campaign Status Mix</h3>
-                <span className="text-[10px] text-[var(--muted-foreground)]">Date range</span>
+                <h3 className={`text-sm font-semibold ${clientHeadingClass}`}>Campaign Status Mix</h3>
+                <span className={`text-[10px] uppercase tracking-wider ${clientSubtleClass}`}>date range</span>
               </div>
-              <div className="space-y-3">
-                {clientStatusMix.map((row) => (
-                  <div key={row.label}>
-                    <div className="mb-1 flex items-center justify-between">
-                      <p className="text-xs font-medium">{row.label}</p>
-                      <p className="text-xs tabular-nums text-[var(--muted-foreground)]">{row.value}</p>
-                    </div>
-                    <div className="h-2.5 rounded-full bg-[var(--muted)]/40">
-                      <div
-                        className={`h-full rounded-full bg-gradient-to-r ${row.gradient}`}
-                        style={{ width: `${Math.max(8, Math.round((row.value / clientStatusMixMax) * 100))}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <ApexChart type="donut" options={clientStatusMixOptions} series={clientStatusMixSeries} height={265} />
             </div>
 
-            <div className="glass-card rounded-2xl p-5">
+            <div className={clientPanelClass}>
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Channel Output</h3>
-                <span className="text-[10px] text-[var(--muted-foreground)]">By campaign type</span>
+                <h3 className={`text-sm font-semibold ${clientHeadingClass}`}>Channel Output</h3>
+                <span className={`text-[10px] uppercase tracking-wider ${clientSubtleClass}`}>by campaign type</span>
               </div>
-              <div className="space-y-3">
-                {clientChannelMix.map((row) => (
-                  <div key={row.label}>
-                    <div className="mb-1 flex items-center justify-between">
-                      <p className="text-xs font-medium">{row.label}</p>
-                      <p className="text-xs tabular-nums text-[var(--muted-foreground)]">{row.value}</p>
-                    </div>
-                    <div className="h-2.5 rounded-full bg-[var(--muted)]/40">
-                      <div
-                        className={`h-full rounded-full bg-gradient-to-r ${row.gradient}`}
-                        style={{ width: `${Math.max(8, Math.round((row.value / clientChannelMixMax) * 100))}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <ApexChart type="bar" options={clientChannelOptions} series={clientChannelSeries} height={265} />
             </div>
           </div>
 

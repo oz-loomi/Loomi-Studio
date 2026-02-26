@@ -30,9 +30,22 @@ function withAccountKeys<T extends { accountKeys: string }>(user: T): Omit<T, 'a
   };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
+
+  const summary = req.nextUrl.searchParams.get('summary') === '1';
+
+  if (summary) {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        role: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return NextResponse.json(users);
+  }
 
   let users: Array<{
     id: string;

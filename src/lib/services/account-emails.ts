@@ -1,23 +1,29 @@
 import { prisma } from '@/lib/prisma';
 
+const emailListSelect = {
+  id: true,
+  accountKey: true,
+  templateId: true,
+  name: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+  template: { select: { slug: true, title: true, type: true } },
+  account: { select: { key: true, dealer: true } },
+  folder: { select: { id: true, name: true } },
+} as const;
+
 export async function getAccountEmails(accountKey: string) {
   return prisma.accountEmail.findMany({
     where: { accountKey },
-    include: {
-      template: { select: { slug: true, title: true, type: true } },
-      folder: { select: { id: true, name: true } },
-    },
+    select: emailListSelect,
     orderBy: { updatedAt: 'desc' },
   });
 }
 
 export async function getAllEmails() {
   return prisma.accountEmail.findMany({
-    include: {
-      template: { select: { slug: true, title: true, type: true } },
-      account: { select: { key: true, dealer: true } },
-      folder: { select: { id: true, name: true } },
-    },
+    select: emailListSelect,
     orderBy: { updatedAt: 'desc' },
   });
 }

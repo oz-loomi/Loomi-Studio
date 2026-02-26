@@ -213,6 +213,25 @@ function toSummary(row: {
   };
 }
 
+const emailCampaignSummarySelect = {
+  id: true,
+  name: true,
+  subject: true,
+  previewText: true,
+  sourceType: true,
+  status: true,
+  scheduledFor: true,
+  startedAt: true,
+  completedAt: true,
+  totalRecipients: true,
+  sentCount: true,
+  failedCount: true,
+  accountKeys: true,
+  createdAt: true,
+  updatedAt: true,
+  error: true,
+} as const;
+
 function getTransportConfig(): {
   from: string;
   transporter: nodemailer.Transporter;
@@ -311,6 +330,7 @@ export async function createEmailCampaign(input: CreateEmailCampaignInput): Prom
 export async function getEmailCampaign(campaignId: string): Promise<EmailCampaignSummary | null> {
   const row = await prisma.emailCampaign.findUnique({
     where: { id: campaignId },
+    select: emailCampaignSummarySelect,
   });
   return row ? toSummary(row) : null;
 }
@@ -321,6 +341,7 @@ export async function listEmailCampaigns(options?: {
 }): Promise<EmailCampaignSummary[]> {
   const limit = Math.max(1, Math.min(100, options?.limit ?? 25));
   const rows = await prisma.emailCampaign.findMany({
+    select: emailCampaignSummarySelect,
     orderBy: { createdAt: 'desc' },
     take: limit * 4,
   });

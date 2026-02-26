@@ -21,10 +21,12 @@ import {
   EyeIcon,
   PencilSquareIcon,
   CheckCircleIcon,
+  BuildingOfficeIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
 import { TemplatePreview } from '@/components/template-preview';
+import { CloneToAccountsModal } from '@/components/clone-to-accounts-modal';
 import {
   parseTemplateTagsPayload,
   assignmentsMapToArray,
@@ -154,6 +156,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const [previewDesign, setPreviewDesign] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedDesigns, setSelectedDesigns] = useState<Set<string>>(new Set());
+  const [cloneToAccountDesign, setCloneToAccountDesign] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const loadTemplates = async () => {
@@ -571,7 +574,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                           <EllipsisVerticalIcon className="w-4 h-4" />
                         </button>
                         {isOpen && (
-                          <div className="absolute right-0 top-full mt-1 z-50 w-40 glass-dropdown">
+                          <div className="absolute right-0 top-full mt-1 z-50 w-48 glass-dropdown">
                             <button
                               onClick={() => { setMenuOpen(null); setPreviewDesign(t.design); }}
                               className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
@@ -592,6 +595,13 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                             >
                               <DocumentDuplicateIcon className="w-4 h-4" />
                               Clone
+                            </button>
+                            <button
+                              onClick={() => { setCloneToAccountDesign(t.design); setMenuOpen(null); }}
+                              className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                            >
+                              <BuildingOfficeIcon className="w-4 h-4" />
+                              Clone to Account
                             </button>
                             <button
                               onClick={() => { deleteTemplate(t.design); setMenuOpen(null); }}
@@ -696,6 +706,14 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
           </div>
         </div>
       )}
+
+      {/* Clone to Account modal */}
+      <CloneToAccountsModal
+        open={!!cloneToAccountDesign}
+        onClose={() => setCloneToAccountDesign(null)}
+        templateDesign={cloneToAccountDesign || ''}
+        templateName={cloneToAccountDesign ? (tplMap[cloneToAccountDesign]?.name || formatDesign(cloneToAccountDesign)) : ''}
+      />
     </div>
   );
 }

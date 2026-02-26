@@ -17,6 +17,7 @@ export async function GET() {
 
   try {
     const allAccounts = await accountService.getAccounts();
+    const accountMap = new Map(allAccounts.map((account) => [account.key, account]));
     const allKeys = allAccounts.filter(a => !a.key.startsWith('_')).map(a => a.key);
 
     const userRole = session!.user.role;
@@ -33,7 +34,7 @@ export async function GET() {
     const errors: Record<string, string> = {};
 
     const tasks = allowedKeys.map((accountKey) => async () => {
-      const account = allAccounts.find(a => a.key === accountKey);
+      const account = accountMap.get(accountKey);
       const dealer = account?.dealer || accountKey;
 
       try {

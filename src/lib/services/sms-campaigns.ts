@@ -188,6 +188,23 @@ function toSummary(row: {
   };
 }
 
+const smsCampaignSummarySelect = {
+  id: true,
+  name: true,
+  message: true,
+  status: true,
+  scheduledFor: true,
+  startedAt: true,
+  completedAt: true,
+  totalRecipients: true,
+  sentCount: true,
+  failedCount: true,
+  accountKeys: true,
+  createdAt: true,
+  updatedAt: true,
+  error: true,
+} as const;
+
 export async function createSmsCampaign(input: CreateSmsCampaignInput): Promise<SmsCampaignSummary> {
   const message = sanitizeMessage(input.message || '');
   const channel = normalizeChannel(input.channel);
@@ -242,6 +259,7 @@ export async function createSmsCampaign(input: CreateSmsCampaignInput): Promise<
 export async function getSmsCampaign(campaignId: string): Promise<SmsCampaignSummary | null> {
   const row = await prisma.smsCampaign.findUnique({
     where: { id: campaignId },
+    select: smsCampaignSummarySelect,
   });
   return row ? toSummary(row) : null;
 }
@@ -252,6 +270,7 @@ export async function listSmsCampaigns(options?: {
 }): Promise<SmsCampaignSummary[]> {
   const limit = Math.max(1, Math.min(100, options?.limit ?? 25));
   const rows = await prisma.smsCampaign.findMany({
+    select: smsCampaignSummarySelect,
     orderBy: { createdAt: 'desc' },
     take: limit * 4,
   });
