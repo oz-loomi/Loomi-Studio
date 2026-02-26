@@ -2675,6 +2675,19 @@ const HERO_BUTTON_PROP_MAP: Record<string, string[]> = {
 // Settings sections with static defaults (no theme system)
 const SETTINGS_SECTIONS: SettingsSection[] = [
   {
+    label: "Email Meta",
+    key: "meta",
+    fields: [
+      { key: "fm:title", label: "Title", type: "text", target: "frontmatter" },
+      {
+        key: "fm:preheader",
+        label: "Preheader",
+        type: "text",
+        target: "frontmatter",
+      },
+    ],
+  },
+  {
     label: "Layout",
     key: "layout",
     fields: [
@@ -4991,8 +5004,8 @@ export default function TemplateEditorPage() {
     } catch {}
   }, [selectedComponent]);
 
-  const designLabel = espMode
-    ? (espTemplateName || "Untitled Template")
+  const designLabel = (espMode || espTemplateId)
+    ? (espTemplateName || "Loading...")
     : design
       .split("-")
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -5244,7 +5257,7 @@ export default function TemplateEditorPage() {
                 )}
                 {visualTab === "settings" &&
                   parsed &&
-                  SETTINGS_SECTIONS.map((section, sectionIdx) => (
+                  SETTINGS_SECTIONS.filter((s) => !(espMode && s.key === "meta")).map((section, sectionIdx) => (
                     <div key={section.key}>
                       <h3
                         className={`text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider ${sectionIdx > 0 || espMode ? "mt-4" : ""} mb-2`}
