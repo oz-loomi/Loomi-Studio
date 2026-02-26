@@ -12,6 +12,7 @@ import { listOAuthConnections } from '@/lib/esp/oauth-connections';
 import { listApiKeyConnections } from '@/lib/esp/api-key-connections';
 import { listAccountProviderLinks } from '@/lib/esp/account-provider-links';
 import { getIndustryDefaults } from '@/data/industry-defaults';
+import { isInternalAccountKey } from '@/lib/services/accounts';
 
 export async function GET() {
   try {
@@ -157,6 +158,9 @@ export async function POST(req: NextRequest) {
     if (!safeKey) {
       return NextResponse.json({ error: 'Invalid key' }, { status: 400 });
     }
+    if (isInternalAccountKey(safeKey)) {
+      return NextResponse.json({ error: 'Account key cannot start with "_"' }, { status: 400 });
+    }
 
     const existing = await accountService.getAccount(safeKey);
     if (existing) {
@@ -217,6 +221,9 @@ export async function DELETE(req: NextRequest) {
     const key = req.nextUrl.searchParams.get('key');
     if (!key) {
       return NextResponse.json({ error: 'Missing key' }, { status: 400 });
+    }
+    if (isInternalAccountKey(key)) {
+      return NextResponse.json({ error: 'Internal accounts cannot be deleted' }, { status: 403 });
     }
 
     const existing = await accountService.getAccount(key);

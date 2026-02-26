@@ -8,21 +8,33 @@ const ACCOUNT_REP_SELECT = {
   avatarUrl: true,
 } as const;
 
+const INTERNAL_ACCOUNT_KEY_PREFIX = '_';
+
+export function isInternalAccountKey(key: string): boolean {
+  return key.startsWith(INTERNAL_ACCOUNT_KEY_PREFIX);
+}
+
 export async function getAccounts(userAccountKeys?: string[]) {
   if (userAccountKeys && userAccountKeys.length > 0) {
+    const visibleKeys = userAccountKeys.filter((key) => !isInternalAccountKey(key));
+    if (visibleKeys.length === 0) return [];
+
     return prisma.account.findMany({
-      where: { key: { in: userAccountKeys } },
+      where: { key: { in: visibleKeys } },
       orderBy: { dealer: 'asc' },
       include: { accountRep: { select: ACCOUNT_REP_SELECT } },
     });
   }
   return prisma.account.findMany({
+    where: { NOT: { key: { startsWith: INTERNAL_ACCOUNT_KEY_PREFIX } } },
     orderBy: { dealer: 'asc' },
     include: { accountRep: { select: ACCOUNT_REP_SELECT } },
   });
 }
 
 export async function getAccount(key: string) {
+  if (isInternalAccountKey(key)) return null;
+
   return prisma.account.findUnique({
     where: { key },
     include: { accountRep: { select: ACCOUNT_REP_SELECT } },
@@ -88,6 +100,9 @@ export async function deleteAccount(key: string) {
 }
 
 export async function getAllAccountKeys() {
-  const accounts = await prisma.account.findMany({ select: { key: true } });
+  const accounts = await prisma.account.findMany({
+    where: { NOT: { key: { startsWith: INTERNAL_ACCOUNT_KEY_PREFIX } } },
+    select: { key: true },
+  });
   return accounts.map((a) => a.key);
 }

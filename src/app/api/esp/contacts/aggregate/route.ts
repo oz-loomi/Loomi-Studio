@@ -67,7 +67,7 @@ export async function GET() {
       }
     });
 
-    await withConcurrencyLimit(tasks, 3);
+    await withConcurrencyLimit(tasks, 5);
 
     return NextResponse.json({
       contacts: allContacts,

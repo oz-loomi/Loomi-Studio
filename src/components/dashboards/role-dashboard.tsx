@@ -43,6 +43,12 @@ import { AccountHealthGrid } from '@/components/analytics/account-health-grid';
 import { AccountAvatar } from '@/components/account-avatar';
 import { formatRatePct, sumCampaignEngagement } from '@/lib/campaign-engagement';
 import { FlowIcon } from '@/components/icon-map';
+import {
+  useContactsAggregate,
+  useCampaignsAggregate,
+  useWorkflowsAggregate,
+  useContactStats,
+} from '@/hooks/use-dashboard-data';
 
 type ManagementRole = 'developer' | 'super_admin' | 'admin';
 type DeveloperMode = 'analytics' | 'technical';
@@ -556,9 +562,6 @@ function ManagementRoleDashboard({
   userName: string | null;
 }) {
   const [loading, setLoading] = useState(true);
-  const [contactsAggregateLoading, setContactsAggregateLoading] = useState(true);
-  const [campaignsAggregateLoading, setCampaignsAggregateLoading] = useState(true);
-  const [workflowsAggregateLoading, setWorkflowsAggregateLoading] = useState(true);
   const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -570,28 +573,90 @@ function ManagementRoleDashboard({
   const lastFocusedRef = useRef<string | null>(null);
 
   const [emails, setEmails] = useState<EmailListItem[]>([]);
-  const [contactStats, setContactStats] = useState<Record<string, ContactStatsRow>>({});
-  const [contacts, setContacts] = useState<AggregateContact[]>([]);
-  const [espCampaigns, setEspCampaigns] = useState<EspCampaign[]>([]);
-  const [espWorkflows, setEspWorkflows] = useState<EspWorkflow[]>([]);
   const [loomiEmailCampaigns, setLoomiEmailCampaigns] = useState<LoomiEmailCampaign[]>([]);
   const [loomiSmsCampaigns, setLoomiSmsCampaigns] = useState<LoomiSmsCampaign[]>([]);
   const [users, setUsers] = useState<UserSummary[]>([]);
 
-  const [campaignPerAccount, setCampaignPerAccount] = useState<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>({});
-  const [workflowPerAccount, setWorkflowPerAccount] = useState<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>({});
-
-  const [errors, setErrors] = useState<{
-    contactsStats?: string;
-    contactsAggregate?: string;
-    campaignsAggregate?: string;
-    workflowsAggregate?: string;
+  const [phase1Errors, setPhase1Errors] = useState<{
     emails?: string;
     loomiEmail?: string;
     loomiSms?: string;
     users?: string;
   }>({});
   const [usingMockData, setUsingMockData] = useState(false);
+
+  // Mock-only state (populated when DASHBOARD_DUMMY_MODE is on)
+  const [mockContacts, setMockContacts] = useState<AggregateContact[]>([]);
+  const [mockContactStats, setMockContactStats] = useState<Record<string, ContactStatsRow>>({});
+  const [mockEspCampaigns, setMockEspCampaigns] = useState<EspCampaign[]>([]);
+  const [mockEspWorkflows, setMockEspWorkflows] = useState<EspWorkflow[]>([]);
+  const [mockCampaignPerAccount, setMockCampaignPerAccount] = useState<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>({});
+  const [mockWorkflowPerAccount, setMockWorkflowPerAccount] = useState<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>({});
+
+  // SWR hooks — disabled when using mock data
+  const contactsAgg = useContactsAggregate(!usingMockData);
+  const campaignsAgg = useCampaignsAggregate(!usingMockData);
+  const workflowsAgg = useWorkflowsAggregate(!usingMockData);
+  const contactStatsHook = useContactStats(!usingMockData);
+
+  // Bridge variables — downstream useMemos reference these exact names
+  const contacts: AggregateContact[] = usingMockData
+    ? mockContacts
+    : (contactsAgg.data?.contacts as AggregateContact[] | undefined) ?? [];
+  const contactsAggregateLoading = usingMockData ? false : contactsAgg.isLoading;
+
+  const espCampaigns: EspCampaign[] = usingMockData
+    ? mockEspCampaigns
+    : (campaignsAgg.data?.campaigns as EspCampaign[] | undefined) ?? [];
+  const campaignPerAccount = usingMockData
+    ? mockCampaignPerAccount
+    : campaignsAgg.data?.perAccount ?? {};
+  const campaignsAggregateLoading = usingMockData ? false : campaignsAgg.isLoading;
+
+  const espWorkflows: EspWorkflow[] = usingMockData
+    ? mockEspWorkflows
+    : (workflowsAgg.data?.workflows as EspWorkflow[] | undefined) ?? [];
+  const workflowPerAccount = usingMockData
+    ? mockWorkflowPerAccount
+    : workflowsAgg.data?.perAccount ?? {};
+  const workflowsAggregateLoading = usingMockData ? false : workflowsAgg.isLoading;
+
+  const contactStats: Record<string, ContactStatsRow> = useMemo(() => {
+    if (usingMockData) return mockContactStats;
+    if (!contactStatsHook.data?.stats) return {};
+    const rawStats = contactStatsHook.data.stats;
+    const normalized: Record<string, ContactStatsRow> = {};
+    for (const [accountKey, stat] of Object.entries(rawStats)) {
+      const countRaw = stat.contactCount ?? stat.count;
+      normalized[accountKey] = {
+        dealer: String(stat.dealer || accountKey),
+        contactCount: typeof countRaw === 'number' ? countRaw : asNumber(countRaw),
+        connected: Boolean(stat.connected),
+        cached: Boolean(stat.cached),
+        provider: typeof stat.provider === 'string' ? stat.provider : undefined,
+        error: typeof stat.error === 'string' ? stat.error : undefined,
+      };
+    }
+    return normalized;
+  }, [usingMockData, mockContactStats, contactStatsHook.data]);
+
+  const errors = useMemo(() => {
+    const e: {
+      contactsStats?: string;
+      contactsAggregate?: string;
+      campaignsAggregate?: string;
+      workflowsAggregate?: string;
+      emails?: string;
+      loomiEmail?: string;
+      loomiSms?: string;
+      users?: string;
+    } = { ...phase1Errors };
+    if (contactStatsHook.error) e.contactsStats = contactStatsHook.error.message;
+    if (contactsAgg.error) e.contactsAggregate = contactsAgg.error.message;
+    if (campaignsAgg.error) e.campaignsAggregate = campaignsAgg.error.message;
+    if (workflowsAgg.error) e.workflowsAggregate = workflowsAgg.error.message;
+    return e;
+  }, [phase1Errors, contactStatsHook.error, contactsAgg.error, campaignsAgg.error, workflowsAgg.error]);
 
   const { theme } = useTheme();
   const isDeveloper = role === 'developer';
@@ -705,51 +770,62 @@ function ManagementRoleDashboard({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [filtersPanelOpen]);
 
+  // Mock data mode — populate mock states and skip SWR fetches
   useEffect(() => {
+    if (!DASHBOARD_DUMMY_MODE) return;
+    const mock = buildMockManagementDataset(accounts);
+    setEmails(mock.emails);
+    setMockContactStats(mock.contactStats);
+    setMockContacts(mock.contacts);
+    setMockEspCampaigns(mock.espCampaigns);
+    setMockEspWorkflows(mock.espWorkflows);
+    setLoomiEmailCampaigns(mock.loomiEmailCampaigns);
+    setLoomiSmsCampaigns(mock.loomiSmsCampaigns);
+    setUsers(mock.users);
+    setMockCampaignPerAccount(mock.campaignPerAccount);
+    setMockWorkflowPerAccount(mock.workflowPerAccount);
+    setUsingMockData(true);
+    setLoading(false);
+  }, [accounts]);
+
+  // Dev fallback — if all SWR aggregates errored, fall back to mock data
+  useEffect(() => {
+    if (DASHBOARD_DUMMY_MODE || usingMockData) return;
+    if (process.env.NODE_ENV !== 'development') return;
+    const allErrored = contactsAgg.error && campaignsAgg.error && workflowsAgg.error;
+    const allSettled = !contactsAgg.isLoading && !campaignsAgg.isLoading && !workflowsAgg.isLoading;
+    if (allErrored && allSettled) {
+      const mock = buildMockManagementDataset(accounts);
+      setEmails(mock.emails);
+      setMockContactStats(mock.contactStats);
+      setMockContacts(mock.contacts);
+      setMockEspCampaigns(mock.espCampaigns);
+      setMockEspWorkflows(mock.espWorkflows);
+      setLoomiEmailCampaigns(mock.loomiEmailCampaigns);
+      setLoomiSmsCampaigns(mock.loomiSmsCampaigns);
+      setUsers(mock.users);
+      setMockCampaignPerAccount(mock.campaignPerAccount);
+      setMockWorkflowPerAccount(mock.workflowPerAccount);
+      setUsingMockData(true);
+    }
+  }, [accounts, usingMockData, contactsAgg.error, contactsAgg.isLoading, campaignsAgg.error, campaignsAgg.isLoading, workflowsAgg.error, workflowsAgg.isLoading]);
+
+  // Phase 1 — lightweight endpoints (emails, loomi campaigns, users)
+  useEffect(() => {
+    if (DASHBOARD_DUMMY_MODE) return;
     let cancelled = false;
 
-    async function loadDashboard() {
+    async function loadPhase1() {
       setLoading(true);
-      setContactsAggregateLoading(true);
-      setCampaignsAggregateLoading(true);
-      setWorkflowsAggregateLoading(true);
-      setErrors({});
-
-      if (DASHBOARD_DUMMY_MODE) {
-        const mock = buildMockManagementDataset(accounts);
-        if (cancelled) return;
-        setEmails(mock.emails);
-        setContactStats(mock.contactStats);
-        setContacts(mock.contacts);
-        setEspCampaigns(mock.espCampaigns);
-        setEspWorkflows(mock.espWorkflows);
-        setLoomiEmailCampaigns(mock.loomiEmailCampaigns);
-        setLoomiSmsCampaigns(mock.loomiSmsCampaigns);
-        setUsers(mock.users);
-        setCampaignPerAccount(mock.campaignPerAccount);
-        setWorkflowPerAccount(mock.workflowPerAccount);
-        setErrors({});
-        setUsingMockData(true);
-        setLoading(false);
-        setContactsAggregateLoading(false);
-        setCampaignsAggregateLoading(false);
-        setWorkflowsAggregateLoading(false);
-        return;
-      }
-
-      const contactsAggregatePromise = loadJson('/api/esp/contacts/aggregate');
-      const campaignsAggregatePromise = loadJson('/api/esp/campaigns/aggregate');
-      const workflowsAggregatePromise = loadJson('/api/esp/workflows/aggregate');
+      setPhase1Errors({});
 
       const [
         emailRes,
-        contactStatsRes,
         loomiEmailRes,
         loomiSmsRes,
         usersRes,
       ] = await Promise.all([
         loadJson('/api/emails'),
-        loadJson('/api/esp/contacts/stats'),
         loadJson('/api/campaigns/email?limit=50'),
         loadJson('/api/esp/messages/bulk?limit=50'),
         loadJson('/api/users?summary=1'),
@@ -757,7 +833,7 @@ function ManagementRoleDashboard({
 
       if (cancelled) return;
 
-      const nextErrors: typeof errors = {};
+      const nextErrors: typeof phase1Errors = {};
       setUsingMockData(false);
 
       if (emailRes.ok) {
@@ -765,29 +841,6 @@ function ManagementRoleDashboard({
       } else {
         setEmails([]);
         nextErrors.emails = String((emailRes.json as Record<string, unknown>).error || `Error ${emailRes.status}`);
-      }
-
-      if (contactStatsRes.ok) {
-        const rawStats = parseJsonSafe<Record<string, Record<string, unknown>>>(
-          (contactStatsRes.json as Record<string, unknown>).stats,
-          {},
-        );
-        const normalized: Record<string, ContactStatsRow> = {};
-        for (const [accountKey, stat] of Object.entries(rawStats)) {
-          const countRaw = stat.contactCount ?? stat.count;
-          normalized[accountKey] = {
-            dealer: String(stat.dealer || accountKey),
-            contactCount: typeof countRaw === 'number' ? countRaw : asNumber(countRaw),
-            connected: Boolean(stat.connected),
-            cached: Boolean(stat.cached),
-            provider: typeof stat.provider === 'string' ? stat.provider : undefined,
-            error: typeof stat.error === 'string' ? stat.error : undefined,
-          };
-        }
-        setContactStats(normalized);
-      } else {
-        setContactStats({});
-        nextErrors.contactsStats = String((contactStatsRes.json as Record<string, unknown>).error || `Error ${contactStatsRes.status}`);
       }
 
       if (loomiEmailRes.ok) {
@@ -819,93 +872,11 @@ function ManagementRoleDashboard({
         nextErrors.users = String((usersRes.json as Record<string, unknown>).error || `Error ${usersRes.status}`);
       }
 
-      setErrors(nextErrors);
+      setPhase1Errors(nextErrors);
       setLoading(false);
-
-      const [
-        contactsAggregateRes,
-        campaignsAggregateRes,
-        workflowsAggregateRes,
-      ] = await Promise.all([
-        contactsAggregatePromise,
-        campaignsAggregatePromise,
-        workflowsAggregatePromise,
-      ]);
-
-      if (cancelled) return;
-
-      const shouldFallbackToMock =
-        process.env.NODE_ENV === 'development'
-        && !DASHBOARD_DUMMY_MODE
-        && !contactsAggregateRes.ok
-        && !campaignsAggregateRes.ok
-        && !workflowsAggregateRes.ok;
-
-      if (shouldFallbackToMock) {
-        const mock = buildMockManagementDataset(accounts);
-        setEmails(mock.emails);
-        setContactStats(mock.contactStats);
-        setContacts(mock.contacts);
-        setEspCampaigns(mock.espCampaigns);
-        setEspWorkflows(mock.espWorkflows);
-        setLoomiEmailCampaigns(mock.loomiEmailCampaigns);
-        setLoomiSmsCampaigns(mock.loomiSmsCampaigns);
-        setUsers(mock.users);
-        setCampaignPerAccount(mock.campaignPerAccount);
-        setWorkflowPerAccount(mock.workflowPerAccount);
-        setErrors({});
-        setUsingMockData(true);
-        setContactsAggregateLoading(false);
-        setCampaignsAggregateLoading(false);
-        setWorkflowsAggregateLoading(false);
-        return;
-      }
-
-      const fullErrors: typeof errors = { ...nextErrors };
-
-      if (contactsAggregateRes.ok) {
-        const rows = asArray<AggregateContact>((contactsAggregateRes.json as Record<string, unknown>).contacts);
-        setContacts(rows);
-      } else {
-        setContacts([]);
-        fullErrors.contactsAggregate = String((contactsAggregateRes.json as Record<string, unknown>).error || `Error ${contactsAggregateRes.status}`);
-      }
-      setContactsAggregateLoading(false);
-
-      if (campaignsAggregateRes.ok) {
-        setEspCampaigns(asArray<EspCampaign>((campaignsAggregateRes.json as Record<string, unknown>).campaigns));
-        setCampaignPerAccount(
-          parseJsonSafe<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>(
-            (campaignsAggregateRes.json as Record<string, unknown>).perAccount,
-            {},
-          ),
-        );
-      } else {
-        setEspCampaigns([]);
-        setCampaignPerAccount({});
-        fullErrors.campaignsAggregate = String((campaignsAggregateRes.json as Record<string, unknown>).error || `Error ${campaignsAggregateRes.status}`);
-      }
-      setCampaignsAggregateLoading(false);
-
-      if (workflowsAggregateRes.ok) {
-        setEspWorkflows(asArray<EspWorkflow>((workflowsAggregateRes.json as Record<string, unknown>).workflows));
-        setWorkflowPerAccount(
-          parseJsonSafe<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>(
-            (workflowsAggregateRes.json as Record<string, unknown>).perAccount,
-            {},
-          ),
-        );
-      } else {
-        setEspWorkflows([]);
-        setWorkflowPerAccount({});
-        fullErrors.workflowsAggregate = String((workflowsAggregateRes.json as Record<string, unknown>).error || `Error ${workflowsAggregateRes.status}`);
-      }
-      setWorkflowsAggregateLoading(false);
-
-      setErrors(fullErrors);
     }
 
-    loadDashboard();
+    loadPhase1();
 
     return () => {
       cancelled = true;

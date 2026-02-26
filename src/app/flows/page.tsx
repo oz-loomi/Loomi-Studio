@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { AdminOnly } from '@/components/route-guard';
+import { useWorkflowsAggregate } from '@/hooks/use-dashboard-data';
 import { FlowAnalytics } from '@/components/flows/flow-analytics';
 import { FlowList, type AccountMeta } from '@/components/flows/flow-list';
 import type { FlowFilterState, FlowFilterOptions } from '@/components/filters/flow-toolbar';
@@ -62,11 +63,32 @@ function workflowAccountKey(workflow: Workflow): string | null {
 }
 
 function AdminFlowsPage() {
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [accountNames, setAccountNames] = useState<Record<string, string>>({});
+  const { data: aggData, error: aggError, isLoading: aggLoading } = useWorkflowsAggregate();
+
+  const workflows = (aggData?.workflows ?? []) as Workflow[];
+  const flowError = useMemo(() => {
+    if (aggError) {
+      return aggError instanceof Error ? aggError.message : 'Failed to fetch flow data.';
+    }
+    if (aggData?.errors && Object.keys(aggData.errors).length > 0) {
+      const firstError = Object.values(aggData.errors)[0];
+      return `Some accounts returned workflow API errors. ${firstError}`;
+    }
+    return null;
+  }, [aggError, aggData]);
+
+  const accountNames = useMemo(() => {
+    const names: Record<string, string> = {};
+    if (aggData?.perAccount) {
+      Object.entries(aggData.perAccount).forEach(([key, val]) => {
+        if (val.dealer) names[key] = val.dealer;
+      });
+    }
+    return names;
+  }, [aggData]);
+
   const [accountMeta, setAccountMeta] = useState<Record<string, AccountMeta>>({});
   const [accountProviders, setAccountProviders] = useState<Record<string, string>>({});
-  const [flowError, setFlowError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
@@ -78,48 +100,21 @@ function AdminFlowsPage() {
   });
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
 
+  // Sync loading state with SWR
+  useEffect(() => {
+    if (!aggLoading) setLoading(false);
+  }, [aggLoading]);
+
+  // Fetch account metadata (separate from SWR-managed workflows)
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    async function loadAccountMeta() {
       try {
-        const [workflowHttp, accountsHttp] = await Promise.all([
-          fetch('/api/esp/workflows/aggregate'),
-          fetch('/api/accounts'),
-        ]);
-        const workflowRes = await workflowHttp.json().catch(() => ({}));
+        const accountsHttp = await fetch('/api/accounts');
         const accountsRes = await accountsHttp.json().catch(() => ({}));
 
         if (cancelled) return;
-
-        if (workflowHttp.ok && Array.isArray(workflowRes.workflows)) {
-          setWorkflows(workflowRes.workflows as Workflow[]);
-        } else {
-          setFlowError(
-            typeof workflowRes.error === 'string'
-              ? workflowRes.error
-              : `Failed to fetch workflows (${workflowHttp.status})`,
-          );
-        }
-
-        if (
-          workflowHttp.ok &&
-          workflowRes.errors &&
-          typeof workflowRes.errors === 'object' &&
-          Object.keys(workflowRes.errors as Record<string, string>).length > 0
-        ) {
-          const firstError = Object.values(workflowRes.errors as Record<string, string>)[0];
-          setFlowError((prev) => prev || `Some accounts returned workflow API errors. ${firstError}`);
-        }
-
-        const names: Record<string, string> = {};
-        if (workflowRes.perAccount && typeof workflowRes.perAccount === 'object') {
-          Object.entries(workflowRes.perAccount).forEach(([key, val]) => {
-            const dealer = (val as { dealer?: string }).dealer;
-            if (dealer) names[key] = dealer;
-          });
-        }
-        setAccountNames(names);
 
         const meta: Record<string, AccountMeta> = {};
         const providers: Record<string, string> = {};
@@ -142,28 +137,24 @@ function AdminFlowsPage() {
             providers[key] = preferredProvider;
           });
         }
-        if (workflowRes.perAccount && typeof workflowRes.perAccount === 'object') {
-          Object.entries(workflowRes.perAccount).forEach(([key, val]) => {
-            const provider = (val as { provider?: string }).provider;
-            if (typeof provider === 'string' && provider.trim()) {
-              providers[key] = provider.trim();
+        // Merge provider info from aggregate perAccount
+        if (aggData?.perAccount) {
+          Object.entries(aggData.perAccount).forEach(([key, val]) => {
+            if (typeof val.provider === 'string' && val.provider.trim()) {
+              providers[key] = val.provider.trim();
             }
           });
         }
         setAccountMeta(meta);
         setAccountProviders(providers);
       } catch {
-        setFlowError('Failed to fetch flow data.');
-      } finally {
-        if (!cancelled) setLoading(false);
+        // Account meta is non-critical
       }
     }
 
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    loadAccountMeta();
+    return () => { cancelled = true; };
+  }, [aggData]);
 
   const accessibleAccountKeys = useMemo(() => {
     const fromAggregate = Object.keys(accountNames);

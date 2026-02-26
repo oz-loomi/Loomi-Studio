@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount } from '@/contexts/account-context';
+import { useCampaignsAggregate } from '@/hooks/use-dashboard-data';
 import { AdminOnly } from '@/components/route-guard';
 import { CampaignPageAnalytics } from '@/components/campaigns/campaign-page-analytics';
 import { CampaignPageList, type AccountMeta } from '@/components/campaigns/campaign-page-list';
@@ -149,11 +150,34 @@ function getCampaignLastUpdatedDate(campaign: Campaign): string {
 // ── Inner Page ──
 
 function AdminCampaignsPage() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [accountNames, setAccountNames] = useState<Record<string, string>>({});
+  const { data: aggData, error: aggError, isLoading: aggLoading } = useCampaignsAggregate();
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const campaigns = (aggData?.campaigns ?? []) as Campaign[];
+  const campaignError = useMemo(() => {
+    if (localError) return localError;
+    if (aggError) {
+      return withCampaignErrorHint(aggError instanceof Error ? aggError.message : 'Failed to fetch campaign data.');
+    }
+    if (aggData?.errors && Object.keys(aggData.errors).length > 0) {
+      const firstError = Object.values(aggData.errors)[0];
+      return withCampaignErrorHint(`Some accounts returned campaign API errors. ${firstError}`);
+    }
+    return null;
+  }, [localError, aggError, aggData]);
+
+  const accountNames = useMemo(() => {
+    const names: Record<string, string> = {};
+    if (aggData?.perAccount) {
+      Object.entries(aggData.perAccount).forEach(([key, val]) => {
+        if (val.dealer) names[key] = val.dealer;
+      });
+    }
+    return names;
+  }, [aggData]);
+
   const [accountMeta, setAccountMeta] = useState<Record<string, AccountMeta>>({});
   const [accountProviders, setAccountProviders] = useState<Record<string, string>>({});
-  const [campaignError, setCampaignError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
@@ -169,51 +193,22 @@ function AdminCampaignsPage() {
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
 
+  // Sync loading state with SWR
+  useEffect(() => {
+    if (!aggLoading) setLoading(false);
+  }, [aggLoading]);
+
+  // Fetch account metadata (separate from SWR-managed campaigns)
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    async function loadAccountMeta() {
       try {
-        const [campaignHttp, accountsHttp] = await Promise.all([
-          fetch('/api/esp/campaigns/aggregate'),
-          fetch('/api/accounts'),
-        ]);
-        const campaignRes = await campaignHttp.json().catch(() => ({}));
+        const accountsHttp = await fetch('/api/accounts');
         const accountsRes = await accountsHttp.json().catch(() => ({}));
 
         if (cancelled) return;
 
-        if (campaignHttp.ok && Array.isArray(campaignRes.campaigns)) {
-          setCampaigns(campaignRes.campaigns);
-        } else {
-          setCampaignError(
-            typeof campaignRes.error === 'string'
-              ? withCampaignErrorHint(campaignRes.error)
-              : `Failed to fetch campaigns (${campaignHttp.status})`,
-          );
-        }
-
-        if (
-          campaignHttp.ok &&
-          campaignRes.errors &&
-          typeof campaignRes.errors === 'object' &&
-          Object.keys(campaignRes.errors as Record<string, string>).length > 0
-        ) {
-          const firstError = Object.values(campaignRes.errors as Record<string, string>)[0];
-          const msg = withCampaignErrorHint(`Some accounts returned campaign API errors. ${firstError}`);
-          setCampaignError((prev) => prev || msg);
-        }
-
-        // Build account names from campaign response
-        const names: Record<string, string> = {};
-        if (campaignRes.perAccount && typeof campaignRes.perAccount === 'object') {
-          Object.entries(campaignRes.perAccount).forEach(([key, val]) => {
-            if ((val as { dealer: string }).dealer) names[key] = (val as { dealer: string }).dealer;
-          });
-        }
-        setAccountNames(names);
-
-        // Build account metadata from accounts API
         const meta: Record<string, AccountMeta> = {};
         const providers: Record<string, string> = {};
         if (accountsRes && typeof accountsRes === 'object') {
@@ -235,26 +230,24 @@ function AdminCampaignsPage() {
             providers[key] = preferredProvider;
           });
         }
-        if (campaignRes.perAccount && typeof campaignRes.perAccount === 'object') {
-          Object.entries(campaignRes.perAccount).forEach(([key, val]) => {
-            const provider = (val as { provider?: string }).provider;
-            if (typeof provider === 'string' && provider.trim()) {
-              providers[key] = provider.trim();
+        // Merge provider info from aggregate perAccount
+        if (aggData?.perAccount) {
+          Object.entries(aggData.perAccount).forEach(([key, val]) => {
+            if (typeof val.provider === 'string' && val.provider.trim()) {
+              providers[key] = val.provider.trim();
             }
           });
         }
         setAccountMeta(meta);
         setAccountProviders(providers);
       } catch {
-        setCampaignError('Failed to fetch campaign data.');
-      } finally {
-        if (!cancelled) setLoading(false);
+        // Account meta is non-critical
       }
     }
 
-    load();
+    loadAccountMeta();
     return () => { cancelled = true; };
-  }, []);
+  }, [aggData]);
 
   useEffect(() => {
     if (!showCreateMenu) return;
@@ -407,7 +400,7 @@ function AdminCampaignsPage() {
     setShowCreateMenu(false);
     const href = createCampaignLinks[target];
     if (!href) {
-      setCampaignError(`${campaignBuilderLabel} campaign builder link is unavailable.`);
+      setLocalError(`${campaignBuilderLabel} campaign builder link is unavailable.`);
       return;
     }
     window.open(href, '_blank', 'noopener,noreferrer');

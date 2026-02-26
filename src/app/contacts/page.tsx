@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
+import { useContactsAggregate } from '@/hooks/use-dashboard-data';
 import { ContactsTable } from '@/components/contacts/contacts-table';
 import type { Contact } from '@/components/contacts/contacts-table';
 import { ContactsToolbar, AudiencesMenuButton, ContactsAccountFilter } from '@/components/contacts/contacts-toolbar';
@@ -110,14 +111,16 @@ async function enrichContactsWithMessaging(contacts: Contact[]): Promise<Contact
   if (idsByAccount.size === 0) return contacts;
 
   const summariesByAccount = new Map<string, Record<string, MessagingSummary>>();
-  for (const [accountKey, ids] of idsByAccount.entries()) {
-    try {
-      const summary = await fetchMessagingSummaryForAccount(accountKey, ids);
-      summariesByAccount.set(accountKey, summary);
-    } catch {
-      // Keep base contact data if messaging summary fetch fails.
-    }
-  }
+  await Promise.allSettled(
+    Array.from(idsByAccount.entries()).map(async ([accountKey, ids]) => {
+      try {
+        const summary = await fetchMessagingSummaryForAccount(accountKey, ids);
+        summariesByAccount.set(accountKey, summary);
+      } catch {
+        // Keep base contact data if messaging summary fetch fails.
+      }
+    }),
+  );
 
   return contacts.map((contact) => {
     const accountKey = contact._accountKey;
@@ -299,38 +302,27 @@ function AdminContactsView() {
   const { accounts: accountMap } = useAccount();
   const searchParams = useSearchParams();
   const requestedAccount = searchParams.get('account') || '';
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [perAccount, setPerAccount] = useState<Record<string, { dealer: string; count: number; connected: boolean }>>({});
-  const [loading, setLoading] = useState(true);
+
+  const { data: aggData, error: aggError, isLoading: aggLoading, mutate } = useContactsAggregate();
+
+  const [enrichedContacts, setEnrichedContacts] = useState<Contact[] | null>(null);
   const [messagingLoading, setMessagingLoading] = useState(false);
   const [messagingLoaded, setMessagingLoaded] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setFetchError(null);
-    try {
-      const res = await fetch('/api/esp/contacts/aggregate');
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to fetch contacts');
-      }
-      const data: AggregateResponse = await res.json();
-      const baseContacts = (data.contacts || []).map(withMessagingDefaults);
-      setContacts(baseContacts);
-      setMessagingLoaded(false);
-      setPerAccount(data.perAccount || {});
-    } catch (err) {
-      setFetchError(err instanceof Error ? err.message : 'Failed to fetch contacts');
-      setContacts([]);
-      setMessagingLoaded(false);
-    }
-    setLoading(false);
-  }, []);
+  const baseContacts = useMemo(
+    () => (aggData?.contacts as Contact[] | undefined || []).map(withMessagingDefaults),
+    [aggData],
+  );
+  const contacts = enrichedContacts ?? baseContacts;
+  const perAccount = aggData?.perAccount ?? {};
+  const loading = aggLoading;
+  const fetchError = aggError ? (aggError instanceof Error ? aggError.message : 'Failed to fetch contacts') : null;
 
+  // Reset enriched contacts when base data changes
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    setEnrichedContacts(null);
+    setMessagingLoaded(false);
+  }, [baseContacts]);
 
   const accountOptions = Object.entries(perAccount)
     .map(([key, val]) => ({
@@ -366,16 +358,16 @@ function AdminContactsView() {
     : 'Create Campaign';
 
   useEffect(() => {
-    if (!filters.needsMessagingData || messagingLoaded || messagingLoading || contacts.length === 0) {
+    if (!filters.needsMessagingData || messagingLoaded || messagingLoading || baseContacts.length === 0) {
       return;
     }
 
     let active = true;
     setMessagingLoading(true);
-    enrichContactsWithMessaging(contacts)
-      .then((enrichedContacts) => {
+    enrichContactsWithMessaging(baseContacts)
+      .then((result) => {
         if (!active) return;
-        setContacts(enrichedContacts);
+        setEnrichedContacts(result);
         setMessagingLoaded(true);
       })
       .catch(() => {})
@@ -386,7 +378,7 @@ function AdminContactsView() {
     return () => {
       active = false;
     };
-  }, [contacts, filters.needsMessagingData, messagingLoaded, messagingLoading]);
+  }, [baseContacts, filters.needsMessagingData, messagingLoaded, messagingLoading]);
 
   return (
     <div>
@@ -453,7 +445,7 @@ function AdminContactsView() {
         totalCount={contacts.length}
         filteredCount={filters.filtered.length}
         loading={loading || messagingLoading}
-        onRefresh={fetchData}
+        onRefresh={() => mutate()}
         contacts={contacts}
       />
 
