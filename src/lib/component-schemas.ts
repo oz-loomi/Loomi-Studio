@@ -555,10 +555,9 @@ export const componentSchemas: Record<string, ComponentSchema> = {
     label: 'Header',
     icon: 'HeaderIcon',
     props: [
-      // ── Text ──
-      { key: 'logo-alt', label: 'Logo Alt', type: 'text', group: 'text' },
-      // ── Background ──
+      // ── Logo & Background ──
       { key: 'logo-url', label: 'Logo URL', type: 'image', group: 'background' },
+      { key: 'logo-alt', label: 'ALT', type: 'text', group: 'background' },
       { key: 'bg-color', label: 'Background', type: 'color', group: 'background' },
       // ── Buttons ──
       { key: 'link-url', label: 'Link URL', type: 'url', group: 'buttons' },

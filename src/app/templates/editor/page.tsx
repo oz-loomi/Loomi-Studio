@@ -2566,6 +2566,10 @@ function ComponentPropsRenderer({
   for (const groupName of sortedGroupNames) {
     const groupProps = propsByGroup[groupName];
     const config = GROUP_CONFIG[groupName];
+    const groupLabel =
+      schema.name === "header" && groupName === "background"
+        ? "Logo & Background"
+        : (config?.label || groupName);
     const isOpen = expandedGroups[groupName] ?? false;
     // Check if this group has button sets (primary/secondary tabs)
     const hasButtonSets = groupProps.some(p => p.buttonSet);
@@ -2573,7 +2577,7 @@ function ComponentPropsRenderer({
     sections.push(
       <CollapsiblePropGroup
         key={`group-${groupName}`}
-        label={config?.label || groupName}
+        label={groupLabel}
         isOpen={isOpen}
         onToggle={() => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }))}
       >
@@ -3154,6 +3158,8 @@ export default function TemplateEditorPage() {
   const { isAdmin, isAccount, accountKey, accountData } = useAccount();
   const { markClean, markDirty } = useUnsavedChanges();
   const effectiveAccountKey = accountKeyParam || accountKey;
+  const mediaPickerAccountKey = effectiveAccountKey || undefined;
+  const canBrowseMedia = Boolean(mediaPickerAccountKey || isAdmin);
   const builderMode = searchParams.get("builder");
   const isHtmlOnlyBuilder = builderMode === "html";
 
@@ -3260,14 +3266,14 @@ export default function TemplateEditorPage() {
   const [mediaPickerPropKey, setMediaPickerPropKey] = useState<string | null>(null);
 
   const handleBrowseMedia = useCallback((componentIdx: number, propKey: string) => {
-    if (!effectiveAccountKey) {
+    if (!canBrowseMedia) {
       toast.error("Select an account to browse media");
       return;
     }
     setMediaPickerComponentIdx(componentIdx);
     setMediaPickerPropKey(propKey);
     setMediaPickerOpen(true);
-  }, [effectiveAccountKey]);
+  }, [canBrowseMedia]);
 
   const handleMediaSelect = useCallback((url: string) => {
     if (mediaPickerComponentIdx !== null && mediaPickerPropKey) {
@@ -3466,20 +3472,22 @@ export default function TemplateEditorPage() {
         .then((data) => {
           if (data.error) { console.error(data.error); return; }
           const t = data.template;
-          setEspTemplateName(t.name || "");
           setEspSubject(t.subject || "");
           setEspPreviewText(t.previewText || "");
           const raw = t.source || t.html || "";
           setCode(raw);
           setOriginalCode(raw);
+          // Prefer frontmatter title over DB name for display
+          const parsedRaw = parseTemplate(raw);
+          const fmTitle = parsedRaw?.frontmatter?.title;
+          setEspTemplateName(fmTitle || t.name || "");
           if (t.editorType === "code" || !t.source) {
             setEditorMode("code");
             compilePreview(raw);
           } else {
-            const p = parseTemplate(raw);
-            if (p?.frontmatter) {
-              setParsed(p);
-              compilePreview(serializeTemplateForPreview(p, new Set()));
+            if (parsedRaw?.frontmatter) {
+              setParsed(parsedRaw);
+              compilePreview(serializeTemplateForPreview(parsedRaw, new Set()));
             } else {
               compilePreview(raw);
             }
@@ -5098,6 +5106,7 @@ export default function TemplateEditorPage() {
                     const trimmed = editTitleValue.trim();
                     if (trimmed && espMode) {
                       setEspTemplateName(trimmed);
+                      if (parsed) updateFrontmatter("title", trimmed);
                     } else if (trimmed && !espMode && parsed) {
                       updateFrontmatter("title", trimmed);
                     }
@@ -5110,6 +5119,7 @@ export default function TemplateEditorPage() {
                   const trimmed = editTitleValue.trim();
                   if (trimmed && espMode) {
                     setEspTemplateName(trimmed);
+                    if (parsed) updateFrontmatter("title", trimmed);
                   } else if (trimmed && !espMode && parsed) {
                     updateFrontmatter("title", trimmed);
                   }
@@ -6847,9 +6857,9 @@ export default function TemplateEditorPage() {
       )}
 
       {/* Media Picker Modal */}
-      {mediaPickerOpen && effectiveAccountKey && (
+      {mediaPickerOpen && canBrowseMedia && (
         <MediaPickerModal
-          accountKey={effectiveAccountKey}
+          accountKey={mediaPickerAccountKey}
           onSelect={handleMediaSelect}
           onClose={() => {
             setMediaPickerOpen(false);

@@ -169,9 +169,13 @@ function EspHtmlPreview({ html, height = 160 }: EspHtmlPreviewProps) {
   const iframeWidth = 600;
   const scale = containerWidth > 0 ? containerWidth / iframeWidth : 0.4;
 
-  // Detect uncompiled source (frontmatter or Maizzle component tags) — show placeholder
-  const isRawSource = html && (html.trimStart().startsWith('---') || /^<x-/m.test(html));
-  const hasPreview = html && !isRawSource;
+  // Only render if we have properly compiled HTML (starts with <!DOCTYPE or <html)
+  // Raw Maizzle source (frontmatter, <x- tags) should not be rendered in an iframe
+  const trimmed = html?.trim() ?? '';
+  const isCompiledHtml = trimmed.length > 0 && (
+    trimmed.startsWith('<!') || trimmed.startsWith('<html') || trimmed.startsWith('<HTML')
+  );
+  const hasPreview = isCompiledHtml;
 
   return (
     <div ref={containerRef} className="relative overflow-hidden bg-[var(--muted)]" style={{ height }}>
@@ -1472,7 +1476,7 @@ export default function TemplatesPage() {
               </div>
             </div>
             <div className="flex-1 min-h-0 bg-[var(--muted)]">
-              {previewTemplate.html && !previewTemplate.html.trimStart().startsWith('---') && !/^<x-/m.test(previewTemplate.html) ? (
+              {previewTemplate.html && (previewTemplate.html.trim().startsWith('<!') || previewTemplate.html.trim().startsWith('<html')) ? (
                 <iframe
                   srcDoc={previewTemplate.html}
                   className="w-full h-full border-0"

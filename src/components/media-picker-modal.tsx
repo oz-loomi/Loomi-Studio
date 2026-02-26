@@ -42,7 +42,7 @@ interface FolderBreadcrumb {
 }
 
 export interface MediaPickerModalProps {
-  accountKey: string;
+  accountKey?: string;
   onSelect: (url: string) => void;
   onClose: () => void;
 }
@@ -62,7 +62,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
   const [currentFolderId, setCurrentFolderId] = useState<string | undefined>();
   const [folderPath, setFolderPath] = useState<FolderBreadcrumb[]>([{ id: undefined, name: 'Root' }]);
   const [canNavigateFolders, setCanNavigateFolders] = useState(false);
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(accountKey ? 'all' : 's3');
 
   // ── Fetch media ──
 
@@ -71,6 +71,28 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
     else { setLoading(true); setFolders([]); }
 
     try {
+      if (!accountKey) {
+        const s3Params = new URLSearchParams({ limit: '50' });
+        if (cursor) s3Params.set('cursor', cursor);
+        const s3Res = await fetch(`/api/media?${s3Params.toString()}`);
+        const s3Data = await s3Res.json().catch(() => ({}));
+        if (!s3Res.ok) {
+          throw new Error((s3Data as Record<string, string>)?.error || `Error ${s3Res.status}`);
+        }
+        const s3Files: MediaFile[] = (s3Data.files || []).map((f: MediaFile) => ({
+          ...f,
+          source: 's3' as const,
+        }));
+        setFiles((prev) => (cursor ? [...prev, ...s3Files] : s3Files));
+        setNextCursor((s3Data as { nextCursor?: string }).nextCursor || undefined);
+        setCanNavigateFolders(false);
+        if (!cursor) {
+          setCurrentFolderId(undefined);
+          setFolderPath([{ id: undefined, name: 'Root' }]);
+        }
+        return;
+      }
+
       const espParams = new URLSearchParams({ accountKey, limit: '50' });
       if (cursor) espParams.set('cursor', cursor);
       if (currentFolderId) espParams.set('parentId', currentFolderId);
@@ -91,10 +113,11 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
         let s3Files: MediaFile[] = [];
         if (s3Res?.ok) {
           const s3Data = await s3Res.json();
-          s3Files = s3Data.files || [];
+          s3Files = (s3Data.files || []).map((f: MediaFile) => ({ ...f, source: 's3' as const }));
         }
         if (s3Files.length > 0) {
           setFiles(s3Files);
+          setNextCursor(undefined);
         } else {
           throw new Error((errData as Record<string, string>)?.error || `Error ${espRes.status}`);
         }
@@ -105,13 +128,13 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
         let s3Files: MediaFile[] = [];
         if (s3Res?.ok) {
           const s3Data = await s3Res.json();
-          s3Files = s3Data.files || [];
+          s3Files = (s3Data.files || []).map((f: MediaFile) => ({ ...f, source: 's3' as const }));
         }
 
         setFiles((prev) => (cursor ? [...prev, ...espFiles] : [...espFiles, ...s3Files]));
         if (!cursor) setFolders(data.folders || []);
         setNextCursor(data.nextCursor || undefined);
-        if (data.capabilities?.canNavigateFolders) setCanNavigateFolders(true);
+        setCanNavigateFolders(Boolean(data.capabilities?.canNavigateFolders));
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load media');
@@ -135,14 +158,25 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
       for (const file of Array.from(fileList)) {
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('accountKey', accountKey);
-        const res = await fetch('/api/esp/media', { method: 'POST', body: formData });
+        const isEspUpload = Boolean(accountKey);
+        if (isEspUpload) {
+          formData.append('accountKey', accountKey!);
+          if (currentFolderId) formData.append('parentId', currentFolderId);
+        } else {
+          formData.append('category', 'general');
+        }
+        const res = await fetch(isEspUpload ? '/api/esp/media' : '/api/media', { method: 'POST', body: formData });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error((data as Record<string, string>)?.error || `Upload failed (${res.status})`);
         }
         const data = await res.json();
-        if (data.file) uploaded.push(data.file as MediaFile);
+        if (data.file) {
+          uploaded.push({
+            ...(data.file as MediaFile),
+            source: isEspUpload ? 'esp' : 's3',
+          });
+        }
       }
       if (uploaded.length) {
         setFiles((prev) => [...uploaded, ...prev]);
@@ -153,7 +187,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
     } finally {
       setUploading(false);
     }
-  }, [accountKey]);
+  }, [accountKey, currentFolderId]);
 
   // ── Drag & drop ──
 
@@ -197,6 +231,14 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
     const q = search.toLowerCase();
     return folders.filter((f) => f.name.toLowerCase().includes(q));
   }, [folders, search]);
+
+  const sourceOptions: SourceFilter[] = accountKey ? ['all', 'esp', 's3'] : ['s3'];
+
+  useEffect(() => {
+    if (!accountKey && sourceFilter !== 's3') {
+      setSourceFilter('s3');
+    }
+  }, [accountKey, sourceFilter]);
 
   // ── Escape key ──
 
@@ -243,7 +285,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
 
         {/* ── Source filter tabs ── */}
         <div className="flex items-center gap-1 px-4 pt-3">
-          {(['all', 'esp', 's3'] as SourceFilter[]).map((src) => {
+          {sourceOptions.map((src) => {
             const label = src === 'all' ? 'All' : src === 'esp' ? 'ESP' : 'Loomi';
             return (
               <button
