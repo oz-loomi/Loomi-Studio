@@ -35,6 +35,9 @@ jobs:
             # while `next build` is replacing the .next directory.
             pm2 stop loomi-studio || true
 
+            # Clear Next.js build cache to prevent serving stale bundles
+            rm -rf .next
+
             npm run build
             set -a && source .env.local && set +a
             pm2 start loomi-studio --update-env || pm2 restart loomi-studio --update-env
