@@ -18,13 +18,6 @@ import {
   ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
 
-interface AggregateResponse {
-  contacts: Contact[];
-  perAccount: Record<string, { dealer: string; count: number; connected: boolean }>;
-  errors: Record<string, string>;
-  meta: { totalContacts: number; accountsFetched: number };
-}
-
 interface SingleAccountResponse {
   contacts: Contact[];
   meta: { total: number };

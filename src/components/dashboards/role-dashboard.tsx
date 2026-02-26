@@ -185,11 +185,6 @@ const ApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 const DATE_FIELDS_FOR_CAMPAIGNS = ['sentAt', 'scheduledAt', 'updatedAt', 'createdAt'] as const;
 const DASHBOARD_DUMMY_MODE = process.env.NEXT_PUBLIC_DASHBOARD_DUMMY_DATA === '1';
 
-function parseJsonSafe<T>(value: unknown, fallback: T): T {
-  if (value == null) return fallback;
-  return value as T;
-}
-
 function normalizeAccountOptions(accounts: Record<string, AccountData>): AccountOption[] {
   return Object.entries(accounts)
     .map(([key, account]) => ({
