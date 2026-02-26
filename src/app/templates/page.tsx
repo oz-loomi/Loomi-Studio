@@ -29,6 +29,7 @@ import {
 import { toast } from '@/lib/toast';
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
+import { LibraryPickerContent } from '@/components/library-picker-content';
 
 // ── Types ──
 
@@ -713,7 +714,7 @@ function Toolbar({
             }}
             className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
           >
-            <PlusIcon className="w-4 h-4" /> Create Template
+            <PlusIcon className="w-4 h-4" /> Add Template
           </button>
         )}
       </div>
@@ -864,8 +865,6 @@ export default function TemplatesPage() {
 
   // Library picker (inside create modal)
   const [libraryPickerMode, setLibraryPickerMode] = useState(false);
-  const [libraryTemplates, setLibraryTemplates] = useState<{ design: string; name: string }[]>([]);
-  const [loadingLibrary, setLoadingLibrary] = useState(false);
   const [createAccountKey, setCreateAccountKey] = useState<string | null>(null);
 
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
@@ -1034,20 +1033,6 @@ export default function TemplatesPage() {
     setLibraryPickerMode(false);
     setCreateAccountKey(null);
     router.push(`/templates/editor?mode=${mode}&accountKey=${encodeURIComponent(createKey)}`);
-  };
-
-  const openLibraryPicker = async () => {
-    setLibraryPickerMode(true);
-    if (libraryTemplates.length > 0) return;
-    setLoadingLibrary(true);
-    try {
-      const res = await fetch('/api/templates');
-      if (res.ok) {
-        const data = await res.json();
-        setLibraryTemplates(data.map((t: { design: string; name: string }) => ({ design: t.design, name: t.name })));
-      }
-    } catch { /* ignore */ }
-    setLoadingLibrary(false);
   };
 
   const selectLibraryTemplate = (slug: string) => {
@@ -1263,8 +1248,8 @@ export default function TemplatesPage() {
 
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => { setShowCreateChoice(false); setLibraryPickerMode(false); setCreateAccountKey(null); }}>
-          <div className="glass-modal w-[640px]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+          <div className={`glass-modal flex flex-col ${libraryPickerMode ? 'w-[960px] max-w-[calc(100vw-3rem)] h-[70vh] max-h-[720px]' : 'w-[640px]'}`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
               <div className="flex items-center gap-2">
                 {(libraryPickerMode || (!needsAccountPicker && isAdmin && !effectiveAccountKey)) && (
                   <button
@@ -1285,13 +1270,18 @@ export default function TemplatesPage() {
                     ? 'Select Account'
                     : libraryPickerMode
                       ? 'Select from Library'
-                      : 'Create New Template'}
+                      : 'Add New Template'}
                 </h3>
               </div>
               <button onClick={() => { setShowCreateChoice(false); setLibraryPickerMode(false); setCreateAccountKey(null); }} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
+            {libraryPickerMode ? (
+              <div className="flex-1 min-h-0">
+                <LibraryPickerContent onSelect={selectLibraryTemplate} />
+              </div>
+            ) : (
             <div className="p-5">
               {/* Account picker step for admins */}
               {needsAccountPicker ? (
@@ -1326,7 +1316,7 @@ export default function TemplatesPage() {
                     })}
                   </div>
                 </>
-              ) : !libraryPickerMode ? (
+              ) : (
                 <>
                   {isAdmin && selectedAccountName && (
                     <p className="text-xs text-[var(--muted-foreground)] mb-3">
@@ -1337,7 +1327,7 @@ export default function TemplatesPage() {
                   <div className="grid grid-cols-3 gap-3">
                     {/* From Library */}
                     <button
-                      onClick={openLibraryPicker}
+                      onClick={() => setLibraryPickerMode(true)}
                       className="group flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-center"
                     >
                       <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center group-hover:bg-[var(--primary)]/20 transition-colors">
@@ -1384,45 +1374,9 @@ export default function TemplatesPage() {
                     </button>
                   </div>
                 </>
-              ) : (
-                <>
-                  <p className="text-sm text-[var(--muted-foreground)] mb-4">Select a template to start from:</p>
-                  {loadingLibrary && (
-                    <div className="grid grid-cols-3 gap-3">
-                      {[1, 2, 3].map(i => (
-                        <div key={i} className="glass-card rounded-xl p-4 animate-pulse">
-                          <div className="h-3 bg-[var(--muted)] rounded w-3/4 mb-2" />
-                          <div className="h-2 bg-[var(--muted)] rounded w-1/2" />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {!loadingLibrary && libraryTemplates.length === 0 && (
-                    <div className="text-center py-8 text-[var(--muted-foreground)]">
-                      <BookOpenIcon className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                      <p className="text-sm">No library templates available.</p>
-                      <p className="text-xs mt-1">Create templates in the Template Library first.</p>
-                    </div>
-                  )}
-                  {!loadingLibrary && libraryTemplates.length > 0 && (
-                    <div className="grid grid-cols-3 gap-3 max-h-[400px] overflow-y-auto">
-                      {libraryTemplates.map(t => (
-                        <button
-                          key={t.design}
-                          onClick={() => selectLibraryTemplate(t.design)}
-                          className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-center"
-                        >
-                          <div className="w-10 h-10 rounded-lg bg-[var(--muted)] flex items-center justify-center">
-                            <EnvelopeIcon className="w-5 h-5 text-[var(--muted-foreground)] opacity-40" />
-                          </div>
-                          <span className="text-xs font-medium truncate w-full">{t.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
               )}
             </div>
+            )}
           </div>
         </div>
         );
