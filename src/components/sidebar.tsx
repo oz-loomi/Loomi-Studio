@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import {
   Squares2X2Icon,
   CogIcon,
@@ -13,7 +13,6 @@ import {
   MoonIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
-import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { useTheme } from '@/contexts/theme-context';
 import { SectionsIcon, FlowIcon } from '@/components/icon-map';
 import { AccountSwitcher } from '@/components/account-switcher';
@@ -40,9 +39,7 @@ const clientNavItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const { userRole, isAccount } = useAccount();
-  const { confirmNavigation } = useUnsavedChanges();
   const { theme, toggleTheme } = useTheme();
 
   const isClientRole = userRole === 'client';
@@ -58,11 +55,7 @@ export function Sidebar() {
         <div className="mb-3">
           <AppLogo className="h-8 w-auto max-w-[150px] object-contain" />
         </div>
-        <AccountSwitcher
-          onSwitch={() => {
-            confirmNavigation(() => router.push('/'), '/');
-          }}
-        />
+        <AccountSwitcher />
       </div>
 
       {/* Navigation */}

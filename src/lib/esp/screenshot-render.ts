@@ -55,12 +55,17 @@ export async function renderCampaignScreenshotFromHtml(params: {
     });
 
     // Prevent vh/percentage-based layouts from stretching; measure true content height.
-    // Use string expressions to avoid tsx/esbuild __name helper issues in evaluate().
-    await page.evaluate(`
-      document.documentElement.style.height = 'auto';
-      document.body.style.height = 'auto';
-      document.body.style.overflow = 'visible';
-    `);
+    // Email CSS often sets `html, body { height: 100% !important }` which constrains
+    // scrollHeight to the viewport. Inject a <style> tag with !important overrides
+    // and use setProperty to ensure inline styles also use !important.
+    await page.evaluate(`(function () {
+      var s = document.createElement('style');
+      s.textContent = 'html, body { height: auto !important; min-height: 0 !important; overflow: visible !important; }';
+      document.head.appendChild(s);
+      document.documentElement.style.setProperty('height', 'auto', 'important');
+      document.body.style.setProperty('height', 'auto', 'important');
+      document.body.style.setProperty('overflow', 'visible', 'important');
+    })()`);
 
     // Wait for images to load
     await page.evaluate(`new Promise(function (resolve) {
