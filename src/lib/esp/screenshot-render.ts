@@ -54,41 +54,36 @@ export async function renderCampaignScreenshotFromHtml(params: {
       timeout: 15000,
     });
 
-    // Prevent vh/percentage-based layouts from stretching; measure true content height
-    await page.evaluate(() => {
+    // Prevent vh/percentage-based layouts from stretching; measure true content height.
+    // Use string expressions to avoid tsx/esbuild __name helper issues in evaluate().
+    await page.evaluate(`
       document.documentElement.style.height = 'auto';
       document.body.style.height = 'auto';
       document.body.style.overflow = 'visible';
-    });
+    `);
 
-    await page.evaluate(() => {
-      return new Promise<void>((resolve) => {
-        const imgs = Array.from(document.querySelectorAll('img'));
-        if (imgs.length === 0) {
-          resolve();
-          return;
+    // Wait for images to load
+    await page.evaluate(`new Promise(function (resolve) {
+      var imgs = Array.from(document.querySelectorAll('img'));
+      if (imgs.length === 0) { resolve(); return; }
+      var loaded = 0;
+      function check() { if (++loaded >= imgs.length) resolve(); }
+      imgs.forEach(function (img) {
+        if (img.complete) check();
+        else {
+          img.addEventListener('load', check);
+          img.addEventListener('error', check);
         }
-        let loaded = 0;
-        const check = () => {
-          if (++loaded >= imgs.length) resolve();
-        };
-        imgs.forEach((img) => {
-          if (img.complete) check();
-          else {
-            img.addEventListener('load', check);
-            img.addEventListener('error', check);
-          }
-        });
-        setTimeout(resolve, 3000);
       });
-    });
+      setTimeout(resolve, 3000);
+    })`);
 
     await new Promise((r) => setTimeout(r, 300));
 
     // Resize viewport to match actual content height before capturing
     const contentHeight = await page.evaluate(
-      () => document.documentElement.scrollHeight,
-    );
+      `document.documentElement.scrollHeight`,
+    ) as number;
     await page.setViewport({
       width: 1280,
       height: contentHeight,
