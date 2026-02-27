@@ -80,32 +80,9 @@ jobs:
 
             cd /var/www/loomi-studio
             set -a && source .env.local && set +a
-
-            if [ -z "${INTERNAL_JOB_SECRET:-}" ]; then
-              INTERNAL_JOB_SECRET="$(openssl rand -hex 32)"
-              if grep -q '^INTERNAL_JOB_SECRET=' .env.local; then
-                sed -i "s|^INTERNAL_JOB_SECRET=.*$|INTERNAL_JOB_SECRET=${INTERNAL_JOB_SECRET}|" .env.local
-              else
-                printf '\nINTERNAL_JOB_SECRET=%s\n' "${INTERNAL_JOB_SECRET}" >> .env.local
-              fi
-            fi
-
-            export INTERNAL_JOB_SECRET
-            pm2 restart loomi-studio --update-env || true
-            sleep 3
-
-            WIPE_CONFIRM_ALL="false"
-            if [ "${{ steps.mode.outputs.wipe_mode }}" = "all" ] && [ "${{ steps.mode.outputs.wipe_dry_run }}" = "false" ]; then
-              WIPE_CONFIRM_ALL="true"
-            fi
-
-            PAYLOAD=$(printf '{"dryRun":%s,"mode":"%s","confirmAll":%s}' '${{ steps.mode.outputs.wipe_dry_run }}' '${{ steps.mode.outputs.wipe_mode }}' "$WIPE_CONFIRM_ALL")
-
-            curl --fail --show-error --silent \
-              -X POST "http://127.0.0.1:3000/api/internal/yag-rollup/wipe" \
-              -H "Content-Type: application/json" \
-              -H "x-internal-job-secret: ${INTERNAL_JOB_SECRET}" \
-              -d "$PAYLOAD"
+            WIPE_DRY_RUN='${{ steps.mode.outputs.wipe_dry_run }}' \
+            WIPE_MODE='${{ steps.mode.outputs.wipe_mode }}' \
+            npx tsx -e "import { runYagRollupWipe } from './src/lib/services/yag-rollup'; const dryRun = process.env.WIPE_DRY_RUN === 'true'; const mode = process.env.WIPE_MODE === 'all' ? 'all' : 'tagged'; const result = await runYagRollupWipe({ dryRun, mode }); console.log(JSON.stringify(result)); if (result.status === 'failed') process.exit(1);"
 
       - name: Trigger sync endpoint
         uses: appleboy/ssh-action@v1
@@ -119,24 +96,6 @@ jobs:
 
             cd /var/www/loomi-studio
             set -a && source .env.local && set +a
-
-            if [ -z "${INTERNAL_JOB_SECRET:-}" ]; then
-              INTERNAL_JOB_SECRET="$(openssl rand -hex 32)"
-              if grep -q '^INTERNAL_JOB_SECRET=' .env.local; then
-                sed -i "s|^INTERNAL_JOB_SECRET=.*$|INTERNAL_JOB_SECRET=${INTERNAL_JOB_SECRET}|" .env.local
-              else
-                printf '\nINTERNAL_JOB_SECRET=%s\n' "${INTERNAL_JOB_SECRET}" >> .env.local
-              fi
-            fi
-
-            export INTERNAL_JOB_SECRET
-            pm2 restart loomi-studio --update-env || true
-            sleep 3
-
-            PAYLOAD=$(printf '{"fullSync":%s,"dryRun":%s}' '${{ steps.mode.outputs.full_sync }}' '${{ steps.mode.outputs.dry_run }}')
-
-            curl --fail --show-error --silent \
-              -X POST "http://127.0.0.1:3000/api/internal/yag-rollup/sync" \
-              -H "Content-Type: application/json" \
-              -H "x-internal-job-secret: ${INTERNAL_JOB_SECRET}" \
-              -d "$PAYLOAD"
+            FULL_SYNC='${{ steps.mode.outputs.full_sync }}' \
+            DRY_RUN='${{ steps.mode.outputs.dry_run }}' \
+            npx tsx -e "import { runYagRollupSync } from './src/lib/services/yag-rollup'; const fullSync = process.env.FULL_SYNC === 'true'; const dryRun = process.env.DRY_RUN === 'true'; const result = await runYagRollupSync({ fullSync, dryRun }); console.log(JSON.stringify(result)); if (result.status === 'failed') process.exit(1);"
