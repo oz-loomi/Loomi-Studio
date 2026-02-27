@@ -10,8 +10,9 @@
 import fs from 'fs';
 import path from 'path';
 
-// Force development mode so it uses local puppeteer
-process.env.NODE_ENV = 'development';
+// Force development mode so it uses local puppeteer.
+// `process.env.NODE_ENV` is typed readonly in Node's env types.
+(process.env as Record<string, string | undefined>).NODE_ENV = 'development';
 
 async function main() {
   const { renderCampaignScreenshotFromHtml } = await import(
