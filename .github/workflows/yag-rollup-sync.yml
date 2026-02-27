@@ -88,9 +88,11 @@ jobs:
               else
                 printf '\nINTERNAL_JOB_SECRET=%s\n' "${INTERNAL_JOB_SECRET}" >> .env.local
               fi
-              export INTERNAL_JOB_SECRET
-              pm2 restart loomi-studio --update-env || true
             fi
+
+            export INTERNAL_JOB_SECRET
+            pm2 restart loomi-studio --update-env || true
+            sleep 3
 
             WIPE_CONFIRM_ALL="false"
             if [ "${{ steps.mode.outputs.wipe_mode }}" = "all" ] && [ "${{ steps.mode.outputs.wipe_dry_run }}" = "false" ]; then
@@ -125,9 +127,11 @@ jobs:
               else
                 printf '\nINTERNAL_JOB_SECRET=%s\n' "${INTERNAL_JOB_SECRET}" >> .env.local
               fi
-              export INTERNAL_JOB_SECRET
-              pm2 restart loomi-studio --update-env || true
             fi
+
+            export INTERNAL_JOB_SECRET
+            pm2 restart loomi-studio --update-env || true
+            sleep 3
 
             PAYLOAD=$(printf '{"fullSync":%s,"dryRun":%s}' '${{ steps.mode.outputs.full_sync }}' '${{ steps.mode.outputs.dry_run }}')
 
