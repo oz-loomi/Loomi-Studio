@@ -407,6 +407,7 @@ export default function MediaPage() {
   const [uploadDestination, setUploadDestination] = useState<'esp' | 's3'>('esp');
   const [uploadAccountKeys, setUploadAccountKeys] = useState<Set<string>>(new Set());
   const [uploadAccountSearch, setUploadAccountSearch] = useState('');
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
 
   // Modals
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -711,8 +712,15 @@ export default function MediaPage() {
 
   // ── Upload ──
 
-  const handleUpload = async (fileList: FileList | null) => {
+  const stageFiles = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
+    const newFiles = Array.from(fileList);
+    setStagedFiles((prev) => [...prev, ...newFiles]);
+  };
+
+  const handleUpload = async (files?: File[]) => {
+    const filesToUpload = files ?? stagedFiles;
+    if (filesToUpload.length === 0) return;
 
     // Determine target account keys for ESP uploads
     const targetKeys: string[] = [];
@@ -733,8 +741,8 @@ export default function MediaPage() {
     let successCount = 0;
     let failCount = 0;
 
-    for (let i = 0; i < fileList.length; i++) {
-      const file = fileList[i];
+    for (let i = 0; i < filesToUpload.length; i++) {
+      const file = filesToUpload[i];
 
       if (uploadDestination === 's3') {
         // Upload to Loomi S3 storage (admin-level, no accountKey)
@@ -810,6 +818,7 @@ export default function MediaPage() {
 
     setUploading(false);
     setShowUploadModal(false);
+    setStagedFiles([]);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -819,7 +828,7 @@ export default function MediaPage() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    handleUpload(e.dataTransfer.files);
+    stageFiles(e.dataTransfer.files);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -1301,7 +1310,7 @@ export default function MediaPage() {
           {effectiveAccountKey && (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => { setUploadDestination('esp'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setShowUploadModal(true); }}
+                onClick={() => { setUploadDestination('esp'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
                 disabled={uploading}
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
               >
@@ -1330,7 +1339,7 @@ export default function MediaPage() {
             ref={fileInputRef}
             type="file"
             multiple
-            onChange={(e) => handleUpload(e.target.files)}
+            onChange={(e) => { stageFiles(e.target.files); if (e.target) e.target.value = ''; }}
             className="hidden"
             id="media-upload-input"
           />
@@ -1358,7 +1367,7 @@ export default function MediaPage() {
                 </button>
               )}
               <button
-                onClick={() => { setUploadDestination('s3'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setShowUploadModal(true); }}
+                onClick={() => { setUploadDestination('s3'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
                 disabled={uploading}
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
               >
@@ -1517,7 +1526,7 @@ export default function MediaPage() {
             ref={fileInputRef}
             type="file"
             multiple
-            onChange={(e) => handleUpload(e.target.files)}
+            onChange={(e) => { stageFiles(e.target.files); if (e.target) e.target.value = ''; }}
             className="hidden"
             id="media-upload-input"
           />
@@ -2027,7 +2036,7 @@ export default function MediaPage() {
 
               {/* Drop zone */}
               <div
-                className={`border-2 border-dashed rounded-xl p-10 text-center transition-all cursor-pointer ${
+                className={`border-2 border-dashed rounded-xl ${stagedFiles.length > 0 ? 'p-5' : 'p-10'} text-center transition-all cursor-pointer ${
                   dragOver
                     ? 'border-[var(--primary)] bg-[var(--primary)]/5'
                     : 'border-[var(--border)] hover:border-[var(--primary)]/50'
@@ -2041,26 +2050,83 @@ export default function MediaPage() {
                   </div>
                 ) : (
                   <>
-                    <ArrowUpTrayIcon className="w-10 h-10 mx-auto text-[var(--muted-foreground)] mb-3" />
-                    <p className="text-sm text-[var(--foreground)] font-medium mb-1">
-                      Drop files here or click to browse
-                    </p>
-                    <p className="text-xs text-[var(--muted-foreground)]">
-                      {showOverview
-                        ? (uploadDestination === 's3'
-                          ? 'Files will be stored in Loomi'
-                          : 'Files will be uploaded to the selected sub-accounts')
-                        : <>Files will be uploaded to {provider ? providerLabel(provider) : 'the connected ESP'}
-                            {currentFolderId && folderPath.length > 1 && (
-                              <> in <strong>{folderPath[folderPath.length - 1].name}</strong></>
-                            )}
-                          </>
-                      }
+                    <ArrowUpTrayIcon className={`${stagedFiles.length > 0 ? 'w-6 h-6 mb-1' : 'w-10 h-10 mb-3'} mx-auto text-[var(--muted-foreground)]`} />
+                    <p className={`${stagedFiles.length > 0 ? 'text-xs' : 'text-sm'} text-[var(--foreground)] font-medium mb-0.5`}>
+                      {stagedFiles.length > 0 ? 'Drop more files or click to add' : 'Drop files here or click to browse'}
                     </p>
                   </>
                 )}
               </div>
+
+              {/* Staged files list */}
+              {stagedFiles.length > 0 && !uploading && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium text-[var(--muted-foreground)]">
+                      {stagedFiles.length} file{stagedFiles.length !== 1 ? 's' : ''} ready
+                    </p>
+                    <button
+                      onClick={() => setStagedFiles([])}
+                      className="text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {stagedFiles.map((file, idx) => (
+                      <div key={`${file.name}-${idx}`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--muted)]/50 group">
+                        {file.type.startsWith('image/') ? (
+                          <img
+                            src={URL.createObjectURL(file)}
+                            alt=""
+                            className="w-7 h-7 rounded object-cover flex-shrink-0 border border-[var(--border)]"
+                          />
+                        ) : (
+                          <div className="w-7 h-7 rounded bg-[var(--muted)] flex items-center justify-center flex-shrink-0 border border-[var(--border)]">
+                            <ArrowUpTrayIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs truncate">{file.name}</p>
+                          <p className="text-[10px] text-[var(--muted-foreground)]">{formatFileSize(file.size)}</p>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setStagedFiles((prev) => prev.filter((_, i) => i !== idx)); }}
+                          className="p-0.5 rounded text-[var(--muted-foreground)] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <XMarkIcon className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* Upload action footer */}
+            {stagedFiles.length > 0 && (
+              <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border)]">
+                <button
+                  onClick={() => { setStagedFiles([]); setShowUploadModal(false); }}
+                  disabled={uploading}
+                  className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleUpload()}
+                  disabled={uploading || stagedFiles.length === 0 || (uploadDestination === 'esp' && showOverview && uploadAccountKeys.size === 0)}
+                  className="px-4 py-2 text-xs font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {uploading
+                    ? 'Uploading...'
+                    : uploadDestination === 'esp' && showOverview && uploadAccountKeys.size > 0
+                      ? `Upload to ${uploadAccountKeys.size} account${uploadAccountKeys.size !== 1 ? 's' : ''}`
+                      : `Upload ${stagedFiles.length} file${stagedFiles.length !== 1 ? 's' : ''}`
+                  }
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
