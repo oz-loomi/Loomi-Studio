@@ -30,6 +30,7 @@ model User {
   templatesCreated  Template[]        @relation("TemplateCreatedBy")
   templatesUpdated  Template[]        @relation("TemplateUpdatedBy")
   templateVersions  TemplateVersion[] @relation("TemplateVersionCreatedBy")
+  dashboardLayouts  DashboardLayoutPreference[]
 }
 
 model UserInvite {
@@ -44,6 +45,22 @@ model UserInvite {
 
   @@index([userId, createdAt])
   @@index([expiresAt])
+}
+
+model DashboardLayoutPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String
+  mode      String
+  scopeKey  String
+  orderJson String   @default("[]")
+  hiddenJson String  @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, role, mode, scopeKey])
+  @@index([userId, updatedAt])
 }
 
 // ─────────────────────────────────────────────────────

@@ -220,7 +220,7 @@ export function ContactsTable({
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4 text-xs text-[var(--muted-foreground)]">
+        <div className="flex items-center justify-between mt-4 pr-24 text-xs text-[var(--muted-foreground)]">
           <span>
             {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, totalContacts)} of {totalContacts.toLocaleString()}
           </span>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
@@ -16,6 +16,7 @@ import {
   FunnelIcon,
   PaperAirplaneIcon,
   PhotoIcon,
+  SquaresPlusIcon,
   UserGroupIcon,
   UsersIcon,
   WrenchScrewdriverIcon,
@@ -35,7 +36,6 @@ import {
   getMonthBuckets,
 } from '@/lib/date-ranges';
 import { parseEmailListPayload, type EmailListItem } from '@/lib/email-list-payload';
-import { EmailAnalytics } from '@/components/analytics/email-analytics';
 import { ContactAnalytics } from '@/components/contacts/contact-analytics';
 import { CampaignPageAnalytics } from '@/components/campaigns/campaign-page-analytics';
 import { FlowAnalytics } from '@/components/flows/flow-analytics';
@@ -43,6 +43,12 @@ import { AccountHealthGrid } from '@/components/analytics/account-health-grid';
 import { AccountAvatar } from '@/components/account-avatar';
 import { formatRatePct, sumCampaignEngagement } from '@/lib/campaign-engagement';
 import { FlowIcon } from '@/components/icon-map';
+import {
+  DashboardCustomizePanel,
+  DashboardWidgetFrame,
+  type DashboardWidgetDefinition,
+  useDashboardCustomization,
+} from '@/components/dashboards/dashboard-layout-customizer';
 import {
   useContactsAggregate,
   useCampaignsAggregate,
@@ -666,6 +672,9 @@ function ManagementRoleDashboard({
   const accountKeysSignature = useMemo(() => Object.keys(accounts).sort().join('|'), [accounts]);
 
   const [developerMode, setDeveloperMode] = useState<DeveloperMode>('analytics');
+  const [customizePanelOpen, setCustomizePanelOpen] = useState(false);
+  const [draggedWidgetId, setDraggedWidgetId] = useState<string | null>(null);
+  const [managementSideRailMounted, setManagementSideRailMounted] = useState(false);
 
   useEffect(() => {
     if (!isDeveloper) return;
@@ -679,6 +688,25 @@ function ManagementRoleDashboard({
     if (!isDeveloper || typeof window === 'undefined') return;
     window.localStorage.setItem('loomi_dashboard_dev_mode', developerMode);
   }, [isDeveloper, developerMode]);
+
+  useEffect(() => {
+    setCustomizePanelOpen(false);
+    setFiltersPanelOpen(false);
+    setDraggedWidgetId(null);
+    setManagementSideRailMounted(false);
+  }, [role, developerMode, isAccountMode, focusedAccountKey]);
+
+  const managementSideRailOpen = customizePanelOpen || filtersPanelOpen;
+
+  useEffect(() => {
+    if (managementSideRailOpen) {
+      setManagementSideRailMounted(true);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setManagementSideRailMounted(false), 260);
+    return () => window.clearTimeout(timer);
+  }, [managementSideRailOpen]);
 
   useEffect(() => {
     if (!isAccountMode || !focusedAccountKey) {
@@ -1694,9 +1722,6 @@ function ManagementRoleDashboard({
   const dashboardTitle = isAccountMode && focusedAccountName
     ? `${toPossessiveLabel(focusedAccountName)} Dashboard`
     : 'Dashboard';
-  const developerShellClass = theme === 'dark'
-    ? 'rounded-[28px] border border-violet-400/20 bg-[linear-gradient(145deg,rgba(15,16,34,0.94),rgba(27,16,41,0.9))] p-5 shadow-[0_28px_70px_rgba(7,8,20,0.55),inset_0_1px_0_rgba(255,255,255,0.05)]'
-    : 'rounded-[28px] border border-white/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.46),rgba(238,244,255,0.42))] backdrop-blur-2xl p-5 shadow-[0_18px_42px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.78)]';
   const developerPanelClass = theme === 'dark'
     ? 'rounded-2xl border border-white/10 bg-[linear-gradient(155deg,rgba(24,24,43,0.86),rgba(31,18,42,0.82))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
     : 'rounded-2xl border border-white/70 bg-[linear-gradient(155deg,rgba(255,255,255,0.44),rgba(237,243,255,0.38))] backdrop-blur-xl p-4 shadow-[0_8px_20px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,0.8)]';
@@ -1720,6 +1745,280 @@ function ManagementRoleDashboard({
     : 'rounded-xl border border-white/70 bg-[rgba(255,255,255,0.45)] backdrop-blur-sm p-3 transition-colors hover:bg-[rgba(255,255,255,0.62)]';
   const developerControlLabelClass = theme === 'dark' ? 'text-violet-100' : 'text-slate-700';
   const developerWarnIconClass = theme === 'dark' ? 'text-amber-300' : 'text-amber-600';
+  const dashboardLayoutMode = isDeveloper && developerMode === 'technical'
+    ? `management:${role}:technical`
+    : `management:${role}:analytics`;
+  const dashboardLayoutScope = isAccountMode && focusedAccountKey ? `account:${focusedAccountKey}` : 'admin';
+
+  const dashboardWidgets = useMemo<DashboardWidgetDefinition[]>(() => {
+    if (isDeveloper && developerMode === 'technical') {
+      return [
+        { id: 'tech_overview', title: 'Technical Overview', category: 'technical' },
+        { id: 'tech_activity_controls', title: 'Activity & Controls', category: 'operations' },
+        { id: 'tech_health_split', title: 'API, Health & Roles', category: 'technical' },
+        { id: 'tech_risk_delivery', title: 'Risk & Delivery', category: 'technical' },
+      ];
+    }
+
+    const widgets: DashboardWidgetDefinition[] = [
+      { id: 'summary', title: 'Summary', category: 'overview' },
+      { id: 'health', title: 'Health Snapshot', category: 'operations' },
+      { id: 'insights', title: 'Insights', category: 'operations' },
+      { id: 'campaigns', title: 'Campaign Performance', category: 'campaigns' },
+      { id: 'flows', title: 'Flow Performance', category: 'flows' },
+      { id: 'contacts', title: 'Contact Analytics', category: 'contacts' },
+    ];
+    if (!isDeveloper) {
+      widgets.push({ id: 'recent_activity', title: 'Recent Loomi Campaign Activity', category: 'engagement' });
+    }
+
+    return widgets;
+  }, [developerMode, isAdmin, isDeveloper]);
+
+  const dashboardCustomization = useDashboardCustomization({
+    enabled: !loading,
+    mode: dashboardLayoutMode,
+    scope: dashboardLayoutScope,
+    widgets: dashboardWidgets,
+  });
+  const visibleWidgetIdSet = useMemo(
+    () => new Set(dashboardCustomization.visibleWidgetIds),
+    [dashboardCustomization.visibleWidgetIds],
+  );
+  const widgetOrderMap = useMemo(
+    () => new Map(dashboardCustomization.visibleWidgetIds.map((widgetId, index) => [widgetId, index])),
+    [dashboardCustomization.visibleWidgetIds],
+  );
+
+  function widgetOrder(widgetId: string): number {
+    return widgetOrderMap.get(widgetId) ?? 999;
+  }
+
+  function handleWidgetDrop(targetWidgetId: string) {
+    if (!draggedWidgetId) return;
+    dashboardCustomization.moveWidget(draggedWidgetId, targetWidgetId);
+    setDraggedWidgetId(null);
+  }
+
+  function renderManagedWidget(widgetId: string, content: ReactNode) {
+    const widget = dashboardCustomization.widgetMap[widgetId];
+    if (!widget || !visibleWidgetIdSet.has(widgetId)) return null;
+
+    return (
+      <DashboardWidgetFrame
+        key={widgetId}
+        widget={widget}
+        editMode={dashboardCustomization.editMode}
+        order={widgetOrder(widgetId)}
+        onDragStart={setDraggedWidgetId}
+        onDragOver={() => {}}
+        onDrop={handleWidgetDrop}
+        onHide={dashboardCustomization.hideWidget}
+      >
+        {content}
+      </DashboardWidgetFrame>
+    );
+  }
+
+  const managementCustomizePanel = (
+    <DashboardCustomizePanel
+      open={customizePanelOpen}
+      onClose={() => {
+        setCustomizePanelOpen(false);
+        dashboardCustomization.setEditMode(false);
+        setDraggedWidgetId(null);
+      }}
+      widgets={dashboardWidgets}
+      hiddenWidgetIds={dashboardCustomization.hiddenWidgetIds}
+      toggleWidget={dashboardCustomization.toggleWidget}
+      resetLayout={dashboardCustomization.resetLayout}
+      saving={dashboardCustomization.saving}
+    />
+  );
+
+  const managementFiltersPanel = (
+    <aside
+      aria-hidden={!filtersPanelOpen}
+      className={`glass-panel glass-panel-strong w-full rounded-2xl flex flex-col overflow-hidden transition-[opacity,transform,max-height] duration-300 ease-out lg:sticky lg:top-24 lg:w-[360px] ${
+        filtersPanelOpen
+          ? 'pointer-events-auto max-h-[calc(100vh-8rem)] translate-x-0 opacity-100 animate-slide-in-right'
+          : 'pointer-events-none max-h-0 translate-x-4 opacity-0'
+      }`}
+    >
+      <div className="border-b border-[var(--sidebar-border-soft)] px-5 py-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <FunnelIcon className="h-5 w-5 text-[var(--primary)]" />
+            <h3 className="text-sm font-bold tracking-tight">Filters</h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFiltersPanelOpen(false)}
+            className="rounded-xl p-1.5 text-[var(--sidebar-muted-foreground)] transition-colors hover:bg-[var(--sidebar-muted)] hover:text-[var(--sidebar-foreground)]"
+          >
+            <XMarkIcon className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
+          Accounts: {selectedAccounts.length === 0 ? 'all' : selectedAccounts.length} · Reps: {selectedRepIds.length === 0 ? 'all' : selectedRepIds.length}
+        </p>
+      </div>
+
+      <div className="themed-scrollbar flex-1 space-y-5 overflow-y-auto p-4">
+        <section>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Accounts</h4>
+            <button
+              type="button"
+              onClick={() => setSelectedAccounts([])}
+              className="text-[10px] text-[var(--primary)] hover:underline"
+            >
+              Select all
+            </button>
+          </div>
+          <div className="space-y-1 rounded-xl border border-[var(--border)] p-1.5">
+            {accountOptions.map((account) => {
+              const selected = selectedAccounts.includes(account.key);
+              return (
+                <button
+                  key={account.key}
+                  type="button"
+                  onClick={() => toggleAccountFilter(account.key)}
+                  className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs transition-colors ${
+                    selected
+                      ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
+                      : 'text-[var(--foreground)] hover:bg-[var(--muted)]/30'
+                  }`}
+                >
+                  <span className="truncate text-left">{account.label}</span>
+                  {selected ? <span className="text-[10px] font-semibold">Selected</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {isSuperAdmin ? (
+          <section>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Account Reps</h4>
+              <button
+                type="button"
+                onClick={() => setSelectedRepIds([])}
+                className="text-[10px] text-[var(--primary)] hover:underline"
+              >
+                Select all
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2 rounded-xl border border-[var(--border)] p-2">
+              <button
+                type="button"
+                onClick={() => setSelectedRepIds([])}
+                className={`rounded-lg border px-2.5 py-1 text-[10px] transition-colors ${
+                  selectedRepIds.length === 0
+                    ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                    : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                }`}
+              >
+                All reps
+              </button>
+              {repScopeOptions.map((rep) => {
+                const selected = selectedRepIds.includes(rep.id);
+                return (
+                  <button
+                    key={rep.id}
+                    type="button"
+                    onClick={() => toggleSuperAdminRepFilter(rep.id)}
+                    className={`rounded-lg border px-2.5 py-1 text-[10px] transition-colors ${
+                      selected
+                        ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                        : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {rep.label} ({rep.accountCount})
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {isSuperAdmin ? (
+          <section className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Quick Filters</h4>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={superAdminPresetName}
+                onChange={(event) => setSuperAdminPresetName(event.target.value)}
+                placeholder="Name this quick filter"
+                className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={saveSuperAdminPreset}
+                className="h-9 rounded-lg bg-[var(--primary)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90"
+              >
+                Save Quick Filter
+              </button>
+            </div>
+
+            {superAdminPresets.length === 0 ? (
+              <p className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
+                No quick filters saved yet.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {superAdminPresets.map((preset) => (
+                  <div key={preset.id} className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium">{preset.name}</p>
+                      <p className="text-[10px] text-[var(--muted-foreground)]">
+                        Accounts {preset.accountKeys.length === 0 ? 'all' : preset.accountKeys.length} · Reps {preset.repIds.length === 0 ? 'all' : preset.repIds.length}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => applySuperAdminPreset(preset)}
+                        className="rounded-md border border-[var(--border)] px-2 py-1 text-[10px] transition-colors hover:bg-[var(--muted)]/30"
+                      >
+                        Apply
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteSuperAdminPreset(preset.id)}
+                        className="rounded-md border border-rose-500/30 px-2 py-1 text-[10px] text-rose-300 transition-colors hover:bg-rose-500/10"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 border-t border-[var(--sidebar-border-soft)] p-4">
+        <button
+          type="button"
+          onClick={clearSuperAdminFilters}
+          className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+        >
+          Reset Filters
+        </button>
+        <button
+          type="button"
+          onClick={() => setFiltersPanelOpen(false)}
+          className="rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 px-3 py-2 text-xs text-white transition-colors hover:bg-[var(--primary)]"
+        >
+          Done
+        </button>
+      </div>
+    </aside>
+  );
 
   const activeFilterCount = (selectedAccounts.length > 0 ? 1 : 0) + (selectedRepIds.length > 0 ? 1 : 0);
 
@@ -1850,8 +2149,45 @@ function ManagementRoleDashboard({
             />
             <button
               type="button"
-              onClick={() => setFiltersPanelOpen(true)}
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-sm text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--foreground)]"
+              onClick={() => {
+                if (dashboardCustomization.editMode) {
+                  dashboardCustomization.setEditMode(false);
+                  setCustomizePanelOpen(false);
+                  setDraggedWidgetId(null);
+                  return;
+                }
+                setFiltersPanelOpen(false);
+                setManagementSideRailMounted(true);
+                setCustomizePanelOpen(true);
+                dashboardCustomization.setEditMode(true);
+              }}
+              className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
+                dashboardCustomization.editMode
+                  ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <SquaresPlusIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">Customize</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (filtersPanelOpen) {
+                  setFiltersPanelOpen(false);
+                  return;
+                }
+                dashboardCustomization.setEditMode(false);
+                setCustomizePanelOpen(false);
+                setDraggedWidgetId(null);
+                setManagementSideRailMounted(true);
+                setFiltersPanelOpen(true);
+              }}
+              className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
+                filtersPanelOpen
+                  ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+              }`}
             >
               <FunnelIcon className="h-4 w-4" />
               <span className="hidden sm:inline">Filters</span>
@@ -1865,195 +2201,6 @@ function ManagementRoleDashboard({
         </div>
       </div>
 
-      {filtersPanelOpen ? (
-        <div className="fixed inset-0 z-[80]">
-          <button
-            type="button"
-            aria-label="Close filters panel"
-            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
-            onClick={() => setFiltersPanelOpen(false)}
-          />
-
-          <aside
-            className="glass-panel glass-panel-strong fixed right-3 top-3 bottom-3 w-[380px] rounded-2xl flex flex-col overflow-hidden animate-slide-in-right"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="border-b border-[var(--sidebar-border-soft)] px-5 py-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <FunnelIcon className="h-5 w-5 text-[var(--primary)]" />
-                  <h3 className="text-sm font-bold tracking-tight">Filters</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFiltersPanelOpen(false)}
-                  className="rounded-xl p-1.5 text-[var(--sidebar-muted-foreground)] transition-colors hover:bg-[var(--sidebar-muted)] hover:text-[var(--sidebar-foreground)]"
-                >
-                  <XMarkIcon className="h-4 w-4" />
-                </button>
-              </div>
-              <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
-                Accounts: {selectedAccounts.length === 0 ? 'all' : selectedAccounts.length} · Reps: {selectedRepIds.length === 0 ? 'all' : selectedRepIds.length}
-              </p>
-            </div>
-
-            <div className="themed-scrollbar flex-1 space-y-5 overflow-y-auto p-4">
-              <section>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Accounts</h4>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAccounts([])}
-                    className="text-[10px] text-[var(--primary)] hover:underline"
-                  >
-                    Select all
-                  </button>
-                </div>
-                <div className="space-y-1 rounded-xl border border-[var(--border)] p-1.5">
-                  {accountOptions.map((account) => {
-                    const selected = selectedAccounts.includes(account.key);
-                    return (
-                      <button
-                        key={account.key}
-                        type="button"
-                        onClick={() => toggleAccountFilter(account.key)}
-                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs transition-colors ${
-                          selected
-                            ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
-                            : 'text-[var(--foreground)] hover:bg-[var(--muted)]/30'
-                        }`}
-                      >
-                        <span className="truncate text-left">{account.label}</span>
-                        {selected ? <span className="text-[10px] font-semibold">Selected</span> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-
-              {isSuperAdmin ? (
-                <section>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Account Reps</h4>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRepIds([])}
-                      className="text-[10px] text-[var(--primary)] hover:underline"
-                    >
-                      Select all
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2 rounded-xl border border-[var(--border)] p-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRepIds([])}
-                      className={`rounded-lg border px-2.5 py-1 text-[10px] transition-colors ${
-                        selectedRepIds.length === 0
-                          ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                          : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                      }`}
-                    >
-                      All reps
-                    </button>
-                    {repScopeOptions.map((rep) => {
-                      const selected = selectedRepIds.includes(rep.id);
-                      return (
-                        <button
-                          key={rep.id}
-                          type="button"
-                          onClick={() => toggleSuperAdminRepFilter(rep.id)}
-                          className={`rounded-lg border px-2.5 py-1 text-[10px] transition-colors ${
-                            selected
-                              ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                              : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                          }`}
-                        >
-                          {rep.label} ({rep.accountCount})
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-              ) : null}
-
-              {isSuperAdmin ? (
-                <section className="space-y-2">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Quick Filters</h4>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={superAdminPresetName}
-                      onChange={(event) => setSuperAdminPresetName(event.target.value)}
-                      placeholder="Name this quick filter"
-                      className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={saveSuperAdminPreset}
-                      className="h-9 rounded-lg bg-[var(--primary)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90"
-                    >
-                      Save Quick Filter
-                    </button>
-                  </div>
-
-                  {superAdminPresets.length === 0 ? (
-                    <p className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
-                      No quick filters saved yet.
-                    </p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {superAdminPresets.map((preset) => (
-                        <div key={preset.id} className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2">
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-medium">{preset.name}</p>
-                            <p className="text-[10px] text-[var(--muted-foreground)]">
-                              Accounts {preset.accountKeys.length === 0 ? 'all' : preset.accountKeys.length} · Reps {preset.repIds.length === 0 ? 'all' : preset.repIds.length}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => applySuperAdminPreset(preset)}
-                              className="rounded-md border border-[var(--border)] px-2 py-1 text-[10px] transition-colors hover:bg-[var(--muted)]/30"
-                            >
-                              Apply
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteSuperAdminPreset(preset.id)}
-                              className="rounded-md border border-rose-500/30 px-2 py-1 text-[10px] text-rose-300 transition-colors hover:bg-rose-500/10"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
-              ) : null}
-            </div>
-
-            <div className="flex items-center justify-between gap-2 border-t border-[var(--sidebar-border-soft)] p-4">
-              <button
-                type="button"
-                onClick={clearSuperAdminFilters}
-                className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-              >
-                Reset Filters
-              </button>
-              <button
-                type="button"
-                onClick={() => setFiltersPanelOpen(false)}
-                className="rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 px-3 py-2 text-xs text-white transition-colors hover:bg-[var(--primary)]"
-              >
-                Done
-              </button>
-            </div>
-          </aside>
-        </div>
-      ) : null}
-
       {loading ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {Array.from({ length: 8 }).map((_, index) => (
@@ -2063,116 +2210,128 @@ function ManagementRoleDashboard({
       ) : null}
 
       {!loading && isDeveloper && developerMode === 'technical' ? (
-        <div className={`${developerShellClass} space-y-5`}>
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-            {[
-              { label: 'Accounts', value: totals.accountCount, note: `${totals.connectedAccounts} connected`, icon: BuildingStorefrontIcon },
-              { label: 'Users', value: users.length, note: `${roleCounts.length} role groups`, icon: UsersIcon },
-              { label: 'API Health', value: `${apiHealth.filter((api) => api.ok).length}/${apiHealth.length}`, note: 'reporting endpoints', icon: CommandLineIcon },
-              { label: 'Alerts', value: attentionAccounts.length, note: attentionAccounts.length > 0 ? 'needs action' : 'all clear', icon: ExclamationTriangleIcon },
-            ].map((item, index) => (
-              <div key={item.label} className={developerMetricClass}>
-                <div className="mb-2 flex items-center justify-between">
-                  <item.icon className={`h-7 w-7 ${developerMetricIconClasses[index % developerMetricIconClasses.length]}`} />
-                  <span className={`text-[10px] uppercase tracking-wider ${developerMetricLabelClass}`}>{item.label}</span>
+        <div className={managementSideRailMounted ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
+          <div className="flex flex-col gap-5">
+            {renderManagedWidget('tech_overview', (
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+              {[
+                { label: 'Accounts', value: totals.accountCount, note: `${totals.connectedAccounts} connected`, icon: BuildingStorefrontIcon },
+                { label: 'Users', value: users.length, note: `${roleCounts.length} role groups`, icon: UsersIcon },
+                { label: 'API Health', value: `${apiHealth.filter((api) => api.ok).length}/${apiHealth.length}`, note: 'reporting endpoints', icon: CommandLineIcon },
+                { label: 'Alerts', value: attentionAccounts.length, note: attentionAccounts.length > 0 ? 'needs action' : 'all clear', icon: ExclamationTriangleIcon },
+              ].map((item, index) => (
+                <div key={item.label} className={developerMetricClass}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <item.icon className={`h-7 w-7 ${developerMetricIconClasses[index % developerMetricIconClasses.length]}`} />
+                    <span className={`text-[10px] uppercase tracking-wider ${developerMetricLabelClass}`}>{item.label}</span>
+                  </div>
+                  <p className={`text-3xl font-semibold tabular-nums ${developerMetricValueClass}`}>{item.value}</p>
+                  <p className={`text-[11px] ${developerMetricNoteClass}`}>{item.note}</p>
                 </div>
-                <p className={`text-3xl font-semibold tabular-nums ${developerMetricValueClass}`}>{item.value}</p>
-                <p className={`text-[11px] ${developerMetricNoteClass}`}>{item.note}</p>
+              ))}
+            </div>
+          ))}
+
+          {renderManagedWidget('tech_activity_controls', (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <div className={`${developerPanelClass} xl:col-span-2`}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Platform Activity Timeline</h3>
+                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>Campaigns vs flows vs contacts</span>
+                </div>
+                <ApexChart type="area" options={developerTimelineOptions} series={developerTimeline.series} height={280} />
               </div>
-            ))}
+
+              <div className={developerPanelClass}>
+                <div className="mb-3 flex items-center gap-2">
+                  <WrenchScrewdriverIcon className={`h-6 w-6 ${developerIconTintClass}`} />
+                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Developer Controls</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {[
+                    { href: '/users', label: 'Users', icon: UsersIcon },
+                    { href: '/accounts', label: 'Accounts', icon: BuildingStorefrontIcon },
+                    { href: '/settings/accounts', label: 'Integrations', icon: ArrowPathIcon },
+                    { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
+                    { href: '/flows', label: 'Flows', icon: FlowIcon },
+                    { href: '/media', label: 'Media', icon: PhotoIcon },
+                  ].map((item, index) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={developerControlCardClass}
+                    >
+                      <item.icon className={`h-8 w-8 ${developerControlIconClasses[index % developerControlIconClasses.length]}`} />
+                      <p className={`mt-2 text-xs font-medium ${developerControlLabelClass}`}>{item.label}</p>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {renderManagedWidget('tech_health_split', (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <div className={developerPanelClass}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Reporting API Health</h3>
+                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>score / 100</span>
+                </div>
+                <ApexChart type="bar" options={developerApiOptions} series={developerApiSeries} height={265} />
+              </div>
+
+              <div className={developerPanelClass}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>System Health Rings</h3>
+                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>live mix</span>
+                </div>
+                <ApexChart type="radialBar" options={developerGaugeOptions} series={developerGaugeSeries} height={265} />
+              </div>
+
+              <div className={developerPanelClass}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>User Role Split</h3>
+                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>{users.length} users</span>
+                </div>
+                <ApexChart type="donut" options={developerDonutOptions} series={developerRoleSeries} height={265} />
+              </div>
+            </div>
+          ))}
+
+          {renderManagedWidget('tech_risk_delivery', (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <div className={developerPanelClass}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Integration Risk Intensity</h3>
+                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>top accounts</span>
+                </div>
+                <ApexChart type="bar" options={developerRiskOptions} series={developerRiskSeries} height={255} />
+              </div>
+
+              <div className={developerPanelClass}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Loomi Delivery Throughput</h3>
+                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>sent vs failed</span>
+                </div>
+                <ApexChart type="bar" options={developerDeliveryOptions} series={developerDeliverySeries} height={255} />
+              </div>
+            </div>
+          ))}
           </div>
-
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <div className={`${developerPanelClass} xl:col-span-2`}>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Platform Activity Timeline</h3>
-                <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>Campaigns vs flows vs contacts</span>
-              </div>
-              <ApexChart type="area" options={developerTimelineOptions} series={developerTimeline.series} height={280} />
-            </div>
-
-            <div className={developerPanelClass}>
-              <div className="mb-3 flex items-center gap-2">
-                <WrenchScrewdriverIcon className={`h-6 w-6 ${developerIconTintClass}`} />
-                <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Developer Controls</h3>
-              </div>
-              <div className="grid grid-cols-2 gap-2.5">
-                {[
-                  { href: '/users', label: 'Users', icon: UsersIcon },
-                  { href: '/accounts', label: 'Accounts', icon: BuildingStorefrontIcon },
-                  { href: '/settings/accounts', label: 'Integrations', icon: ArrowPathIcon },
-                  { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
-                  { href: '/flows', label: 'Flows', icon: FlowIcon },
-                  { href: '/media', label: 'Media', icon: PhotoIcon },
-                ].map((item, index) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={developerControlCardClass}
-                  >
-                    <item.icon className={`h-8 w-8 ${developerControlIconClasses[index % developerControlIconClasses.length]}`} />
-                    <p className={`mt-2 text-xs font-medium ${developerControlLabelClass}`}>{item.label}</p>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <div className={developerPanelClass}>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Reporting API Health</h3>
-                <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>score / 100</span>
-              </div>
-              <ApexChart type="bar" options={developerApiOptions} series={developerApiSeries} height={265} />
-            </div>
-
-            <div className={developerPanelClass}>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>System Health Rings</h3>
-                <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>live mix</span>
-              </div>
-              <ApexChart type="radialBar" options={developerGaugeOptions} series={developerGaugeSeries} height={265} />
-            </div>
-
-            <div className={developerPanelClass}>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>User Role Split</h3>
-                <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>{users.length} users</span>
-              </div>
-              <ApexChart type="donut" options={developerDonutOptions} series={developerRoleSeries} height={265} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <div className={developerPanelClass}>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Integration Risk Intensity</h3>
-                <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>top accounts</span>
-              </div>
-              <ApexChart type="bar" options={developerRiskOptions} series={developerRiskSeries} height={255} />
-            </div>
-
-            <div className={developerPanelClass}>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Loomi Delivery Throughput</h3>
-                <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>sent vs failed</span>
-              </div>
-              <ApexChart type="bar" options={developerDeliveryOptions} series={developerDeliverySeries} height={255} />
-            </div>
-          </div>
+          {managementSideRailMounted ? (filtersPanelOpen ? managementFiltersPanel : managementCustomizePanel) : null}
         </div>
       ) : null}
 
       {!loading && (!isDeveloper || developerMode === 'analytics') ? (
-        <div className={isDeveloper ? `${developerShellClass} space-y-5` : 'space-y-8'}>
-          {isDeveloper ? (
-            <>
-              <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
+        <div className={managementSideRailMounted ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
+          <div className={isDeveloper ? 'flex flex-col gap-5' : 'flex flex-col gap-8'}>
+            {renderManagedWidget('summary', (
+            isDeveloper ? (
+              <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                 {[
                   { label: 'Accounts', value: totals.accountCount, icon: BuildingStorefrontIcon },
                   { label: 'Contacts', value: formatCompactNumber(totals.contactsTotal), icon: UserGroupIcon },
-                  { label: 'Emails', value: totals.emailCount, icon: BookOpenIcon },
                   { label: 'Campaigns', value: totals.campaignCount, icon: PaperAirplaneIcon },
                   { label: 'Flows', value: totals.workflowCount, icon: FlowIcon },
                 ].map((item, index) => (
@@ -2204,10 +2363,10 @@ function ManagementRoleDashboard({
                   <ApexChart type="donut" options={developerMixOptions} series={developerMixSeries} height={280} />
                 </div>
               </div>
-            </>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+              </div>
+            ) : (
+              <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
                 <StatCard
                   label={isSuperAdmin ? 'Total Accounts' : 'Assigned Accounts'}
                   value={totals.accountCount}
@@ -2216,7 +2375,6 @@ function ManagementRoleDashboard({
                   href="/accounts"
                 />
                 <StatCard label="Contacts" value={formatCompactNumber(totals.contactsTotal)} icon={UserGroupIcon} />
-                <StatCard label="Emails" value={totals.emailCount} sub={`${totals.activeEmails} active`} icon={BookOpenIcon} href="/templates" />
                 <StatCard label="Campaigns" value={totals.campaignCount} icon={PaperAirplaneIcon} href="/campaigns" />
                 <StatCard label="Flows" value={totals.workflowCount} icon={FlowIcon} href="/flows" />
               </div>
@@ -2246,221 +2404,213 @@ function ManagementRoleDashboard({
                   <ApexChart type="bar" options={developerIndustryOptions} series={developerIndustrySeries} height={275} />
                 </div>
               </div>
-            </>
-          )}
+              </div>
+            )
+          ))}
 
-          {isAdmin ? (
-            <div>
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Account Health</h3>
-                <Link href="/accounts" className="text-[10px] text-[var(--primary)] hover:underline">
-                  Open accounts
-                </Link>
-              </div>
-              <AccountHealthGrid
-                accounts={selectedAccountMap}
-                crmStats={contactStats}
-                emailsByAccount={emailRollupByAccount}
-                loading={loading}
-              />
-            </div>
-          ) : isDeveloper ? (
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <div className={developerPanelClass}>
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>System KPI Rings</h3>
-                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>connection + engagement</span>
+          {renderManagedWidget('health', (
+            isAdmin ? (
+              <div>
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Account Health</h3>
+                  <Link href="/accounts" className="text-[10px] text-[var(--primary)] hover:underline">
+                    Open accounts
+                  </Link>
                 </div>
-                <ApexChart type="radialBar" options={developerGaugeOptions} series={developerGaugeSeries} height={275} />
+                <AccountHealthGrid
+                  accounts={selectedAccountMap}
+                  crmStats={contactStats}
+                  emailsByAccount={emailRollupByAccount}
+                  loading={loading}
+                />
               </div>
-
-              <div className={developerPanelClass}>
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Industry Concentration</h3>
-                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>contacts by segment</span>
-                </div>
-                <ApexChart type="bar" options={developerIndustryOptions} series={developerIndustrySeries} height={275} />
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div className={developerPanelClass}>
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Portfolio Overview</h3>
-                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>all scoped sub-accounts</span>
-                </div>
-                <ApexChart type="radialBar" options={developerGaugeOptions} series={developerGaugeSeries} height={275} />
-              </div>
-
-              <div className={developerPanelClass}>
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Industry Breakdown</h3>
-                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>top segments</span>
-                </div>
-                <ApexChart type="bar" options={developerIndustryOptions} series={developerIndustrySeries} height={275} />
-              </div>
-            </div>
-          )}
-
-          {isDeveloper ? (
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-              <div className={developerPanelClass}>
-                <div className="mb-3 flex items-center gap-2">
-                  <Image
-                    src="/icons/icons8-leaderboard.svg"
-                    alt="Leaderboard"
-                    width={30}
-                    height={30}
-                    className="h-7 w-7"
-                  />
-                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Top Account Momentum</h3>
-                </div>
-                <ApexChart type="bar" options={developerMomentumOptions} series={developerMomentumSeries} height={260} />
-              </div>
-
-              <div className={developerPanelClass}>
-                <div className="mb-3 flex items-center gap-2">
-                  <ExclamationTriangleIcon className={`h-6 w-6 ${developerWarnIconClass}`} />
-                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Account Risk Intensity</h3>
-                </div>
-                <ApexChart type="bar" options={developerRiskOptions} series={developerRiskSeries} height={260} />
-              </div>
-
-              <div className={developerPanelClass}>
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Channel Delivery Trend</h3>
-                  <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>stacked volume</span>
-                </div>
-                <ApexChart type="bar" options={developerDeliveryOptions} series={developerDeliverySeries} height={260} />
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div className="glass-card rounded-xl p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <Image
-                    src="/icons/icons8-leaderboard.svg"
-                    alt="Leaderboard"
-                    width={24}
-                    height={24}
-                    className="h-6 w-6"
-                  />
-                  <h3 className="text-sm font-semibold">Account Leaderboard</h3>
-                </div>
-                {accountLeaderboard.length === 0 ? (
-                  <p className="text-sm text-[var(--muted-foreground)]">No account-level metrics available.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {accountLeaderboard.map((row, index) => (
-                      <div key={row.key} className="flex items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2">
-                        <span className="w-4 text-xs text-[var(--muted-foreground)]">{index + 1}</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{row.dealer}</p>
-                          <p className="text-[10px] text-[var(--muted-foreground)]">
-                            {row.rollup.contactCount.toLocaleString()} contacts · {row.rollup.campaignCount} campaigns · {row.rollup.workflowCount} flows
-                          </p>
-                        </div>
-                        <Link href={`/accounts/${row.key}`} className="text-[10px] text-[var(--primary)] hover:underline">
-                          View
-                        </Link>
-                      </div>
-                    ))}
+            ) : isDeveloper ? (
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className={developerPanelClass}>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>System KPI Rings</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>connection + engagement</span>
                   </div>
-                )}
-              </div>
-
-              <div className="glass-card rounded-xl p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <ExclamationTriangleIcon className="h-5 w-5 text-amber-400" />
-                  <h3 className="text-sm font-semibold">Needs Attention</h3>
+                  <ApexChart type="radialBar" options={developerGaugeOptions} series={developerGaugeSeries} height={275} />
                 </div>
-                {attentionAccounts.length === 0 ? (
-                  <p className="text-sm text-emerald-400">All scoped accounts look healthy.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {attentionAccounts.map((item) => (
-                      <div key={item.key} className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium">{item.dealer}</p>
-                          <Link href={`/accounts/${item.key}`} className="text-[10px] text-[var(--primary)] hover:underline">
-                            Resolve
+
+                <div className={developerPanelClass}>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Industry Concentration</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>contacts by segment</span>
+                  </div>
+                  <ApexChart type="bar" options={developerIndustryOptions} series={developerIndustrySeries} height={275} />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className={developerPanelClass}>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Portfolio Overview</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>all scoped sub-accounts</span>
+                  </div>
+                  <ApexChart type="radialBar" options={developerGaugeOptions} series={developerGaugeSeries} height={275} />
+                </div>
+
+                <div className={developerPanelClass}>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Industry Breakdown</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>top segments</span>
+                  </div>
+                  <ApexChart type="bar" options={developerIndustryOptions} series={developerIndustrySeries} height={275} />
+                </div>
+              </div>
+            )
+          ))}
+
+          {renderManagedWidget('insights', (
+            isDeveloper ? (
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                <div className={developerPanelClass}>
+                  <div className="mb-3 flex items-center gap-2">
+                    <Image
+                      src="/icons/icons8-leaderboard.svg"
+                      alt="Leaderboard"
+                      width={30}
+                      height={30}
+                      className="h-7 w-7"
+                    />
+                    <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Top Account Momentum</h3>
+                  </div>
+                  <ApexChart type="bar" options={developerMomentumOptions} series={developerMomentumSeries} height={260} />
+                </div>
+
+                <div className={developerPanelClass}>
+                  <div className="mb-3 flex items-center gap-2">
+                    <ExclamationTriangleIcon className={`h-6 w-6 ${developerWarnIconClass}`} />
+                    <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Account Risk Intensity</h3>
+                  </div>
+                  <ApexChart type="bar" options={developerRiskOptions} series={developerRiskSeries} height={260} />
+                </div>
+
+                <div className={developerPanelClass}>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className={`text-sm font-semibold ${developerHeadingClass}`}>Channel Delivery Trend</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${developerSubtleClass}`}>stacked volume</span>
+                  </div>
+                  <ApexChart type="bar" options={developerDeliveryOptions} series={developerDeliverySeries} height={260} />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="glass-card rounded-xl p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Image
+                      src="/icons/icons8-leaderboard.svg"
+                      alt="Leaderboard"
+                      width={24}
+                      height={24}
+                      className="h-6 w-6"
+                    />
+                    <h3 className="text-sm font-semibold">Account Leaderboard</h3>
+                  </div>
+                  {accountLeaderboard.length === 0 ? (
+                    <p className="text-sm text-[var(--muted-foreground)]">No account-level metrics available.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {accountLeaderboard.map((row, index) => (
+                        <div key={row.key} className="flex items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2">
+                          <span className="w-4 text-xs text-[var(--muted-foreground)]">{index + 1}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{row.dealer}</p>
+                            <p className="text-[10px] text-[var(--muted-foreground)]">
+                              {row.rollup.contactCount.toLocaleString()} contacts · {row.rollup.campaignCount} campaigns · {row.rollup.workflowCount} flows
+                            </p>
+                          </div>
+                          <Link href={`/accounts/${row.key}`} className="text-[10px] text-[var(--primary)] hover:underline">
+                            View
                           </Link>
                         </div>
-                        <p className="text-xs text-[var(--muted-foreground)]">{item.reason}</p>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="glass-card rounded-xl p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <ExclamationTriangleIcon className="h-5 w-5 text-amber-400" />
+                    <h3 className="text-sm font-semibold">Needs Attention</h3>
                   </div>
-                )}
+                  {attentionAccounts.length === 0 ? (
+                    <p className="text-sm text-emerald-400">All scoped accounts look healthy.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {attentionAccounts.map((item) => (
+                        <div key={item.key} className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium">{item.dealer}</p>
+                            <Link href={`/accounts/${item.key}`} className="text-[10px] text-[var(--primary)] hover:underline">
+                              Resolve
+                            </Link>
+                          </div>
+                          <p className="text-xs text-[var(--muted-foreground)]">{item.reason}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )
+          ))}
 
-          <div>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">ESP Campaign Performance</h3>
-              <Link href="/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
-                Open campaign center
-              </Link>
-            </div>
-            <CampaignPageAnalytics
-              campaigns={filteredEspCampaigns}
-              loading={loading || campaignsAggregateLoading}
-              showAccountBreakdown
-              accountNames={accountNames}
-            />
-          </div>
-
-          <div>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Flow Performance</h3>
-              <Link href="/flows" className="text-[10px] text-[var(--primary)] hover:underline">
-                Open flow center
-              </Link>
-            </div>
-            <FlowAnalytics
-              workflows={filteredEspWorkflows}
-              loading={loading || workflowsAggregateLoading}
-              showAccountBreakdown
-              accountNames={accountNames}
-            />
-          </div>
-
-          {isAdmin || isDeveloper ? (
+          {renderManagedWidget('campaigns', (
             <div>
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Template & Email Utilization</h3>
-                <Link href="/templates" className="text-[10px] text-[var(--primary)] hover:underline">
-                  Open templates
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">ESP Campaign Performance</h3>
+                <Link href="/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
+                  Open campaign center
                 </Link>
               </div>
-              <EmailAnalytics
-                emails={filteredEmails}
-                loading={loading}
+              <CampaignPageAnalytics
+                campaigns={filteredEspCampaigns}
+                loading={loading || campaignsAggregateLoading}
                 showAccountBreakdown
                 accountNames={accountNames}
+              />
+            </div>
+          ))}
+
+          {renderManagedWidget('flows', (
+            <div>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Flow Performance</h3>
+                <Link href="/flows" className="text-[10px] text-[var(--primary)] hover:underline">
+                  Open flow center
+                </Link>
+              </div>
+              <FlowAnalytics
+                workflows={filteredEspWorkflows}
+                loading={loading || workflowsAggregateLoading}
+                showAccountBreakdown
+                accountNames={accountNames}
+              />
+            </div>
+          ))}
+
+          {renderManagedWidget('contacts', (
+            <div>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Contact Analytics</h3>
+                <Link href="/contacts" className="text-[10px] text-[var(--primary)] hover:underline">
+                  Open contacts
+                </Link>
+              </div>
+              <ContactAnalytics
+                contacts={filteredContacts}
+                totalCount={totals.contactsTotal}
+                loading={loading || contactsAggregateLoading}
                 dateRange={dateRange}
                 customRange={customRange}
               />
             </div>
-          ) : null}
+          ))}
 
-          <div>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Contact Analytics</h3>
-              <Link href="/contacts" className="text-[10px] text-[var(--primary)] hover:underline">
-                Open contacts
-              </Link>
-            </div>
-            <ContactAnalytics
-              contacts={filteredContacts}
-              totalCount={totals.contactsTotal}
-              loading={loading || contactsAggregateLoading}
-              dateRange={dateRange}
-              customRange={customRange}
-            />
-          </div>
-
-          {!isDeveloper ? (
+          {!isDeveloper ? renderManagedWidget('recent_activity', (
             <div className="glass-card rounded-xl p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-sm font-semibold">Recent Loomi Campaign Activity</h3>
@@ -2492,7 +2642,9 @@ function ManagementRoleDashboard({
                 </div>
               )}
             </div>
-          ) : null}
+          )) : null}
+          </div>
+          {managementSideRailMounted ? (filtersPanelOpen ? managementFiltersPanel : managementCustomizePanel) : null}
         </div>
       ) : null}
     </div>
@@ -2528,6 +2680,19 @@ function ClientRoleDashboard({
     : 'rounded-2xl border border-white/70 bg-[linear-gradient(155deg,rgba(255,255,255,0.44),rgba(237,243,255,0.38))] backdrop-blur-xl p-5 shadow-[0_8px_20px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,0.8)]';
   const clientHeadingClass = theme === 'dark' ? 'text-white' : 'text-slate-900';
   const clientSubtleClass = theme === 'dark' ? 'text-violet-100/70' : 'text-slate-500';
+  const [customizePanelOpen, setCustomizePanelOpen] = useState(false);
+  const [draggedWidgetId, setDraggedWidgetId] = useState<string | null>(null);
+  const [clientSideRailMounted, setClientSideRailMounted] = useState(false);
+
+  useEffect(() => {
+    if (customizePanelOpen) {
+      setClientSideRailMounted(true);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setClientSideRailMounted(false), 260);
+    return () => window.clearTimeout(timer);
+  }, [customizePanelOpen]);
 
   useEffect(() => {
     if (!accountKey) {
@@ -2613,6 +2778,13 @@ function ClientRoleDashboard({
       cancelled = true;
     };
   }, [accountKey, accountData]);
+
+  useEffect(() => {
+    setCustomizePanelOpen(false);
+    setDraggedWidgetId(null);
+    setClientSideRailMounted(false);
+    clientCustomization.setEditMode(false);
+  }, [accountKey]);
 
   const bounds = useMemo(
     () =>
@@ -2774,6 +2946,76 @@ function ClientRoleDashboard({
     ],
   );
 
+  const clientDashboardWidgets = useMemo<DashboardWidgetDefinition[]>(
+    () => [
+      { id: 'client_overview', title: 'Overview', category: 'overview' },
+      { id: 'client_campaigns', title: 'Campaign Performance', category: 'campaigns' },
+      { id: 'client_recent', title: 'Recent Activity', category: 'engagement' },
+    ],
+    [],
+  );
+  const clientDashboardScope = accountKey ? `account:${accountKey}` : 'account:none';
+  const clientCustomization = useDashboardCustomization({
+    enabled: !loading,
+    mode: 'client:analytics',
+    scope: clientDashboardScope,
+    widgets: clientDashboardWidgets,
+  });
+  const clientVisibleWidgetSet = useMemo(
+    () => new Set(clientCustomization.visibleWidgetIds),
+    [clientCustomization.visibleWidgetIds],
+  );
+  const clientWidgetOrderMap = useMemo(
+    () => new Map(clientCustomization.visibleWidgetIds.map((widgetId, index) => [widgetId, index])),
+    [clientCustomization.visibleWidgetIds],
+  );
+
+  function clientWidgetOrder(widgetId: string): number {
+    return clientWidgetOrderMap.get(widgetId) ?? 999;
+  }
+
+  function handleClientWidgetDrop(targetWidgetId: string) {
+    if (!draggedWidgetId) return;
+    clientCustomization.moveWidget(draggedWidgetId, targetWidgetId);
+    setDraggedWidgetId(null);
+  }
+
+  function renderClientWidget(widgetId: string, content: ReactNode) {
+    const widget = clientCustomization.widgetMap[widgetId];
+    if (!widget || !clientVisibleWidgetSet.has(widgetId)) return null;
+
+    return (
+      <DashboardWidgetFrame
+        key={widgetId}
+        widget={widget}
+        editMode={clientCustomization.editMode}
+        order={clientWidgetOrder(widgetId)}
+        onDragStart={setDraggedWidgetId}
+        onDragOver={() => {}}
+        onDrop={handleClientWidgetDrop}
+        onHide={clientCustomization.hideWidget}
+      >
+        {content}
+      </DashboardWidgetFrame>
+    );
+  }
+
+  const clientCustomizePanel = (
+    <DashboardCustomizePanel
+      open={customizePanelOpen}
+      onClose={() => {
+        setCustomizePanelOpen(false);
+        clientCustomization.setEditMode(false);
+        setDraggedWidgetId(null);
+      }}
+      widgets={clientDashboardWidgets}
+      hiddenWidgetIds={clientCustomization.hiddenWidgetIds}
+      toggleWidget={clientCustomization.toggleWidget}
+      resetLayout={clientCustomization.resetLayout}
+      saving={clientCustomization.saving}
+    />
+  );
+
   const recentActivity = useMemo(() => {
     type Row = {
       id: string;
@@ -2841,12 +3083,36 @@ function ClientRoleDashboard({
             ) : null}
           </div>
 
-          <DashboardToolbar
-            dateRange={dateRange}
-            onDateRangeChange={setDateRange}
-            customRange={customRange}
-            onCustomRangeChange={setCustomRange}
-          />
+          <div className="flex items-center gap-2">
+            <DashboardToolbar
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+              customRange={customRange}
+              onCustomRangeChange={setCustomRange}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (clientCustomization.editMode) {
+                  clientCustomization.setEditMode(false);
+                  setCustomizePanelOpen(false);
+                  setDraggedWidgetId(null);
+                  return;
+                }
+                setClientSideRailMounted(true);
+                setCustomizePanelOpen(true);
+                clientCustomization.setEditMode(true);
+              }}
+              className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
+                clientCustomization.editMode
+                  ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <SquaresPlusIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">Customize</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2857,105 +3123,116 @@ function ClientRoleDashboard({
           ))}
         </div>
       ) : (
-        <div className="space-y-8">
-          {error ? (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
-              {error}
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <StatCard label="Campaigns" value={filteredEspCampaigns.length} icon={PaperAirplaneIcon} href="/campaigns" />
-            <StatCard label="Scheduled" value={scheduledEsp} icon={ArrowPathIcon} href="/campaigns/schedule" />
-            <StatCard label="Sent / Completed" value={sentEsp} icon={CheckCircleIcon} href="/campaigns" />
-            <StatCard label="Loomi Email" value={filteredLoomiEmailCampaigns.length} icon={BookOpenIcon} href="/campaigns" />
-            <StatCard
-              label="Loomi SMS"
-              value={filteredLoomiSmsCampaigns.length}
-              sub={`OR ${formatRatePct(clientEngagement.openRate)}`}
-              icon={ChartBarIcon}
-              href="/campaigns"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className={clientPanelClass}>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${clientHeadingClass}`}>Delivery Pulse</h3>
-                <span className={`text-[10px] uppercase tracking-wider ${clientSubtleClass}`}>open + click</span>
+        <div className={clientSideRailMounted ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
+          <div className="flex flex-col gap-8">
+            {error ? (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+                {error}
               </div>
-              <ApexChart type="radialBar" options={clientGaugeOptions} series={clientGaugeSeries} height={265} />
-            </div>
+            ) : null}
 
-            <div className={clientPanelClass}>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${clientHeadingClass}`}>Campaign Status Mix</h3>
-                <span className={`text-[10px] uppercase tracking-wider ${clientSubtleClass}`}>date range</span>
+            {renderClientWidget('client_overview', (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                <StatCard label="Campaigns" value={filteredEspCampaigns.length} icon={PaperAirplaneIcon} href="/campaigns" />
+                <StatCard label="Scheduled" value={scheduledEsp} icon={ArrowPathIcon} href="/campaigns/schedule" />
+                <StatCard label="Sent / Completed" value={sentEsp} icon={CheckCircleIcon} href="/campaigns" />
+                <StatCard label="Loomi Email" value={filteredLoomiEmailCampaigns.length} icon={BookOpenIcon} href="/campaigns" />
+                <StatCard
+                  label="Loomi SMS"
+                  value={filteredLoomiSmsCampaigns.length}
+                  sub={`OR ${formatRatePct(clientEngagement.openRate)}`}
+                  icon={ChartBarIcon}
+                  href="/campaigns"
+                />
               </div>
-              <ApexChart type="donut" options={clientStatusMixOptions} series={clientStatusMixSeries} height={265} />
-            </div>
 
-            <div className={clientPanelClass}>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className={`text-sm font-semibold ${clientHeadingClass}`}>Channel Output</h3>
-                <span className={`text-[10px] uppercase tracking-wider ${clientSubtleClass}`}>by campaign type</span>
-              </div>
-              <ApexChart type="bar" options={clientChannelOptions} series={clientChannelSeries} height={265} />
-            </div>
-          </div>
-
-          <div>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">ESP Campaign Performance</h3>
-              <Link href="/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
-                Open campaign center
-              </Link>
-            </div>
-            <CampaignPageAnalytics
-              campaigns={filteredEspCampaigns}
-              loading={loading}
-              showAccountBreakdown={false}
-              emptyTitle="No ESP campaign activity for this date range"
-              emptySubtitle="Try a wider date range or publish a campaign from your campaign center."
-            />
-          </div>
-
-          <div className="glass-card rounded-xl p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Recent Campaign Activity</h3>
-              <span className="text-[10px] text-[var(--muted-foreground)]">{recentActivity.length} items</span>
-            </div>
-
-            {recentActivity.length === 0 ? (
-              <p className="text-sm text-[var(--muted-foreground)]">No campaign events in this date range.</p>
-            ) : (
-              <div className="space-y-2">
-                {recentActivity.map((activity) => (
-                  <div key={activity.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider ${
-                        activity.source === 'esp'
-                          ? 'bg-blue-500/10 text-blue-300'
-                          : activity.source === 'email'
-                              ? 'bg-cyan-500/10 text-cyan-300'
-                              : 'bg-emerald-500/10 text-emerald-300'
-                      }`}
-                    >
-                      {activity.source}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{activity.title}</p>
-                      <p className="text-[10px] text-[var(--muted-foreground)]">{activity.detail}</p>
-                    </div>
-                    <div className="text-right text-[10px] text-[var(--muted-foreground)]">
-                      <p className="capitalize">{activity.status}</p>
-                      <p>{relativeTime(activity.date)}</p>
-                    </div>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <div className={clientPanelClass}>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className={`text-sm font-semibold ${clientHeadingClass}`}>Delivery Pulse</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${clientSubtleClass}`}>open + click</span>
                   </div>
-                ))}
+                  <ApexChart type="radialBar" options={clientGaugeOptions} series={clientGaugeSeries} height={265} />
+                </div>
+
+                <div className={clientPanelClass}>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className={`text-sm font-semibold ${clientHeadingClass}`}>Campaign Status Mix</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${clientSubtleClass}`}>date range</span>
+                  </div>
+                  <ApexChart type="donut" options={clientStatusMixOptions} series={clientStatusMixSeries} height={265} />
+                </div>
+
+                <div className={clientPanelClass}>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className={`text-sm font-semibold ${clientHeadingClass}`}>Channel Output</h3>
+                    <span className={`text-[10px] uppercase tracking-wider ${clientSubtleClass}`}>by campaign type</span>
+                  </div>
+                  <ApexChart type="bar" options={clientChannelOptions} series={clientChannelSeries} height={265} />
+                </div>
               </div>
-            )}
+            </div>
+          ))}
+
+          {renderClientWidget('client_campaigns', (
+            <div>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">ESP Campaign Performance</h3>
+                <Link href="/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
+                  Open campaign center
+                </Link>
+              </div>
+              <CampaignPageAnalytics
+                campaigns={filteredEspCampaigns}
+                loading={loading}
+                showAccountBreakdown={false}
+                emptyTitle="No ESP campaign activity for this date range"
+                emptySubtitle="Try a wider date range or publish a campaign from your campaign center."
+              />
+            </div>
+          ))}
+
+          {renderClientWidget('client_recent', (
+            <div className="glass-card rounded-xl p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Recent Campaign Activity</h3>
+                <span className="text-[10px] text-[var(--muted-foreground)]">{recentActivity.length} items</span>
+              </div>
+
+              {recentActivity.length === 0 ? (
+                <p className="text-sm text-[var(--muted-foreground)]">No campaign events in this date range.</p>
+              ) : (
+                <div className="space-y-2">
+                  {recentActivity.map((activity) => (
+                    <div key={activity.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider ${
+                          activity.source === 'esp'
+                            ? 'bg-blue-500/10 text-blue-300'
+                            : activity.source === 'email'
+                                ? 'bg-cyan-500/10 text-cyan-300'
+                                : 'bg-emerald-500/10 text-emerald-300'
+                        }`}
+                      >
+                        {activity.source}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{activity.title}</p>
+                        <p className="text-[10px] text-[var(--muted-foreground)]">{activity.detail}</p>
+                      </div>
+                      <div className="text-right text-[10px] text-[var(--muted-foreground)]">
+                        <p className="capitalize">{activity.status}</p>
+                        <p>{relativeTime(activity.date)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
           </div>
+          {clientSideRailMounted ? clientCustomizePanel : null}
         </div>
       )}
     </div>
