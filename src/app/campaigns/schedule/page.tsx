@@ -222,6 +222,7 @@ export default function ScheduleCampaignPage() {
   );
 
   const [submitting, setSubmitting] = useState(false);
+  const [scheduleStep, setScheduleStep] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -457,6 +458,7 @@ export default function ScheduleCampaignPage() {
   async function handleSchedule() {
     setError(null);
     setSuccess(null);
+    setScheduleStep('');
 
     if (!design) {
       setError('Missing template design. Return to the template editor and try again.');
@@ -491,8 +493,45 @@ export default function ScheduleCampaignPage() {
 
     setSubmitting(true);
     try {
+      // Step 1: Compile template HTML
+      setScheduleStep('Compiling template...');
       const html = await compileTemplateHtml();
-      const payload = {
+
+      // Step 2: Try to publish template to ESP (if EspTemplate exists for this account)
+      setScheduleStep('Publishing template to ESP...');
+      let templateId: string | undefined;
+      try {
+        const templatesRes = await fetch(
+          `/api/esp/templates?accountKey=${encodeURIComponent(selectedAccountKey)}`,
+        );
+        if (templatesRes.ok) {
+          const templates = await templatesRes.json();
+          const trimmedName = (campaignName.trim() || subject.trim()).toLowerCase();
+          const match = Array.isArray(templates)
+            ? templates.find(
+                (t: { name?: string; id?: string }) =>
+                  t.name?.toLowerCase() === trimmedName,
+              )
+            : null;
+          if (match?.id) {
+            // Publish the template to the ESP so the remote ID is available
+            const publishRes = await fetch(`/api/esp/templates/${match.id}/publish`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ providers: [selectedAccountProvider] }),
+            });
+            if (publishRes.ok) {
+              templateId = match.id;
+            }
+          }
+        }
+      } catch {
+        // Non-critical — adapter will create a fresh template from HTML
+      }
+
+      // Step 3: Schedule the campaign
+      setScheduleStep('Creating campaign and audience list...');
+      const payload: Record<string, unknown> = {
         accountKey: selectedAccountKey,
         name: campaignName.trim() || subject.trim(),
         subject: subject.trim(),
@@ -501,6 +540,9 @@ export default function ScheduleCampaignPage() {
         sendAt: parsedSendAt.toISOString(),
         contactIds: recipientIds,
       };
+      if (templateId) {
+        payload.templateId = templateId;
+      }
 
       const res = await fetch('/api/esp/campaigns/schedule', {
         method: 'POST',
@@ -513,13 +555,15 @@ export default function ScheduleCampaignPage() {
       }
 
       const scheduledId = data.scheduled?.scheduleId || data.scheduled?.id || '';
+      setScheduleStep('');
       setSuccess(
-        `Scheduled ${recipientIds.length.toLocaleString()} recipients for ${formatDateTime(parsedSendAt.toISOString())}${
+        `Campaign scheduled for ${recipientIds.length.toLocaleString()} recipients on ${formatDateTime(parsedSendAt.toISOString())}${
           scheduledId ? ` (ID: ${scheduledId})` : ''
         }.`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to schedule this campaign.');
+      setScheduleStep('');
     } finally {
       setSubmitting(false);
     }
@@ -711,6 +755,13 @@ export default function ScheduleCampaignPage() {
               {submitting ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <EnvelopeIcon className="w-4 h-4" />}
               {submitting ? 'Scheduling...' : `Schedule in ${scheduleProviderLabel}`}
             </button>
+
+            {submitting && scheduleStep && (
+              <p className="text-xs text-[var(--muted-foreground)] mt-2 inline-flex items-center gap-1.5">
+                <ArrowPathIcon className="w-3 h-3 animate-spin flex-shrink-0" />
+                {scheduleStep}
+              </p>
+            )}
           </div>
 
           {error && (

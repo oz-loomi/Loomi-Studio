@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
 import { useCampaignsAggregate } from '@/hooks/use-dashboard-data';
 import { AdminOnly } from '@/components/route-guard';
@@ -150,6 +151,7 @@ function getCampaignLastUpdatedDate(campaign: Campaign): string {
 // ── Inner Page ──
 
 function AdminCampaignsPage() {
+  const router = useRouter();
   const { data: aggData, error: aggError, isLoading: aggLoading } = useCampaignsAggregate();
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -398,6 +400,13 @@ function AdminCampaignsPage() {
 
   function openCreateCampaignInProvider(target: keyof CampaignCreateLinks) {
     setShowCreateMenu(false);
+
+    // For Klaviyo email campaigns, route to the in-app schedule page
+    if (target === 'email' && campaignBuilderProvider === 'klaviyo') {
+      router.push('/campaigns/schedule');
+      return;
+    }
+
     const href = createCampaignLinks[target];
     if (!href) {
       setLocalError(`${campaignBuilderLabel} campaign builder link is unavailable.`);
@@ -480,7 +489,7 @@ function AdminCampaignsPage() {
                   <button
                     type="button"
                     onClick={() => openCreateCampaignInProvider('email')}
-                    disabled={!createCampaignLinks.email}
+                    disabled={!createCampaignLinks.email && campaignBuilderProvider !== 'klaviyo'}
                     className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <span className="inline-flex items-center gap-2 font-medium">
@@ -488,7 +497,9 @@ function AdminCampaignsPage() {
                       Email Blast
                     </span>
                     <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                      Send a one-time bulk email campaign.
+                      {campaignBuilderProvider === 'klaviyo'
+                        ? 'Build and schedule in Loomi.'
+                        : 'Send a one-time bulk email campaign.'}
                     </span>
                   </button>
                   <button
@@ -574,6 +585,7 @@ function AdminCampaignsPage() {
 // ── Account Campaigns Page (single-account, read-only) ──
 
 function AccountCampaignsPage() {
+  const accountRouter = useRouter();
   const { accountKey, accountData } = useAccount();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -680,6 +692,13 @@ function AccountCampaignsPage() {
 
   function openAccountCreateCampaignInProvider(target: keyof CampaignCreateLinks) {
     setShowCreateMenu(false);
+
+    // For Klaviyo email campaigns, route to the in-app schedule page
+    if (target === 'email' && accountProvider === 'klaviyo') {
+      accountRouter.push('/campaigns/schedule');
+      return;
+    }
+
     const href = accountCampaignLinks[target];
     if (!href) {
       setApiError(`${accountProviderLabel} campaign builder link is unavailable.`);
@@ -756,7 +775,7 @@ function AccountCampaignsPage() {
                 <button
                   type="button"
                   onClick={() => openAccountCreateCampaignInProvider('email')}
-                  disabled={!accountCampaignLinks.email}
+                  disabled={!accountCampaignLinks.email && accountProvider !== 'klaviyo'}
                   className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="inline-flex items-center gap-2 font-medium">
@@ -764,7 +783,9 @@ function AccountCampaignsPage() {
                     Email Blast
                   </span>
                   <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                    Send a one-time bulk email campaign.
+                    {accountProvider === 'klaviyo'
+                      ? 'Build and schedule in Loomi.'
+                      : 'Send a one-time bulk email campaign.'}
                   </span>
                 </button>
                 <button

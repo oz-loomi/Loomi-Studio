@@ -177,6 +177,8 @@ export interface ScheduleEmailCampaignInput {
   html: string;
   sendAt: string;
   contactIds: string[];
+  /** If the template is already published to the ESP, skip creating a new one */
+  remoteTemplateId?: string;
 }
 
 export interface ScheduledEmailCampaignResult {

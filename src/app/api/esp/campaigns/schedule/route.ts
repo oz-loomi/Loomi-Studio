@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
 import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-helpers';
 import { unsupportedCapabilityPayload } from '@/lib/esp/unsupported';
+import { prisma } from '@/lib/prisma';
 
 /**
  * POST /api/esp/campaigns/schedule
  *
  * Provider-agnostic campaign scheduling.
+ * Accepts an optional `templateId` (local EspTemplate ID) to resolve
+ * an already-published remote template ID, avoiding duplicate creation.
  */
 export async function POST(req: NextRequest) {
   const { session, error } = await requireAuth();
@@ -20,6 +23,7 @@ export async function POST(req: NextRequest) {
     html?: string;
     sendAt?: string;
     contactIds?: string[];
+    templateId?: string;
   };
 
   try {
@@ -28,7 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { accountKey, name, subject, html, sendAt, contactIds, previewText } = body;
+  const { accountKey, name, subject, html, sendAt, contactIds, previewText, templateId } = body;
   if (!accountKey || !name || !subject || !html || !sendAt || !contactIds?.length) {
     return NextResponse.json({
       error: 'accountKey, name, subject, html, sendAt, and contactIds are required',
@@ -64,6 +68,23 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Resolve remote template ID if a local templateId was provided
+  let remoteTemplateId: string | undefined;
+  if (templateId) {
+    try {
+      const espTemplate = await prisma.espTemplate.findUnique({ where: { id: templateId } });
+      if (espTemplate?.publishedTo) {
+        const published = JSON.parse(espTemplate.publishedTo) as Record<string, string>;
+        remoteTemplateId = published[adapter.provider] || undefined;
+      }
+      if (!remoteTemplateId && espTemplate?.remoteId && espTemplate.provider === adapter.provider) {
+        remoteTemplateId = espTemplate.remoteId;
+      }
+    } catch {
+      // Non-critical — adapter will create a new template if needed
+    }
+  }
+
   try {
     const scheduled = await adapter.campaigns.scheduleEmailCampaign({
       token: credentials.token,
@@ -74,6 +95,7 @@ export async function POST(req: NextRequest) {
       html,
       sendAt,
       contactIds,
+      remoteTemplateId,
     });
     return NextResponse.json({
       ok: true,
