@@ -12,6 +12,7 @@ import type { FilterDefinition, PresetFilter } from '@/lib/smart-list-types';
 import { resolveAccountLocationId, resolveAccountProvider } from '@/lib/account-resolvers';
 import { providerDisplayName } from '@/lib/esp/provider-display';
 import { getCampaignHubUrl } from '@/lib/esp/provider-links';
+import { isYagRollupAccount } from '@/lib/accounts/rollup';
 import {
   UserGroupIcon,
   ChatBubbleLeftRightIcon,
@@ -20,6 +21,20 @@ import {
 interface SingleAccountResponse {
   contacts: Contact[];
   meta: { total: number };
+}
+
+interface AggregateContactsResponse {
+  contacts: Array<Contact & { _accountKey?: string; _dealer?: string }>;
+  perAccount?: Record<string, { dealer: string; count: number; connected: boolean; provider: string }>;
+  errors?: Record<string, string>;
+  meta?: {
+    accountsRequested?: number;
+    accountsFetched?: number;
+    sampled?: boolean;
+    sampledContacts?: number;
+    totalContacts?: number;
+    limitPerAccount?: number;
+  };
 }
 
 interface SavedAudience {
@@ -43,8 +58,9 @@ const MESSAGING_FILTER_FIELDS = new Set([
   'lastMessageDate',
 ]);
 
-const ADMIN_CONTACTS_LIMIT_PER_ACCOUNT = 100;
-const ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH = 8;
+const ADMIN_CONTACTS_FETCH_CONCURRENCY = 3;
+const ADMIN_CONTACTS_FAST_LIMIT_PER_ACCOUNT = 150;
+const ADMIN_CONTACTS_FULL_FETCH_MAX_ACCOUNTS = 2;
 
 function filterUsesMessaging(definition: FilterDefinition | null): boolean {
   if (!definition) return false;
@@ -305,6 +321,7 @@ function AdminContactsView() {
   const [enrichedContacts, setEnrichedContacts] = useState<Contact[] | null>(null);
   const [messagingLoading, setMessagingLoading] = useState(false);
   const [messagingLoaded, setMessagingLoaded] = useState(false);
+  const [sampledLimitPerAccount, setSampledLimitPerAccount] = useState<number | null>(null);
   const contacts = enrichedContacts ?? baseContacts;
   const loading = contactsLoading;
   const fetchError = contactsError;
@@ -315,90 +332,130 @@ function AdminContactsView() {
     setMessagingLoaded(false);
   }, [baseContacts]);
 
-  const accountOptions = useMemo(() => {
-    return Object.entries(accountMap)
-      .map(([key, account]) => ({
-        key,
-        dealer: account.dealer || key,
-        storefrontImage: account.storefrontImage,
-        logos: account.logos,
-        city: account.city,
-        state: account.state,
-      }))
-      .sort((a, b) => a.dealer.localeCompare(b.dealer));
-  }, [accountMap]);
-
-  const defaultAccountKey = useMemo(
-    () => accountOptions[0]?.key || '',
-    [accountOptions],
+  const availableAccounts = useMemo(
+    () =>
+      Object.entries(accountMap)
+        .filter(([key, account]) => !isYagRollupAccount(key, account.dealer))
+        .map(([key, account]) => ({
+          key,
+          dealer: account.dealer || key,
+          storefrontImage: account.storefrontImage,
+          logos: account.logos,
+          city: account.city,
+          state: account.state,
+        }))
+        .sort((a, b) => a.dealer.localeCompare(b.dealer)),
+    [accountMap],
   );
 
+  const accountOptions = availableAccounts;
+
   const presetAccountFilter = useMemo(
-    () => {
-      if (accountOptions.some((account) => account.key === requestedAccount)) {
-        return requestedAccount;
-      }
-      return defaultAccountKey;
-    },
-    [accountOptions, defaultAccountKey, requestedAccount],
+    () => (availableAccounts.some((account) => account.key === requestedAccount) ? requestedAccount : ''),
+    [availableAccounts, requestedAccount],
   );
 
   const filters = useContactFilters(contacts, presetAccountFilter);
   const accountKeysToFetch = useMemo(() => {
-    const selected = filters.accountFilters.length > 0
+    const selectedKeys = filters.accountFilters.length > 0
       ? filters.accountFilters
-      : (presetAccountFilter ? [presetAccountFilter] : []);
-    return [...new Set(selected)];
-  }, [filters.accountFilters, presetAccountFilter]);
-  const accountKeysForRequest = useMemo(
-    () => accountKeysToFetch.slice(0, ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH),
-    [accountKeysToFetch],
-  );
+      : availableAccounts.map((account) => account.key);
+    return [...new Set(selectedKeys)];
+  }, [availableAccounts, filters.accountFilters]);
 
   const fetchData = useCallback(async () => {
-    if (accountKeysForRequest.length === 0) {
+    if (accountKeysToFetch.length === 0) {
       setBaseContacts([]);
       setContactsError('Select at least one sub-account to load contacts.');
       setContactsLoading(false);
       setMessagingLoaded(false);
+      setSampledLimitPerAccount(null);
       return;
     }
 
     setContactsLoading(true);
     setContactsError(null);
 
-    const settled = await Promise.allSettled(
-      accountKeysForRequest.map(async (key) => {
-        const res = await fetch(`/api/esp/contacts?accountKey=${encodeURIComponent(key)}&limit=${ADMIN_CONTACTS_LIMIT_PER_ACCOUNT}`);
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          const message = typeof body.error === 'string' ? body.error : `Failed to fetch contacts for ${key}`;
-          throw new Error(message);
-        }
-        const data: SingleAccountResponse = await res.json();
-        return {
-          key,
-          dealer: accountMap[key]?.dealer || key,
-          contacts: data.contacts || [],
-        };
-      }),
-    );
-
-    const nextContacts: Contact[] = [];
-    const failures: string[] = [];
-
-    for (const result of settled) {
-      if (result.status === 'rejected') {
-        failures.push(result.reason instanceof Error ? result.reason.message : 'Failed to fetch contacts');
-        continue;
+    if (accountKeysToFetch.length > ADMIN_CONTACTS_FULL_FETCH_MAX_ACCOUNTS) {
+      const params = new URLSearchParams({
+        limitPerAccount: String(ADMIN_CONTACTS_FAST_LIMIT_PER_ACCOUNT),
+        excludeYagRollup: 'true',
+      });
+      if (accountKeysToFetch.length !== availableAccounts.length) {
+        params.set('accountKeys', accountKeysToFetch.join(','));
+      }
+      const res = await fetch(`/api/esp/contacts/aggregate?${params.toString()}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const message = typeof body.error === 'string' ? body.error : 'Failed to fetch aggregate contacts';
+        setContactsError(message);
+        setBaseContacts([]);
+        setContactsLoading(false);
+        setMessagingLoaded(false);
+        setSampledLimitPerAccount(ADMIN_CONTACTS_FAST_LIMIT_PER_ACCOUNT);
+        return;
       }
 
-      for (const contact of result.value.contacts) {
-        nextContacts.push(withMessagingDefaults({
+      const data: AggregateContactsResponse = await res.json();
+      const sampledContacts = (data.contacts || []).map((contact) => {
+        const key = contact._accountKey || '';
+        return withMessagingDefaults({
           ...contact,
-          _accountKey: result.value.key,
-          _dealer: result.value.dealer,
-        }));
+          _accountKey: key || undefined,
+          _dealer: contact._dealer || accountMap[key]?.dealer || key || undefined,
+        });
+      });
+      const failures = Object.values(data.errors || {});
+
+      setBaseContacts(sampledContacts);
+      setMessagingLoaded(false);
+      setSampledLimitPerAccount(data.meta?.limitPerAccount || ADMIN_CONTACTS_FAST_LIMIT_PER_ACCOUNT);
+      if (failures.length === 0) {
+        setContactsError(null);
+      } else if (failures.length === accountKeysToFetch.length) {
+        setContactsError(failures[0]);
+      } else {
+        setContactsError(`${failures.length} sub-account fetches failed. Showing partial results.`);
+      }
+      setContactsLoading(false);
+      return;
+    }
+
+    setSampledLimitPerAccount(null);
+    const nextContacts: Contact[] = [];
+    const failures: string[] = [];
+    for (let i = 0; i < accountKeysToFetch.length; i += ADMIN_CONTACTS_FETCH_CONCURRENCY) {
+      const chunk = accountKeysToFetch.slice(i, i + ADMIN_CONTACTS_FETCH_CONCURRENCY);
+      const settled = await Promise.allSettled(
+        chunk.map(async (key) => {
+          const res = await fetch(`/api/esp/contacts?accountKey=${encodeURIComponent(key)}&all=true`);
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            const message = typeof body.error === 'string' ? body.error : `Failed to fetch contacts for ${key}`;
+            throw new Error(message);
+          }
+          const data: SingleAccountResponse = await res.json();
+          return {
+            key,
+            dealer: accountMap[key]?.dealer || key,
+            contacts: data.contacts || [],
+          };
+        }),
+      );
+
+      for (const result of settled) {
+        if (result.status === 'rejected') {
+          failures.push(result.reason instanceof Error ? result.reason.message : 'Failed to fetch contacts');
+          continue;
+        }
+
+        for (const contact of result.value.contacts) {
+          nextContacts.push(withMessagingDefaults({
+            ...contact,
+            _accountKey: result.value.key,
+            _dealer: result.value.dealer,
+          }));
+        }
       }
     }
 
@@ -406,13 +463,13 @@ function AdminContactsView() {
     setMessagingLoaded(false);
     if (failures.length === 0) {
       setContactsError(null);
-    } else if (failures.length === accountKeysForRequest.length) {
+    } else if (failures.length === accountKeysToFetch.length) {
       setContactsError(failures[0]);
     } else {
       setContactsError(`${failures.length} sub-account fetches failed. Showing partial results.`);
     }
     setContactsLoading(false);
-  }, [accountKeysForRequest, accountMap]);
+  }, [accountKeysToFetch, accountMap, availableAccounts.length]);
 
   useEffect(() => {
     fetchData();
@@ -528,12 +585,13 @@ function AdminContactsView() {
         contacts={contacts}
       />
 
-      {(accountKeysForRequest.length > 0 || accountKeysToFetch.length > 0) && (
+      <p className="text-[11px] text-[var(--muted-foreground)] mb-3">
+        Group rollup account (Young Automotive Group) is excluded in admin aggregate view to reduce duplicate contacts.
+      </p>
+      {sampledLimitPerAccount && (
         <p className="text-[11px] text-[var(--muted-foreground)] mb-3">
-          Showing sampled contacts: up to {ADMIN_CONTACTS_LIMIT_PER_ACCOUNT} per selected sub-account
-          {accountKeysToFetch.length > ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH
-            ? ` (first ${ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH} selected accounts).`
-            : '.'}
+          Performance mode is active: showing up to {sampledLimitPerAccount} contacts per selected sub-account.
+          Narrow to one or two sub-accounts to load a deeper set.
         </p>
       )}
 

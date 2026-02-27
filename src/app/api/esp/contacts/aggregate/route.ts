@@ -5,6 +5,7 @@ import * as accountService from '@/lib/services/accounts';
 import { getAdapterForAccount } from '@/lib/esp/registry';
 import { withConcurrencyLimit } from '@/lib/esp/utils';
 import type { NormalizedContact } from '@/lib/esp/types';
+import { isYagRollupAccount } from '@/lib/accounts/rollup';
 import '@/lib/esp/init';
 
 /**
@@ -23,6 +24,11 @@ export async function GET(req: NextRequest) {
     const limitPerAccount = Number.isFinite(limitRaw)
       ? Math.max(25, Math.min(250, limitRaw))
       : 120;
+    const requestedKeys = (req.nextUrl.searchParams.get('accountKeys') || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const excludeYagRollup = req.nextUrl.searchParams.get('excludeYagRollup') === 'true';
 
     const allAccounts = await accountService.getAccounts();
     const accountMap = new Map(allAccounts.map(a => [a.key, a]));
@@ -37,12 +43,18 @@ export async function GET(req: NextRequest) {
     const allowedKeys = hasUnrestrictedAccess
       ? allKeys
       : allKeys.filter(k => userAccountKeys.includes(k));
+    let selectedKeys = requestedKeys.length > 0
+      ? requestedKeys.filter((key) => allowedKeys.includes(key))
+      : allowedKeys;
+    if (excludeYagRollup) {
+      selectedKeys = selectedKeys.filter((key) => !isYagRollupAccount(key, accountMap.get(key)?.dealer));
+    }
 
     const allContacts: (NormalizedContact & { _accountKey: string; _dealer: string })[] = [];
     const perAccount: Record<string, { dealer: string; count: number; connected: boolean; provider: string }> = {};
     const errors: Record<string, string> = {};
 
-    const tasks = allowedKeys.map((accountKey) => async () => {
+    const tasks = selectedKeys.map((accountKey) => async () => {
       const account = accountMap.get(accountKey);
       const dealer = account?.dealer || accountKey;
 
@@ -90,6 +102,7 @@ export async function GET(req: NextRequest) {
       perAccount,
       errors,
       meta: {
+        accountsRequested: selectedKeys.length,
         totalContacts: Object.values(perAccount).reduce((sum, entry) => sum + entry.count, 0),
         accountsFetched: Object.keys(perAccount).length,
         sampledContacts: allContacts.length,
