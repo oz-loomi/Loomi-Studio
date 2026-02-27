@@ -8,6 +8,12 @@ import {
   DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import { formatRatePct, sumCampaignEngagement } from '@/lib/campaign-engagement';
+import {
+  type DateRangeKey,
+  getDateRangeBounds,
+  getMonthBuckets,
+} from '@/lib/date-ranges';
+import type { CustomDateRange } from '@/components/filters/dashboard-toolbar';
 
 // ── Types ──
 
@@ -42,6 +48,8 @@ interface CampaignPageAnalyticsProps {
   accountNames?: Record<string, string>;
   emptyTitle?: string;
   emptySubtitle?: string;
+  dateRange?: DateRangeKey;
+  customRange?: CustomDateRange | null;
 }
 
 // ── Helpers ──
@@ -86,8 +94,11 @@ export function CampaignPageAnalytics({
   accountNames,
   emptyTitle = 'No campaign data yet',
   emptySubtitle = 'Sub-accounts may need to reconnect their integration with campaign scopes',
+  dateRange,
+  customRange,
 }: CampaignPageAnalyticsProps) {
   const [animated, setAnimated] = useState(false);
+  const [showAllAccounts, setShowAllAccounts] = useState(false);
 
   useEffect(() => {
     if (campaigns.length > 0 && !loading) {
@@ -118,8 +129,10 @@ export function CampaignPageAnalytics({
     ).length;
 
     // Per-account breakdown
+    let byAccountAll: [string, number][] = [];
     let byAccount: [string, number][] = [];
     let maxAccount = 0;
+    let hasMoreAccounts = false;
     if (showAccountBreakdown) {
       const acctCounts = new Map<string, number>();
       campaigns.forEach(c => {
@@ -127,14 +140,37 @@ export function CampaignPageAnalytics({
         const name = (accountKey && accountNames?.[accountKey]) || c.dealer || accountKey || 'Unknown';
         acctCounts.set(name, (acctCounts.get(name) || 0) + 1);
       });
-      byAccount = [...acctCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
-      maxAccount = byAccount.length > 0 ? byAccount[0][1] : 0;
+      byAccountAll = [...acctCounts.entries()].sort((a, b) => b[1] - a[1]);
+      byAccount = byAccountAll.slice(0, 8);
+      maxAccount = byAccountAll.length > 0 ? byAccountAll[0][1] : 0;
+      hasMoreAccounts = byAccountAll.length > 8;
     }
+
+    // Campaigns over time
+    const bounds = dateRange === 'custom' && customRange
+      ? getDateRangeBounds('custom', customRange.start, customRange.end)
+      : getDateRangeBounds(dateRange ?? '6m');
+    const buckets = getMonthBuckets(bounds.monthCount);
+    const monthBuckets = buckets.map(b => ({
+      label: b.label,
+      count: campaigns.filter(c => {
+        const raw = c.sentAt || c.scheduledAt || c.updatedAt || c.createdAt;
+        if (!raw) return false;
+        const cd = new Date(raw);
+        return !Number.isNaN(cd.getTime()) && cd >= b.start && cd < b.end;
+      }).length,
+    }));
+    const maxMonthCount = Math.max(...monthBuckets.map(b => b.count), 1);
 
     const engagement = sumCampaignEngagement(campaigns);
 
-    return { statusEntries, sentCount, scheduledCount, draftCount, byAccount, maxAccount, engagement };
-  }, [campaigns, showAccountBreakdown, accountNames]);
+    return {
+      statusEntries, sentCount, scheduledCount, draftCount,
+      byAccountAll, byAccount, maxAccount, hasMoreAccounts,
+      monthBuckets, maxMonthCount,
+      engagement,
+    };
+  }, [campaigns, showAccountBreakdown, accountNames, dateRange, customRange]);
 
   if (loading) {
     return (
@@ -222,8 +258,8 @@ export function CampaignPageAnalytics({
             <EngagementMetric label="Delivered" value={analytics.engagement.deliveredCount} />
             <EngagementMetric label="Opened" value={analytics.engagement.openedCount} />
             <EngagementMetric label="Clicked" value={analytics.engagement.clickedCount} />
-            <EngagementMetric label="Open Rate" value={formatRatePct(analytics.engagement.openRate)} />
-            <EngagementMetric label="Click Rate" value={formatRatePct(analytics.engagement.clickRate)} />
+            <EngagementMetric label="Open Rate" value={formatRatePct(analytics.engagement.openRate)} rate={analytics.engagement.openRate} animated={animated} />
+            <EngagementMetric label="Click Rate" value={formatRatePct(analytics.engagement.clickRate)} rate={analytics.engagement.clickRate} animated={animated} />
             <EngagementMetric
               label="Unsub + Bounce"
               value={analytics.engagement.unsubscribedCount + analytics.engagement.bouncedCount}
@@ -233,7 +269,7 @@ export function CampaignPageAnalytics({
       )}
 
       {/* Charts grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {/* Status Distribution */}
         {analytics.statusEntries.length > 0 && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-1">
@@ -276,7 +312,7 @@ export function CampaignPageAnalytics({
               Campaigns by Account
             </h4>
             <div className="space-y-2.5">
-              {analytics.byAccount.map(([name, count], i) => (
+              {(showAllAccounts ? analytics.byAccountAll : analytics.byAccount).map(([name, count], i) => (
                 <BarRow
                   key={name}
                   label={name}
@@ -287,6 +323,49 @@ export function CampaignPageAnalytics({
                   delay={i * 60}
                 />
               ))}
+            </div>
+            {analytics.hasMoreAccounts && (
+              <button
+                type="button"
+                onClick={() => setShowAllAccounts((prev) => !prev)}
+                className="mt-2.5 text-[10px] font-medium text-[var(--primary)] hover:underline"
+              >
+                {showAllAccounts ? 'Show less' : `Show all ${analytics.byAccountAll.length} accounts`}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Campaigns Over Time */}
+        {analytics.monthBuckets.some(b => b.count > 0) && (
+          <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-3">
+            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-violet-400" />
+              Campaigns Over Time
+            </h4>
+            <div className="flex items-end gap-1.5 h-28">
+              {analytics.monthBuckets.map((bucket, i) => {
+                const height = animated ? (bucket.count / analytics.maxMonthCount) * 100 : 0;
+                return (
+                  <div key={`${bucket.label}-${i}`} className="flex-1 flex flex-col items-center gap-1">
+                    <span className="text-[9px] font-medium tabular-nums text-[var(--muted-foreground)]">
+                      {bucket.count > 0 ? bucket.count : ''}
+                    </span>
+                    <div className="w-full flex-1 flex items-end">
+                      <div
+                        className="w-full rounded-t-sm transition-all duration-700 ease-out"
+                        style={{
+                          height: `${Math.max(height, bucket.count > 0 ? 4 : 0)}%`,
+                          backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+                          opacity: 0.7,
+                          transitionDelay: `${i * 80}ms`,
+                        }}
+                      />
+                    </div>
+                    <span className="text-[9px] text-[var(--muted-foreground)]">{bucket.label}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -319,14 +398,26 @@ function StatCard({
 function EngagementMetric({
   label,
   value,
+  rate,
+  animated,
 }: {
   label: string;
   value: number | string;
+  rate?: number;
+  animated?: boolean;
 }) {
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 px-2.5 py-2">
       <p className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider">{label}</p>
       <p className="text-sm font-semibold tabular-nums mt-0.5">{value}</p>
+      {rate !== undefined && (
+        <div className="mt-1.5 h-1 rounded-full bg-[var(--muted)] overflow-hidden">
+          <div
+            className="h-full rounded-full bg-emerald-400 transition-all duration-700 ease-out"
+            style={{ width: animated ? `${Math.min(rate * 100, 100)}%` : '0%', opacity: 0.75 }}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -282,7 +282,12 @@ function groupByAccount(
         key,
       campaigns: items,
     }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => {
+      // Sort by most recent campaign date (descending) — active accounts surface first
+      const aMax = Math.max(...a.campaigns.map(c => getLastUpdatedTs(c)), 0);
+      const bMax = Math.max(...b.campaigns.map(c => getLastUpdatedTs(c)), 0);
+      return bMax - aMax;
+    });
 }
 
 // ── Sortable Column Header ──
@@ -540,7 +545,10 @@ function GroupHeader({
   isOpen,
   campaignCount,
   sentCount,
+  scheduledCount,
+  lastActivityDate,
   storefrontImage,
+  logos,
   onToggle,
 }: {
   groupKey: string;
@@ -548,7 +556,10 @@ function GroupHeader({
   isOpen: boolean;
   campaignCount: number;
   sentCount: number;
+  scheduledCount?: number;
+  lastActivityDate?: string | null;
   storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string };
   onToggle: () => void;
 }) {
   const avatar = (
@@ -556,6 +567,7 @@ function GroupHeader({
       name={label}
       accountKey={groupKey}
       storefrontImage={storefrontImage}
+      logos={logos}
       size={24}
       className="w-6 h-6 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
     />
@@ -583,6 +595,16 @@ function GroupHeader({
             {sentCount} sent
           </span>
         )}
+        {(scheduledCount ?? 0) > 0 && (
+          <span className="text-[10px] tabular-nums text-blue-400 flex-shrink-0">
+            {scheduledCount} sched
+          </span>
+        )}
+        {lastActivityDate && (
+          <span className="text-[10px] tabular-nums text-[var(--muted-foreground)] flex-shrink-0 ml-auto">
+            Last: {lastActivityDate}
+          </span>
+        )}
       </button>
     </div>
   );
@@ -601,7 +623,9 @@ export function CampaignPageList({
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('flat');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const initialCollapseDone = useRef(false);
   const [page, setPage] = useState(1);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -660,6 +684,30 @@ export function CampaignPageList({
   );
 
   const hasMultipleAccounts = groups.length > 1;
+
+  // Auto-collapse all groups for super admins on first data load
+  useEffect(() => {
+    if (!initialCollapseDone.current && groups.length > 5) {
+      const next: Record<string, boolean> = {};
+      groups.forEach((g) => { next[g.key] = true; });
+      setCollapsed(next);
+      initialCollapseDone.current = true;
+    }
+  }, [groups]);
+
+  // Group pagination
+  const GROUPS_PER_PAGE = 10;
+  const [groupPage, setGroupPage] = useState(1);
+  const totalGroupPages = Math.max(1, Math.ceil(groups.length / GROUPS_PER_PAGE));
+  const pagedGroups = useMemo(() => {
+    const start = (groupPage - 1) * GROUPS_PER_PAGE;
+    return groups.slice(start, start + GROUPS_PER_PAGE);
+  }, [groups, groupPage]);
+
+  // Reset group page on filter/search change
+  useEffect(() => {
+    setGroupPage(1);
+  }, [debouncedSearch, campaigns.length]);
 
   function toggleGroup(key: string) {
     setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
@@ -792,16 +840,47 @@ export function CampaignPageList({
                 ? `${filteredCampaigns.length} / ${campaigns.length}`
                 : campaigns.length}
             </span>
-            {!hasMultipleAccounts && totalPages > 1 && (
+            {(viewMode === 'flat' || !hasMultipleAccounts) && totalPages > 1 && (
               <span className="ml-1 opacity-60">
                 · Page {page} of {totalPages}
+              </span>
+            )}
+            {viewMode === 'grouped' && hasMultipleAccounts && totalGroupPages > 1 && (
+              <span className="ml-1 opacity-60">
+                · {groups.length} accounts
               </span>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Collapse / Expand toggle */}
+            {/* View mode toggle */}
             {hasMultipleAccounts && (
+              <div className="flex items-center rounded-lg border border-[var(--border)] overflow-hidden">
+                <button
+                  onClick={() => setViewMode('flat')}
+                  className={`px-2.5 py-1.5 text-[10px] font-medium transition-colors ${
+                    viewMode === 'flat'
+                      ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
+                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  All Campaigns
+                </button>
+                <button
+                  onClick={() => setViewMode('grouped')}
+                  className={`px-2.5 py-1.5 text-[10px] font-medium transition-colors ${
+                    viewMode === 'grouped'
+                      ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
+                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  By Account
+                </button>
+              </div>
+            )}
+
+            {/* Collapse / Expand toggle (grouped view only) */}
+            {hasMultipleAccounts && viewMode === 'grouped' && (
               <button
                 onClick={allCollapsed ? expandAll : collapseAll}
                 className="text-[10px] font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors px-1.5 py-1"
@@ -850,27 +929,37 @@ export function CampaignPageList({
                 </a>
               )}
             </div>
-          ) : hasMultipleAccounts ? (
+          ) : hasMultipleAccounts && viewMode === 'grouped' ? (
             /* ── Grouped view ── */
             <div className="space-y-1 mt-1">
-              {groups.map((group) => {
+              {pagedGroups.map((group) => {
                 const isOpen = !collapsed[group.key];
                 const sentCount = group.campaigns.filter(
                   c => normalizeStatus(c.status) === 'sent'
                 ).length;
+                const scheduledCount = group.campaigns.filter(
+                  c => normalizeStatus(c.status) === 'scheduled'
+                ).length;
+                const lastCampaignTs = Math.max(...group.campaigns.map(c => getLastUpdatedTs(c)), 0);
+                const lastActivityDate = lastCampaignTs > 0
+                  ? new Date(lastCampaignTs).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                  : null;
 
                 return (
                   <div key={group.key}>
                     {/* Group header */}
                     <GroupHeader
-                    groupKey={group.key}
-                    label={group.label}
-                    isOpen={isOpen}
-                    campaignCount={group.campaigns.length}
-                    sentCount={sentCount}
-                    storefrontImage={accountMeta?.[group.key]?.storefrontImage}
-                    onToggle={() => toggleGroup(group.key)}
-                  />
+                      groupKey={group.key}
+                      label={group.label}
+                      isOpen={isOpen}
+                      campaignCount={group.campaigns.length}
+                      sentCount={sentCount}
+                      scheduledCount={scheduledCount}
+                      lastActivityDate={lastActivityDate}
+                      storefrontImage={accountMeta?.[group.key]?.storefrontImage}
+                      logos={accountMeta?.[group.key]?.logos}
+                      onToggle={() => toggleGroup(group.key)}
+                    />
 
                     {/* Collapsible content */}
                     <div className="collapsible-wrapper" data-open={isOpen}>
@@ -961,8 +1050,8 @@ export function CampaignPageList({
             </div>
           )}
 
-          {/* Pagination (flat view only — grouped view shows all) */}
-          {!hasMultipleAccounts && totalPages > 1 && (
+          {/* Flat view pagination */}
+          {(viewMode === 'flat' || !hasMultipleAccounts) && totalPages > 1 && (
             <div className="mt-4 pt-3 border-t border-[var(--border)] flex items-center justify-between">
               <p className="text-[11px] text-[var(--muted-foreground)]">
                 Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filteredCampaigns.length)} of {filteredCampaigns.length}
@@ -978,6 +1067,31 @@ export function CampaignPageList({
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
+                  className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Grouped view pagination */}
+          {hasMultipleAccounts && viewMode === 'grouped' && totalGroupPages > 1 && (
+            <div className="mt-4 pt-3 border-t border-[var(--border)] flex items-center justify-between">
+              <p className="text-[11px] text-[var(--muted-foreground)]">
+                Showing accounts {(groupPage - 1) * GROUPS_PER_PAGE + 1}-{Math.min(groupPage * GROUPS_PER_PAGE, groups.length)} of {groups.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setGroupPage((p) => Math.max(1, p - 1))}
+                  disabled={groupPage === 1}
+                  className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setGroupPage((p) => Math.min(totalGroupPages, p + 1))}
+                  disabled={groupPage === totalGroupPages}
                   className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Next

@@ -191,7 +191,9 @@ function AdminCampaignsPage() {
     oem: [],
     industry: [],
   });
-  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilterCount = [filters.account, filters.status, filters.oem, filters.industry]
+    .filter((a) => a.length > 0).length;
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -460,12 +462,17 @@ function AdminCampaignsPage() {
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <button
               type="button"
-              onClick={() => setFiltersCollapsed((prev) => !prev)}
+              onClick={() => setFiltersOpen((prev) => !prev)}
               className="inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)] transition-colors"
-              aria-pressed={!filtersCollapsed}
+              aria-pressed={filtersOpen}
             >
               <FunnelIcon className="w-4 h-4" />
-              {filtersCollapsed ? 'Show Filters' : 'Hide Filters'}
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="w-5 h-5 rounded-full bg-[var(--primary)] text-white text-[10px] flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
             <DashboardToolbar
               dateRange={dateRange}
@@ -537,47 +544,43 @@ function AdminCampaignsPage() {
           </div>
         </div>
       </div>
-      <div className="w-full max-w-[1600px] flex flex-col xl:flex-row gap-4 items-start">
-        {!filtersCollapsed && (
-          <CampaignFilterSidebar
-            inline
-            className="w-full xl:w-[320px] xl:flex-shrink-0"
-            filters={filters}
-            onFiltersChange={setFilters}
-            options={filterOptions}
-          />
+      <div className="w-full max-w-[1600px]">
+        {campaignError && (
+          <div className="px-4 py-3 mb-4 rounded-xl border border-red-500/20 bg-red-500/10 text-sm text-red-300">
+            {campaignError}
+          </div>
         )}
 
-        <div className="w-full max-w-[1250px] flex-1 min-w-0">
-          {campaignError && (
-            <div className="px-4 py-3 mb-4 rounded-xl border border-red-500/20 bg-red-500/10 text-sm text-red-300">
-              {campaignError}
-            </div>
-          )}
+        <div className="space-y-6">
+          <CampaignPageAnalytics
+            campaigns={filteredCampaigns}
+            loading={loading}
+            showAccountBreakdown
+            accountNames={accountNames}
+            emptyTitle={adminEmptyTitle}
+            emptySubtitle={adminEmptySubtitle}
+            dateRange={dateRange}
+            customRange={customRange}
+          />
 
-
-          <div className="space-y-6">
-            <CampaignPageAnalytics
-              campaigns={filteredCampaigns}
-              loading={loading}
-              showAccountBreakdown
-              accountNames={accountNames}
-              emptyTitle={adminEmptyTitle}
-              emptySubtitle={adminEmptySubtitle}
-            />
-
-            <CampaignPageList
-              campaigns={filteredCampaigns}
-              loading={loading}
-              accountNames={accountNames}
-              accountMeta={accountMeta}
-              accountProviders={accountProviders}
-              emptyState={campaignEmptyState}
-            />
-          </div>
+          <CampaignPageList
+            campaigns={filteredCampaigns}
+            loading={loading}
+            accountNames={accountNames}
+            accountMeta={accountMeta}
+            accountProviders={accountProviders}
+            emptyState={campaignEmptyState}
+          />
         </div>
       </div>
 
+      <CampaignFilterSidebar
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        filters={filters}
+        onFiltersChange={setFilters}
+        options={filterOptions}
+      />
     </div>
   );
 }
@@ -838,6 +841,8 @@ function AccountCampaignsPage() {
             accountNames={{}}
             emptyTitle={accountEmptyTitle}
             emptySubtitle={accountEmptySubtitle}
+            dateRange={dateRange}
+            customRange={customRange}
           />
 
           {/* Search + List */}
