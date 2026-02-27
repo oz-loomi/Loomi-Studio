@@ -636,50 +636,57 @@ export async function requestContacts({
   limit: number;
   search: string;
 }): Promise<{ contacts: Record<string, unknown>[]; total: number }> {
-  const query = new URLSearchParams({
-    locationId,
-    limit: String(limit),
-  });
-  if (search) query.set('query', search);
-
-  const endpoints = [
-    `${GHL_BASE}/contacts/?${query.toString()}`,
-    `${GHL_BASE}/contacts/search?${query.toString()}`,
-  ];
-
+  const fallbackLimits = [limit, 75, 50, 25]
+    .map((value) => Math.max(1, Math.floor(value)))
+    .filter((value, index, arr) => arr.indexOf(value) === index)
+    .sort((a, b) => b - a);
   let lastError = 'Failed to fetch contacts';
-  for (const endpoint of endpoints) {
-    const res = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Version: API_VERSION,
-        Accept: 'application/json',
-      },
+
+  for (const currentLimit of fallbackLimits) {
+    const query = new URLSearchParams({
+      locationId,
+      limit: String(currentLimit),
     });
+    if (search) query.set('query', search);
 
-    if (!res.ok) {
-      lastError = `GHL API error (${res.status})`;
-      continue;
+    const endpoints = [
+      `${GHL_BASE}/contacts/?${query.toString()}`,
+      `${GHL_BASE}/contacts/search?${query.toString()}`,
+    ];
+
+    for (const endpoint of endpoints) {
+      const res = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Version: API_VERSION,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        lastError = `GHL API error (${res.status})`;
+        continue;
+      }
+
+      const data = await res.json();
+      const contactsRaw =
+        (Array.isArray(data?.contacts) && data.contacts) ||
+        (Array.isArray(data?.data?.contacts) && data.data.contacts) ||
+        (Array.isArray(data?.data) && data.data) ||
+        [];
+
+      const total =
+        data?.meta?.total ??
+        data?.total ??
+        data?.data?.meta?.total ??
+        contactsRaw.length;
+
+      return {
+        contacts: contactsRaw as Record<string, unknown>[],
+        total: typeof total === 'number' ? total : contactsRaw.length,
+      };
     }
-
-    const data = await res.json();
-    const contactsRaw =
-      (Array.isArray(data?.contacts) && data.contacts) ||
-      (Array.isArray(data?.data?.contacts) && data.data.contacts) ||
-      (Array.isArray(data?.data) && data.data) ||
-      [];
-
-    const total =
-      data?.meta?.total ??
-      data?.total ??
-      data?.data?.meta?.total ??
-      contactsRaw.length;
-
-    return {
-      contacts: contactsRaw as Record<string, unknown>[],
-      total: typeof total === 'number' ? total : contactsRaw.length,
-    };
   }
 
   throw new Error(lastError);

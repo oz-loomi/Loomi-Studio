@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
-import { useContactStats } from '@/hooks/use-dashboard-data';
 import { ContactsTable } from '@/components/contacts/contacts-table';
 import type { Contact } from '@/components/contacts/contacts-table';
 import { ContactsToolbar, AudiencesMenuButton, ContactsAccountFilter } from '@/components/contacts/contacts-toolbar';
@@ -44,7 +43,7 @@ const MESSAGING_FILTER_FIELDS = new Set([
   'lastMessageDate',
 ]);
 
-const ADMIN_CONTACTS_LIMIT_PER_ACCOUNT = 150;
+const ADMIN_CONTACTS_LIMIT_PER_ACCOUNT = 100;
 const ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH = 8;
 
 function filterUsesMessaging(definition: FilterDefinition | null): boolean {
@@ -298,7 +297,6 @@ function AdminContactsView() {
   const { accounts: accountMap } = useAccount();
   const searchParams = useSearchParams();
   const requestedAccount = searchParams.get('account') || '';
-  const { data: statsData, error: statsError, isLoading: statsLoading, mutate: mutateStats } = useContactStats();
 
   const [baseContacts, setBaseContacts] = useState<Contact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -308,30 +306,8 @@ function AdminContactsView() {
   const [messagingLoading, setMessagingLoading] = useState(false);
   const [messagingLoaded, setMessagingLoaded] = useState(false);
   const contacts = enrichedContacts ?? baseContacts;
-  const loading = contactsLoading || statsLoading;
-  const statsErrorMessage = statsError
-    ? (statsError instanceof Error ? statsError.message : 'Failed to fetch contact stats')
-    : null;
-  const fetchError = contactsError || statsErrorMessage;
-
-  const perAccount = useMemo(() => {
-    const stats = statsData?.stats || {};
-    const next: Record<string, { dealer: string; count: number; connected: boolean; provider: string }> = {};
-    for (const [key, value] of Object.entries(stats)) {
-      const count = typeof value.contactCount === 'number'
-        ? value.contactCount
-        : typeof value.count === 'number'
-          ? value.count
-          : 0;
-      next[key] = {
-        dealer: value.dealer || accountMap[key]?.dealer || key,
-        count,
-        connected: Boolean(value.connected),
-        provider: value.provider || '',
-      };
-    }
-    return next;
-  }, [statsData, accountMap]);
+  const loading = contactsLoading;
+  const fetchError = contactsError;
 
   // Reset enriched contacts when base data changes
   useEffect(() => {
@@ -340,28 +316,31 @@ function AdminContactsView() {
   }, [baseContacts]);
 
   const accountOptions = useMemo(() => {
-    const keys = new Set<string>([...Object.keys(accountMap), ...Object.keys(perAccount)]);
-    return [...keys]
-      .map((key) => ({
+    return Object.entries(accountMap)
+      .map(([key, account]) => ({
         key,
-        dealer: perAccount[key]?.dealer || accountMap[key]?.dealer || key,
-        storefrontImage: accountMap[key]?.storefrontImage,
-        logos: accountMap[key]?.logos,
-        city: accountMap[key]?.city,
-        state: accountMap[key]?.state,
+        dealer: account.dealer || key,
+        storefrontImage: account.storefrontImage,
+        logos: account.logos,
+        city: account.city,
+        state: account.state,
       }))
       .sort((a, b) => a.dealer.localeCompare(b.dealer));
-  }, [accountMap, perAccount]);
+  }, [accountMap]);
+
+  const defaultAccountKey = useMemo(
+    () => accountOptions[0]?.key || '',
+    [accountOptions],
+  );
 
   const presetAccountFilter = useMemo(
     () => {
       if (accountOptions.some((account) => account.key === requestedAccount)) {
         return requestedAccount;
       }
-      const firstConnected = accountOptions.find((account) => perAccount[account.key]?.connected);
-      return firstConnected?.key || accountOptions[0]?.key || '';
+      return defaultAccountKey;
     },
-    [accountOptions, perAccount, requestedAccount],
+    [accountOptions, defaultAccountKey, requestedAccount],
   );
 
   const filters = useContactFilters(contacts, presetAccountFilter);
@@ -399,7 +378,7 @@ function AdminContactsView() {
         const data: SingleAccountResponse = await res.json();
         return {
           key,
-          dealer: perAccount[key]?.dealer || accountMap[key]?.dealer || key,
+          dealer: accountMap[key]?.dealer || key,
           contacts: data.contacts || [],
         };
       }),
@@ -433,7 +412,7 @@ function AdminContactsView() {
       setContactsError(`${failures.length} sub-account fetches failed. Showing partial results.`);
     }
     setContactsLoading(false);
-  }, [accountKeysForRequest, accountMap, perAccount]);
+  }, [accountKeysForRequest, accountMap]);
 
   useEffect(() => {
     fetchData();
@@ -531,7 +510,7 @@ function AdminContactsView() {
       <ContactsToolbar
         search={filters.search}
         onSearchChange={filters.setSearch}
-        hasAccountFilter={filters.accountFilters.length > 0}
+        hasAccountFilter={filters.accountFilters.length > 1}
         activePresetId={filters.activePresetId}
         onPresetChange={filters.handlePresetChange}
         activeAudienceId={filters.activeAudienceId}
@@ -544,7 +523,6 @@ function AdminContactsView() {
         filteredCount={filters.filtered.length}
         loading={loading || messagingLoading}
         onRefresh={() => {
-          void mutateStats();
           setRefreshTick((value) => value + 1);
         }}
         contacts={contacts}
@@ -552,7 +530,7 @@ function AdminContactsView() {
 
       {(accountKeysForRequest.length > 0 || accountKeysToFetch.length > 0) && (
         <p className="text-[11px] text-[var(--muted-foreground)] mb-3">
-          Showing up to {ADMIN_CONTACTS_LIMIT_PER_ACCOUNT} contacts per selected sub-account
+          Showing sampled contacts: up to {ADMIN_CONTACTS_LIMIT_PER_ACCOUNT} per selected sub-account
           {accountKeysToFetch.length > ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH
             ? ` (first ${ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH} selected accounts).`
             : '.'}
