@@ -986,11 +986,6 @@ function ManagementRoleDashboard({
     [emails, accountScopeSet],
   );
 
-  const filteredEmails = useMemo(
-    () => filterByDateRange(filteredEmailsByAccount, 'createdAt', bounds),
-    [filteredEmailsByAccount, bounds],
-  );
-
   const filteredContactsByAccount = useMemo(
     () => contacts.filter((contact) => accountScopeSet.has(contact._accountKey || '')),
     [contacts, accountScopeSet],
