@@ -78,10 +78,10 @@ export async function POST() {
 
       accountResult.campaignsTotal = campaigns.length;
 
-      // Only probe "sent" campaigns — drafts/scheduled won't have engagement
-      const sentCampaigns = campaigns.filter(
-        (c) => c.status.toLowerCase() === 'sent' || c.status.toLowerCase() === 'completed',
-      );
+      // Only probe campaigns that have been sent — drafts/scheduled won't have engagement.
+      // GHL uses varied status strings (sent, completed, delivered, finished, etc.)
+      // so use the same normalization the UI uses.
+      const sentCampaigns = campaigns.filter((c) => isSentStatus(c.status));
 
       // Process campaigns sequentially to avoid hammering GHL
       for (const campaign of sentCampaigns) {
@@ -172,6 +172,11 @@ export async function POST() {
     },
     results,
   });
+}
+
+function isSentStatus(status: string): boolean {
+  const s = status.toLowerCase().trim();
+  return s.includes('complete') || s.includes('deliver') || s.includes('finish') || s.includes('sent');
 }
 
 function safeCount(value: number | undefined): number {
