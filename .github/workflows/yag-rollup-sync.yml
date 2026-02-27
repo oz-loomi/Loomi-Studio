@@ -82,7 +82,7 @@ jobs:
             set -a && source .env.local && set +a
             WIPE_DRY_RUN='${{ steps.mode.outputs.wipe_dry_run }}' \
             WIPE_MODE='${{ steps.mode.outputs.wipe_mode }}' \
-            npx tsx -e "import { runYagRollupWipe } from './src/lib/services/yag-rollup'; const dryRun = process.env.WIPE_DRY_RUN === 'true'; const mode = process.env.WIPE_MODE === 'all' ? 'all' : 'tagged'; const result = await runYagRollupWipe({ dryRun, mode }); console.log(JSON.stringify(result)); if (result.status === 'failed') process.exit(1);"
+            npx tsx -e "import { runYagRollupWipe } from './src/lib/services/yag-rollup'; (async () => { const dryRun = process.env.WIPE_DRY_RUN === 'true'; const mode = process.env.WIPE_MODE === 'all' ? 'all' : 'tagged'; const result = await runYagRollupWipe({ dryRun, mode }); console.log(JSON.stringify(result)); if (result.status === 'failed') process.exit(1); })().catch((error) => { console.error(error); process.exit(1); });"
 
       - name: Trigger sync endpoint
         uses: appleboy/ssh-action@v1
@@ -98,4 +98,4 @@ jobs:
             set -a && source .env.local && set +a
             FULL_SYNC='${{ steps.mode.outputs.full_sync }}' \
             DRY_RUN='${{ steps.mode.outputs.dry_run }}' \
-            npx tsx -e "import { runYagRollupSync } from './src/lib/services/yag-rollup'; const fullSync = process.env.FULL_SYNC === 'true'; const dryRun = process.env.DRY_RUN === 'true'; const result = await runYagRollupSync({ fullSync, dryRun }); console.log(JSON.stringify(result)); if (result.status === 'failed') process.exit(1);"
+            npx tsx -e "import { runYagRollupSync } from './src/lib/services/yag-rollup'; (async () => { const fullSync = process.env.FULL_SYNC === 'true'; const dryRun = process.env.DRY_RUN === 'true'; const result = await runYagRollupSync({ fullSync, dryRun }); console.log(JSON.stringify(result)); if (result.status === 'failed') process.exit(1); })().catch((error) => { console.error(error); process.exit(1); });"
