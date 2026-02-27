@@ -1,0 +1,65 @@
+name: YAG Rollup Sync
+
+on:
+  schedule:
+    - cron: '15 * * * *' # hourly incremental
+    - cron: '45 3 * * *' # nightly full reconcile
+  workflow_dispatch:
+    inputs:
+      full_sync:
+        description: Run full sync
+        required: false
+        default: false
+        type: boolean
+      dry_run:
+        description: Dry run only (no writes)
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Resolve mode
+        id: mode
+        run: |
+          set -euo pipefail
+
+          FULL_SYNC="false"
+          DRY_RUN="false"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.full_sync }}" = "true" ]; then FULL_SYNC="true"; fi
+            if [ "${{ inputs.dry_run }}" = "true" ]; then DRY_RUN="true"; fi
+          elif [ "${{ github.event.schedule }}" = "45 3 * * *" ]; then
+            FULL_SYNC="true"
+          fi
+
+          echo "full_sync=$FULL_SYNC" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger sync endpoint
+        env:
+          BASE_URL: ${{ secrets.LOOMI_STUDIO_BASE_URL }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BASE_URL:-}" ]; then
+            echo "LOOMI_STUDIO_BASE_URL secret is not set"
+            exit 1
+          fi
+          if [ -z "${INTERNAL_JOB_SECRET:-}" ]; then
+            echo "INTERNAL_JOB_SECRET secret is not set"
+            exit 1
+          fi
+
+          PAYLOAD=$(printf '{"fullSync":%s,"dryRun":%s}' '${{ steps.mode.outputs.full_sync }}' '${{ steps.mode.outputs.dry_run }}')
+
+          curl --fail --show-error --silent \
+            -X POST "${BASE_URL%/}/api/internal/yag-rollup/sync" \
+            -H "Content-Type: application/json" \
+            -H "x-internal-job-secret: ${INTERNAL_JOB_SECRET}" \
+            -d "$PAYLOAD"

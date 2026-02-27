@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
@@ -37,7 +37,15 @@ import { fetchRequiredScopesByCatalogUrl } from '@/lib/esp/provider-scopes';
 
 const CATEGORY_SUGGESTIONS = ['Automotive', 'Powersports', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
 
-type Tab = 'accounts' | 'account' | 'users' | 'integrations' | 'custom-values' | 'knowledge' | 'appearance';
+type Tab =
+  | 'accounts'
+  | 'account'
+  | 'users'
+  | 'integrations'
+  | 'custom-values'
+  | 'knowledge'
+  | 'yag-rollup'
+  | 'appearance';
 
 // ─── User list types ───
 interface User {
@@ -120,6 +128,7 @@ export default function SettingsPage() {
   if (isAccount && hasAdminAccess) tabs.push({ key: 'integrations', label: 'Integrations', icon: LinkIcon });
   if (userRole === 'developer' || userRole === 'super_admin') tabs.push({ key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon });
   if (hasAdminAccess && isAdmin) tabs.push({ key: 'knowledge', label: 'Knowledge Base', icon: BookOpenIcon });
+  if (hasAdminAccess && isAdmin) tabs.push({ key: 'yag-rollup', label: 'YAG Rollup', icon: ArrowPathIcon });
   tabs.push({ key: 'appearance', label: 'Appearance', icon: SwatchIcon });
 
   const routeTab = pathname.startsWith('/settings/')
@@ -199,6 +208,7 @@ export default function SettingsPage() {
           : <CustomValuesTab />
       )}
       {activeTab === 'knowledge' && hasAdminAccess && isAdmin && <KnowledgeBaseTab />}
+      {activeTab === 'yag-rollup' && hasAdminAccess && isAdmin && <YagRollupTab />}
       {activeTab === 'appearance' && <AppearanceTab />}
     </div>
   );
@@ -2305,6 +2315,449 @@ function CustomValuesTab() {
                 Last
               </button>
             </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+interface YagRollupSnapshotResponse {
+  config: {
+    targetAccountKey: string;
+    sourceAccountKeys: string[];
+    enabled: boolean;
+    scrubInvalidEmails: boolean;
+    scrubInvalidPhones: boolean;
+    updatedByUserId: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+    lastSyncedAt: string | null;
+    lastSyncStatus: string | null;
+    lastSyncSummary: Record<string, unknown> | null;
+  };
+  targetOptions: Array<{ key: string; dealer: string }>;
+  sourceOptions: Array<{ key: string; dealer: string }>;
+  accountOptions: Array<{ key: string; dealer: string }>;
+  isDefaultConfig: boolean;
+}
+
+interface YagRollupSyncRunResponse {
+  status: 'ok' | 'disabled' | 'failed';
+  dryRun: boolean;
+  fullSync: boolean;
+  targetAccountKey: string;
+  sourceAccountKeys: string[];
+  startedAt: string;
+  finishedAt: string;
+  totals: {
+    sourceAccountsRequested: number;
+    sourceAccountsProcessed: number;
+    fetchedContacts: number;
+    consideredContacts: number;
+    acceptedContacts: number;
+    skippedInvalid: number;
+    localDuplicatesCollapsed: number;
+    globalDuplicatesCollapsed: number;
+    queuedForTarget: number;
+    truncatedByMaxUpserts: number;
+    upsertsAttempted: number;
+    upsertsSucceeded: number;
+    upsertsFailed: number;
+  };
+  perSource: Record<string, {
+    provider: string;
+    fetchedContacts: number;
+    consideredContacts: number;
+    acceptedContacts: number;
+    skippedInvalid: number;
+    localDuplicatesCollapsed: number;
+  }>;
+  errors: Record<string, string>;
+}
+
+function sameStringSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const aSet = new Set(a);
+  if (aSet.size !== b.length) return false;
+  return b.every((value) => aSet.has(value));
+}
+
+function formatRollupDate(value: string | null): string {
+  if (!value) return 'Never';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Never';
+  return parsed.toLocaleString();
+}
+
+function YagRollupTab() {
+  const [snapshot, setSnapshot] = useState<YagRollupSnapshotResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [runningMode, setRunningMode] = useState<'dry' | 'incremental' | 'full' | null>(null);
+  const [runResult, setRunResult] = useState<YagRollupSyncRunResponse | null>(null);
+  const [sourceSearch, setSourceSearch] = useState('');
+
+  const [targetAccountKey, setTargetAccountKey] = useState('');
+  const [sourceAccountKeys, setSourceAccountKeys] = useState<string[]>([]);
+  const [enabled, setEnabled] = useState(true);
+  const [scrubInvalidEmails, setScrubInvalidEmails] = useState(true);
+  const [scrubInvalidPhones, setScrubInvalidPhones] = useState(true);
+
+  const loadSnapshot = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/yag-rollup/config');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to load YAG rollup config');
+      }
+
+      const next = data as YagRollupSnapshotResponse;
+      setSnapshot(next);
+      setTargetAccountKey(next.config.targetAccountKey || '');
+      setSourceAccountKeys(next.config.sourceAccountKeys || []);
+      setEnabled(Boolean(next.config.enabled));
+      setScrubInvalidEmails(Boolean(next.config.scrubInvalidEmails));
+      setScrubInvalidPhones(Boolean(next.config.scrubInvalidPhones));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load YAG rollup config';
+      toast.error(message);
+      setSnapshot(null);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadSnapshot();
+  }, [loadSnapshot]);
+
+  const filteredSourceOptions = useMemo(() => {
+    if (!snapshot) return [];
+    const q = sourceSearch.trim().toLowerCase();
+    if (!q) return snapshot.sourceOptions;
+    return snapshot.sourceOptions.filter((account) =>
+      account.dealer.toLowerCase().includes(q) || account.key.toLowerCase().includes(q),
+    );
+  }, [snapshot, sourceSearch]);
+
+  const isDirty = useMemo(() => {
+    if (!snapshot) return false;
+    return (
+      targetAccountKey !== snapshot.config.targetAccountKey
+      || !sameStringSet(sourceAccountKeys, snapshot.config.sourceAccountKeys)
+      || enabled !== snapshot.config.enabled
+      || scrubInvalidEmails !== snapshot.config.scrubInvalidEmails
+      || scrubInvalidPhones !== snapshot.config.scrubInvalidPhones
+    );
+  }, [
+    snapshot,
+    targetAccountKey,
+    sourceAccountKeys,
+    enabled,
+    scrubInvalidEmails,
+    scrubInvalidPhones,
+  ]);
+
+  const selectedSourceSet = useMemo(
+    () => new Set(sourceAccountKeys),
+    [sourceAccountKeys],
+  );
+
+  function toggleSourceKey(key: string) {
+    setSourceAccountKeys((current) => {
+      if (current.includes(key)) return current.filter((value) => value !== key);
+      return [...current, key];
+    });
+  }
+
+  async function handleSaveConfig() {
+    if (!snapshot) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/yag-rollup/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetAccountKey,
+          sourceAccountKeys,
+          enabled,
+          scrubInvalidEmails,
+          scrubInvalidPhones,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to save YAG rollup config');
+      }
+
+      const next = data as YagRollupSnapshotResponse;
+      setSnapshot(next);
+      setTargetAccountKey(next.config.targetAccountKey || '');
+      setSourceAccountKeys(next.config.sourceAccountKeys || []);
+      setEnabled(Boolean(next.config.enabled));
+      setScrubInvalidEmails(Boolean(next.config.scrubInvalidEmails));
+      setScrubInvalidPhones(Boolean(next.config.scrubInvalidPhones));
+      toast.success('YAG rollup config saved');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save YAG rollup config';
+      toast.error(message);
+    }
+    setSaving(false);
+  }
+
+  async function runSync(mode: 'dry' | 'incremental' | 'full') {
+    setRunningMode(mode);
+    try {
+      const body = {
+        dryRun: mode === 'dry',
+        fullSync: mode === 'full',
+      };
+      const res = await fetch('/api/yag-rollup/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to run YAG sync');
+      }
+
+      const result = data as YagRollupSyncRunResponse;
+      setRunResult(result);
+      if (result.status === 'failed') {
+        toast.error('YAG sync finished with errors');
+      } else if (result.status === 'disabled') {
+        toast.warning('YAG sync is disabled in config');
+      } else {
+        toast.success(`YAG sync complete: ${result.totals.upsertsSucceeded.toLocaleString()} upserts`);
+      }
+      await loadSnapshot();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to run YAG sync';
+      toast.error(message);
+    }
+    setRunningMode(null);
+  }
+
+  if (loading && !snapshot) {
+    return (
+      <div className="max-w-5xl text-sm text-[var(--muted-foreground)] py-8">
+        Loading YAG rollup settings...
+      </div>
+    );
+  }
+
+  if (!snapshot) {
+    return (
+      <div className="max-w-5xl text-sm text-red-400 py-8">
+        Failed to load YAG rollup settings.
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-5xl space-y-6">
+      <section className="glass-section-card rounded-xl p-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-base font-semibold">YAG Contact Rollup</h3>
+            <p className="text-sm text-[var(--muted-foreground)] mt-1">
+              Choose source sub-accounts to roll into Young Automotive Group.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadSnapshot}
+            disabled={loading}
+            className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-40"
+          >
+            Reload
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+          <div>
+            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-2">
+              Target Account (Rollup Destination)
+            </label>
+            <select
+              value={targetAccountKey}
+              onChange={(event) => {
+                const nextTarget = event.target.value;
+                setTargetAccountKey(nextTarget);
+                setSourceAccountKeys((current) => current.filter((key) => key !== nextTarget));
+              }}
+              className="w-full h-10 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm"
+            >
+              <option value="">Select target account</option>
+              {snapshot.targetOptions.map((account) => (
+                <option key={account.key} value={account.key}>
+                  {account.dealer}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => setEnabled(event.target.checked)}
+                className="rounded border-[var(--border)] bg-[var(--card)]"
+              />
+              Enable scheduled rollup sync
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={scrubInvalidEmails}
+                onChange={(event) => setScrubInvalidEmails(event.target.checked)}
+                className="rounded border-[var(--border)] bg-[var(--card)]"
+              />
+              Scrub invalid emails before import
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={scrubInvalidPhones}
+                onChange={(event) => setScrubInvalidPhones(event.target.checked)}
+                className="rounded border-[var(--border)] bg-[var(--card)]"
+              />
+              Scrub invalid phones before import
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-5 flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handleSaveConfig}
+            disabled={saving || !isDirty}
+            className="px-4 py-2 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? 'Saving...' : 'Save Config'}
+          </button>
+          {snapshot.config.lastSyncedAt && (
+            <span className="text-xs text-[var(--muted-foreground)]">
+              Last sync: {formatRollupDate(snapshot.config.lastSyncedAt)} ({snapshot.config.lastSyncStatus || 'unknown'})
+            </span>
+          )}
+        </div>
+      </section>
+
+      <section className="glass-section-card rounded-xl p-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-base font-semibold">Source Sub-Accounts</h3>
+            <p className="text-sm text-[var(--muted-foreground)] mt-1">
+              Selected contacts from these sub-accounts will be deduped and imported into YAG.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              value={sourceSearch}
+              onChange={(event) => setSourceSearch(event.target.value)}
+              placeholder="Search accounts..."
+              className="h-9 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => setSourceAccountKeys(snapshot.sourceOptions.map((account) => account.key))}
+              className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              onClick={() => setSourceAccountKeys([])}
+              className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 max-h-[420px] overflow-auto border border-[var(--border)] rounded-lg">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                <th className="w-12 px-3 py-2 text-left text-xs uppercase tracking-wider text-[var(--muted-foreground)]">Use</th>
+                <th className="px-3 py-2 text-left text-xs uppercase tracking-wider text-[var(--muted-foreground)]">Dealer</th>
+                <th className="px-3 py-2 text-left text-xs uppercase tracking-wider text-[var(--muted-foreground)]">Key</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredSourceOptions.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-3 py-5 text-center text-[var(--muted-foreground)]">
+                    No source accounts match your search.
+                  </td>
+                </tr>
+              )}
+              {filteredSourceOptions.map((account) => (
+                <tr key={account.key} className="border-b border-[var(--border)] last:border-b-0">
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedSourceSet.has(account.key)}
+                      onChange={() => toggleSourceKey(account.key)}
+                      className="rounded border-[var(--border)] bg-[var(--card)]"
+                    />
+                  </td>
+                  <td className="px-3 py-2">{account.dealer}</td>
+                  <td className="px-3 py-2 text-[var(--muted-foreground)]">{account.key}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="glass-section-card rounded-xl p-6">
+        <h3 className="text-base font-semibold">Manual Sync</h3>
+        <p className="text-sm text-[var(--muted-foreground)] mt-1 mb-4">
+          Run a sync now without waiting for the scheduled cron run.
+        </p>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => runSync('dry')}
+            disabled={runningMode !== null}
+            className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
+          >
+            {runningMode === 'dry' ? 'Running Dry Run...' : 'Dry Run'}
+          </button>
+          <button
+            type="button"
+            onClick={() => runSync('incremental')}
+            disabled={runningMode !== null}
+            className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
+          >
+            {runningMode === 'incremental' ? 'Running Incremental...' : 'Run Incremental'}
+          </button>
+          <button
+            type="button"
+            onClick={() => runSync('full')}
+            disabled={runningMode !== null}
+            className="px-3 py-2 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
+          >
+            {runningMode === 'full' ? 'Running Full Sync...' : 'Run Full Sync'}
+          </button>
+        </div>
+
+        {runResult && (
+          <div className="mt-4 p-3 rounded-lg border border-[var(--border)] bg-[var(--card)]">
+            <p className="text-sm font-medium">
+              Last run: {runResult.status.toUpperCase()} ({runResult.dryRun ? 'dry run' : runResult.fullSync ? 'full' : 'incremental'})
+            </p>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">
+              Sources processed: {runResult.totals.sourceAccountsProcessed}/{runResult.totals.sourceAccountsRequested} ·
+              Upserts: {runResult.totals.upsertsSucceeded.toLocaleString()}/{runResult.totals.upsertsAttempted.toLocaleString()} ·
+              Failed: {runResult.totals.upsertsFailed.toLocaleString()}
+            </p>
           </div>
         )}
       </section>
