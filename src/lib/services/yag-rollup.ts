@@ -19,6 +19,10 @@ const DEFAULT_SOURCE_ACCOUNT_CONCURRENCY = 3;
 const DEFAULT_TARGET_UPSERT_CONCURRENCY = 4;
 const DEFAULT_MAX_SOURCE_CONTACTS_PER_ACCOUNT = 50_000;
 const DEFAULT_MAX_UPSERTS_PER_RUN = 10_000;
+const DEFAULT_TARGET_DELETE_CONCURRENCY = 4;
+const DEFAULT_MAX_DELETES_PER_RUN = 50_000;
+const DEFAULT_MAX_TARGET_CONTACTS_FOR_WIPE = 150_000;
+const ROLLUP_TAG_PREFIX = 'rollup-src:';
 
 export interface YagRollupAccountOption {
   key: string;
@@ -61,6 +65,14 @@ export interface RunYagRollupSyncOptions {
   fullSync?: boolean;
   sourceAccountLimit?: number;
   maxUpserts?: number;
+}
+
+export type YagRollupWipeMode = 'all' | 'tagged';
+
+export interface RunYagRollupWipeOptions {
+  dryRun?: boolean;
+  mode?: YagRollupWipeMode;
+  maxDeletes?: number;
 }
 
 interface SourceSyncStats {
@@ -107,6 +119,25 @@ export interface RunYagRollupSyncResult {
     upsertsFailed: number;
   };
   perSource: Record<string, SourceSyncStats>;
+  errors: Record<string, string>;
+}
+
+export interface RunYagRollupWipeResult {
+  status: 'ok' | 'failed';
+  dryRun: boolean;
+  mode: YagRollupWipeMode;
+  targetAccountKey: string;
+  startedAt: string;
+  finishedAt: string;
+  totals: {
+    fetchedContacts: number;
+    eligibleContacts: number;
+    queuedForDelete: number;
+    truncatedByMaxDeletes: number;
+    deletesAttempted: number;
+    deletesSucceeded: number;
+    deletesFailed: number;
+  };
   errors: Record<string, string>;
 }
 
@@ -541,6 +572,83 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function extractRawContactId(raw: Record<string, unknown>): string {
+  const candidates = [
+    raw.id,
+    raw._id,
+    raw.contactId,
+    raw.contact_id,
+    raw.contactID,
+  ];
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function coerceTagList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (typeof entry === 'string') return entry.trim();
+        if (entry && typeof entry === 'object') {
+          const record = entry as Record<string, unknown>;
+          const raw = record.name ?? record.tag ?? record.value ?? record.label;
+          return typeof raw === 'string' ? raw.trim() : '';
+        }
+        return '';
+      })
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        return coerceTagList(JSON.parse(trimmed));
+      } catch {
+        // Fall through to comma-split.
+      }
+    }
+    return trimmed
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function readContactTags(raw: Record<string, unknown>): string[] {
+  const tags = new Set<string>();
+  const candidates = [
+    raw.tags,
+    raw.contactTags,
+    raw.contact_tags,
+    raw.tagNames,
+    raw.tag_names,
+    raw.tag,
+  ];
+
+  for (const candidate of candidates) {
+    for (const tag of coerceTagList(candidate)) {
+      tags.add(tag);
+    }
+  }
+
+  return [...tags];
+}
+
+function isRollupTaggedContact(raw: Record<string, unknown>): boolean {
+  const tags = readContactTags(raw).map((tag) => tag.toLowerCase());
+  return tags.some((tag) =>
+    tag === 'loomi-rollup'
+    || tag === 'loomi-yag-rollup'
+    || tag.startsWith(ROLLUP_TAG_PREFIX),
+  );
+}
+
 async function upsertGhlContact(params: {
   token: string;
   locationId: string;
@@ -597,6 +705,44 @@ async function upsertGhlContact(params: {
   throw new Error(lastError);
 }
 
+async function deleteGhlContact(params: {
+  token: string;
+  locationId: string;
+  contactId: string;
+}): Promise<void> {
+  const encodedId = encodeURIComponent(params.contactId);
+  const encodedLocation = encodeURIComponent(params.locationId);
+  const endpoints = [
+    `${GHL_BASE}/contacts/${encodedId}?locationId=${encodedLocation}`,
+    `${GHL_BASE}/contacts/${encodedId}`,
+    `${GHL_BASE}/contacts/${encodedId}/?locationId=${encodedLocation}`,
+  ];
+
+  let lastError = `Failed to delete contact ${params.contactId}`;
+  for (const endpoint of endpoints) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const res = await fetch(endpoint, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${params.token}`,
+          Version: API_VERSION,
+          Accept: 'application/json',
+        },
+      });
+
+      if (res.ok || res.status === 404) return;
+
+      const text = await res.text().catch(() => '');
+      lastError = text || `GHL delete failed (${res.status})`;
+      const isRetryable = res.status === 429 || res.status >= 500;
+      if (!isRetryable || attempt === 2) break;
+      await sleep(300 * (attempt + 1));
+    }
+  }
+
+  throw new Error(lastError);
+}
+
 async function persistSyncMetadata(
   config: YagRollupConfigPayload,
   status: 'ok' | 'disabled' | 'failed',
@@ -628,6 +774,181 @@ async function persistSyncMetadata(
       lastSyncSummary: JSON.stringify(summary),
     },
   });
+}
+
+export async function runYagRollupWipe(
+  options: RunYagRollupWipeOptions = {},
+): Promise<RunYagRollupWipeResult> {
+  const startedAt = new Date();
+  const dryRun = Boolean(options.dryRun);
+  const mode: YagRollupWipeMode = options.mode === 'all' ? 'all' : 'tagged';
+  const deleteConcurrency = envInt(
+    'YAG_ROLLUP_TARGET_DELETE_CONCURRENCY',
+    DEFAULT_TARGET_DELETE_CONCURRENCY,
+    1,
+    10,
+  );
+  const defaultMaxDeletes = envInt(
+    'YAG_ROLLUP_MAX_DELETES_PER_RUN',
+    DEFAULT_MAX_DELETES_PER_RUN,
+    100,
+    500_000,
+  );
+  const maxDeletes = Number.isFinite(options.maxDeletes)
+    ? Math.max(100, Math.min(500_000, Math.floor(Number(options.maxDeletes))))
+    : defaultMaxDeletes;
+  const maxTargetContactsForWipe = envInt(
+    'YAG_ROLLUP_MAX_TARGET_CONTACTS_FOR_WIPE',
+    DEFAULT_MAX_TARGET_CONTACTS_FOR_WIPE,
+    100,
+    500_000,
+  );
+  const fetchLimit = Math.max(maxDeletes, maxTargetContactsForWipe);
+
+  const snapshot = await getYagRollupConfigSnapshot();
+  const targetAccountKey = snapshot.config.targetAccountKey;
+  const errors: Record<string, string> = {};
+
+  if (!targetAccountKey) {
+    return {
+      status: 'failed',
+      dryRun,
+      mode,
+      targetAccountKey: '',
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      totals: {
+        fetchedContacts: 0,
+        eligibleContacts: 0,
+        queuedForDelete: 0,
+        truncatedByMaxDeletes: 0,
+        deletesAttempted: 0,
+        deletesSucceeded: 0,
+        deletesFailed: 0,
+      },
+      errors: {
+        config: 'No YAG rollup target account is configured',
+      },
+    };
+  }
+
+  const target = await resolveAdapterAndCredentials(targetAccountKey, {
+    requireCapability: 'contacts',
+  });
+  if (isResolveError(target)) {
+    return {
+      status: 'failed',
+      dryRun,
+      mode,
+      targetAccountKey,
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      totals: {
+        fetchedContacts: 0,
+        eligibleContacts: 0,
+        queuedForDelete: 0,
+        truncatedByMaxDeletes: 0,
+        deletesAttempted: 0,
+        deletesSucceeded: 0,
+        deletesFailed: 0,
+      },
+      errors: {
+        target: target.error,
+      },
+    };
+  }
+
+  if (target.adapter.provider !== 'ghl') {
+    return {
+      status: 'failed',
+      dryRun,
+      mode,
+      targetAccountKey,
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      totals: {
+        fetchedContacts: 0,
+        eligibleContacts: 0,
+        queuedForDelete: 0,
+        truncatedByMaxDeletes: 0,
+        deletesAttempted: 0,
+        deletesSucceeded: 0,
+        deletesFailed: 0,
+      },
+      errors: {
+        target: `Target provider "${target.adapter.provider}" is not supported for wipe`,
+      },
+    };
+  }
+
+  const rawContacts = await fetchAllGhlContactsForRollup(
+    target.credentials.token,
+    target.credentials.locationId,
+    fetchLimit,
+  );
+  const eligibleIds: string[] = [];
+  const seenIds = new Set<string>();
+  for (const raw of rawContacts) {
+    const contactId = extractRawContactId(raw);
+    if (!contactId || seenIds.has(contactId)) continue;
+    if (mode === 'tagged' && !isRollupTaggedContact(raw)) continue;
+    seenIds.add(contactId);
+    eligibleIds.push(contactId);
+  }
+
+  const queuedForDelete = Math.min(eligibleIds.length, maxDeletes);
+  const truncatedByMaxDeletes = Math.max(0, eligibleIds.length - maxDeletes);
+  const toDelete = eligibleIds.slice(0, maxDeletes);
+
+  let deletesAttempted = 0;
+  let deletesSucceeded = 0;
+  let deletesFailed = 0;
+  let status: 'ok' | 'failed' = 'ok';
+
+  if (!dryRun && toDelete.length > 0) {
+    const deleteTasks = toDelete.map((contactId) => async () => {
+      deletesAttempted += 1;
+      await deleteGhlContact({
+        token: target.credentials.token,
+        locationId: target.credentials.locationId,
+        contactId,
+      });
+    });
+    const settled = await withConcurrencyLimit(deleteTasks, deleteConcurrency);
+    for (let index = 0; index < settled.length; index += 1) {
+      const result = settled[index];
+      if (result.status === 'fulfilled') {
+        deletesSucceeded += 1;
+      } else {
+        deletesFailed += 1;
+        status = 'failed';
+        if (deletesFailed <= 25) {
+          errors[`delete:${toDelete[index]}`] = result.reason instanceof Error
+            ? result.reason.message
+            : 'Failed to delete contact';
+        }
+      }
+    }
+  }
+
+  return {
+    status,
+    dryRun,
+    mode,
+    targetAccountKey,
+    startedAt: startedAt.toISOString(),
+    finishedAt: new Date().toISOString(),
+    totals: {
+      fetchedContacts: rawContacts.length,
+      eligibleContacts: eligibleIds.length,
+      queuedForDelete,
+      truncatedByMaxDeletes,
+      deletesAttempted,
+      deletesSucceeded,
+      deletesFailed,
+    },
+    errors,
+  };
 }
 
 export async function runYagRollupSync(

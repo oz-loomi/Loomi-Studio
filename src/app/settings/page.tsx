@@ -2376,6 +2376,25 @@ interface YagRollupSyncRunResponse {
   errors: Record<string, string>;
 }
 
+interface YagRollupWipeRunResponse {
+  status: 'ok' | 'failed';
+  dryRun: boolean;
+  mode: 'all' | 'tagged';
+  targetAccountKey: string;
+  startedAt: string;
+  finishedAt: string;
+  totals: {
+    fetchedContacts: number;
+    eligibleContacts: number;
+    queuedForDelete: number;
+    truncatedByMaxDeletes: number;
+    deletesAttempted: number;
+    deletesSucceeded: number;
+    deletesFailed: number;
+  };
+  errors: Record<string, string>;
+}
+
 function sameStringSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   const aSet = new Set(a);
@@ -2396,6 +2415,8 @@ function YagRollupTab() {
   const [saving, setSaving] = useState(false);
   const [runningMode, setRunningMode] = useState<'dry' | 'incremental' | 'full' | null>(null);
   const [runResult, setRunResult] = useState<YagRollupSyncRunResponse | null>(null);
+  const [runningWipeMode, setRunningWipeMode] = useState<'dry-tagged' | 'dry-all' | 'tagged' | 'all' | null>(null);
+  const [wipeResult, setWipeResult] = useState<YagRollupWipeRunResponse | null>(null);
   const [sourceSearch, setSourceSearch] = useState('');
 
   const [targetAccountKey, setTargetAccountKey] = useState('');
@@ -2538,6 +2559,47 @@ function YagRollupTab() {
       toast.error(message);
     }
     setRunningMode(null);
+  }
+
+  async function runWipe(mode: 'all' | 'tagged', dryRun: boolean) {
+    const runLabel = dryRun ? `dry-${mode}` as const : mode;
+    if (!dryRun && mode === 'all') {
+      const confirmed = window.confirm(
+        'Delete all contacts in the YAG target account? This cannot be undone.',
+      );
+      if (!confirmed) return;
+    }
+
+    setRunningWipeMode(runLabel);
+    try {
+      const res = await fetch('/api/yag-rollup/wipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dryRun,
+          mode,
+          confirmAll: !dryRun && mode === 'all',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to run YAG wipe');
+      }
+
+      const result = data as YagRollupWipeRunResponse;
+      setWipeResult(result);
+      if (result.status === 'failed') {
+        toast.error('YAG wipe finished with errors');
+      } else if (result.dryRun) {
+        toast.success(`YAG wipe dry run: ${result.totals.queuedForDelete.toLocaleString()} queued`);
+      } else {
+        toast.success(`YAG wipe complete: ${result.totals.deletesSucceeded.toLocaleString()} deleted`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to run YAG wipe';
+      toast.error(message);
+    }
+    setRunningWipeMode(null);
   }
 
   if (loading && !snapshot) {
@@ -2725,7 +2787,7 @@ function YagRollupTab() {
           <button
             type="button"
             onClick={() => runSync('dry')}
-            disabled={runningMode !== null}
+            disabled={runningMode !== null || runningWipeMode !== null}
             className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
           >
             {runningMode === 'dry' ? 'Running Dry Run...' : 'Dry Run'}
@@ -2733,7 +2795,7 @@ function YagRollupTab() {
           <button
             type="button"
             onClick={() => runSync('incremental')}
-            disabled={runningMode !== null}
+            disabled={runningMode !== null || runningWipeMode !== null}
             className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
           >
             {runningMode === 'incremental' ? 'Running Incremental...' : 'Run Incremental'}
@@ -2741,7 +2803,7 @@ function YagRollupTab() {
           <button
             type="button"
             onClick={() => runSync('full')}
-            disabled={runningMode !== null}
+            disabled={runningMode !== null || runningWipeMode !== null}
             className="px-3 py-2 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
           >
             {runningMode === 'full' ? 'Running Full Sync...' : 'Run Full Sync'}
@@ -2757,6 +2819,62 @@ function YagRollupTab() {
               Sources processed: {runResult.totals.sourceAccountsProcessed}/{runResult.totals.sourceAccountsRequested} ·
               Upserts: {runResult.totals.upsertsSucceeded.toLocaleString()}/{runResult.totals.upsertsAttempted.toLocaleString()} ·
               Failed: {runResult.totals.upsertsFailed.toLocaleString()}
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section className="glass-section-card rounded-xl p-6">
+        <h3 className="text-base font-semibold">Target Contact Wipe</h3>
+        <p className="text-sm text-[var(--muted-foreground)] mt-1 mb-4">
+          Optional cleanup helper for the YAG destination account. Run a dry run first.
+        </p>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => runWipe('tagged', true)}
+            disabled={runningWipeMode !== null || runningMode !== null}
+            className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
+          >
+            {runningWipeMode === 'dry-tagged' ? 'Running...' : 'Dry Run Tagged'}
+          </button>
+          <button
+            type="button"
+            onClick={() => runWipe('all', true)}
+            disabled={runningWipeMode !== null || runningMode !== null}
+            className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
+          >
+            {runningWipeMode === 'dry-all' ? 'Running...' : 'Dry Run All'}
+          </button>
+          <button
+            type="button"
+            onClick={() => runWipe('tagged', false)}
+            disabled={runningWipeMode !== null || runningMode !== null}
+            className="px-3 py-2 rounded-lg border border-red-300 text-sm text-red-500 hover:bg-red-500/10 disabled:opacity-40"
+          >
+            {runningWipeMode === 'tagged' ? 'Wiping...' : 'Wipe Tagged'}
+          </button>
+          <button
+            type="button"
+            onClick={() => runWipe('all', false)}
+            disabled={runningWipeMode !== null || runningMode !== null}
+            className="px-3 py-2 rounded-lg bg-red-500 text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
+          >
+            {runningWipeMode === 'all' ? 'Wiping All...' : 'Wipe All Contacts'}
+          </button>
+        </div>
+
+        {wipeResult && (
+          <div className="mt-4 p-3 rounded-lg border border-[var(--border)] bg-[var(--card)]">
+            <p className="text-sm font-medium">
+              Last wipe: {wipeResult.status.toUpperCase()} ({wipeResult.dryRun ? 'dry run' : wipeResult.mode})
+            </p>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">
+              Eligible: {wipeResult.totals.eligibleContacts.toLocaleString()} ·
+              Queued: {wipeResult.totals.queuedForDelete.toLocaleString()} ·
+              Deleted: {wipeResult.totals.deletesSucceeded.toLocaleString()} ·
+              Failed: {wipeResult.totals.deletesFailed.toLocaleString()}
             </p>
           </div>
         )}

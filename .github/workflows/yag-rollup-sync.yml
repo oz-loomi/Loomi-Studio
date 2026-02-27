@@ -16,6 +16,24 @@ on:
         required: false
         default: false
         type: boolean
+      wipe_before_sync:
+        description: Wipe YAG target contacts before sync
+        required: false
+        default: false
+        type: boolean
+      wipe_mode:
+        description: Wipe mode
+        required: false
+        default: tagged
+        type: choice
+        options:
+          - tagged
+          - all
+      wipe_dry_run:
+        description: Dry run wipe only (no deletes)
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   sync:
@@ -29,16 +47,46 @@ jobs:
 
           FULL_SYNC="false"
           DRY_RUN="false"
+          WIPE_BEFORE_SYNC="false"
+          WIPE_MODE="tagged"
+          WIPE_DRY_RUN="false"
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             if [ "${{ inputs.full_sync }}" = "true" ]; then FULL_SYNC="true"; fi
             if [ "${{ inputs.dry_run }}" = "true" ]; then DRY_RUN="true"; fi
+            if [ "${{ inputs.wipe_before_sync }}" = "true" ]; then WIPE_BEFORE_SYNC="true"; fi
+            if [ "${{ inputs.wipe_mode }}" = "all" ]; then WIPE_MODE="all"; fi
+            if [ "${{ inputs.wipe_dry_run }}" = "true" ]; then WIPE_DRY_RUN="true"; fi
           elif [ "${{ github.event.schedule }}" = "45 3 * * *" ]; then
             FULL_SYNC="true"
           fi
 
           echo "full_sync=$FULL_SYNC" >> "$GITHUB_OUTPUT"
           echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
+          echo "wipe_before_sync=$WIPE_BEFORE_SYNC" >> "$GITHUB_OUTPUT"
+          echo "wipe_mode=$WIPE_MODE" >> "$GITHUB_OUTPUT"
+          echo "wipe_dry_run=$WIPE_DRY_RUN" >> "$GITHUB_OUTPUT"
+
+      - name: Optional target wipe
+        if: ${{ steps.mode.outputs.wipe_before_sync == 'true' }}
+        env:
+          BASE_URL: ${{ secrets.LOOMI_STUDIO_BASE_URL }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+        run: |
+          set -euo pipefail
+
+          WIPE_CONFIRM_ALL="false"
+          if [ "${{ steps.mode.outputs.wipe_mode }}" = "all" ] && [ "${{ steps.mode.outputs.wipe_dry_run }}" = "false" ]; then
+            WIPE_CONFIRM_ALL="true"
+          fi
+
+          PAYLOAD=$(printf '{"dryRun":%s,"mode":"%s","confirmAll":%s}' '${{ steps.mode.outputs.wipe_dry_run }}' '${{ steps.mode.outputs.wipe_mode }}' "$WIPE_CONFIRM_ALL")
+
+          curl --fail --show-error --silent \
+            -X POST "${BASE_URL%/}/api/internal/yag-rollup/wipe" \
+            -H "Content-Type: application/json" \
+            -H "x-internal-job-secret: ${INTERNAL_JOB_SECRET}" \
+            -d "$PAYLOAD"
 
       - name: Trigger sync endpoint
         env:
