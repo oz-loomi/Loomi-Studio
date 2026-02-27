@@ -4,6 +4,10 @@ import { getAdapterForAccount } from '@/lib/esp/registry';
 import { withConcurrencyLimit } from '@/lib/esp/utils';
 import type { OutboundMessageChannel, MessagesAdapter } from '@/lib/esp/types';
 import { providerUnsupportedMessage } from '@/lib/esp/provider-display';
+import {
+  isLikelyDialablePhone,
+  normalizePhoneNumber,
+} from '@/lib/contact-hygiene';
 
 type SmsCampaignStatus =
   | 'queued'
@@ -83,23 +87,47 @@ function normalizeRecipient(input: SmsRecipientInput): SmsRecipientInput | null 
   const accountKey = String(input.accountKey || '').trim();
   if (!contactId || !accountKey) return null;
 
+  const normalizedPhone = normalizePhoneNumber(input.phone);
+
   return {
     contactId,
     accountKey,
-    phone: input.phone ? String(input.phone).trim() : '',
+    phone: isLikelyDialablePhone(normalizedPhone) ? normalizedPhone : '',
     fullName: input.fullName ? String(input.fullName).trim() : '',
   };
 }
 
 function dedupeRecipients(recipients: SmsRecipientInput[]): SmsRecipientInput[] {
-  const map = new Map<string, SmsRecipientInput>();
+  const byContactKey = new Map<string, SmsRecipientInput>();
   for (const recipient of recipients) {
     const normalized = normalizeRecipient(recipient);
     if (!normalized) continue;
+
     const key = `${normalized.accountKey}::${normalized.contactId}`;
-    if (!map.has(key)) map.set(key, normalized);
+    const existing = byContactKey.get(key);
+    if (!existing) {
+      byContactKey.set(key, normalized);
+      continue;
+    }
+
+    // Prefer keeping the row that has a dialable phone when duplicates exist.
+    if (!existing.phone && normalized.phone) {
+      byContactKey.set(key, normalized);
+    }
   }
-  return [...map.values()];
+
+  const seenPhones = new Set<string>();
+  const deduped: SmsRecipientInput[] = [];
+  for (const recipient of byContactKey.values()) {
+    if (!recipient.phone) {
+      deduped.push(recipient);
+      continue;
+    }
+    if (seenPhones.has(recipient.phone)) continue;
+    seenPhones.add(recipient.phone);
+    deduped.push(recipient);
+  }
+  return deduped;
 }
 
 function parseDate(value: string | null | undefined): Date | null {

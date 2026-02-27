@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
-import { useContactsAggregate } from '@/hooks/use-dashboard-data';
+import { useContactStats } from '@/hooks/use-dashboard-data';
 import { ContactsTable } from '@/components/contacts/contacts-table';
 import type { Contact } from '@/components/contacts/contacts-table';
 import { ContactsToolbar, AudiencesMenuButton, ContactsAccountFilter } from '@/components/contacts/contacts-toolbar';
@@ -43,6 +43,9 @@ const MESSAGING_FILTER_FIELDS = new Set([
   'hasReceivedSms',
   'lastMessageDate',
 ]);
+
+const ADMIN_CONTACTS_LIMIT_PER_ACCOUNT = 150;
+const ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH = 8;
 
 function filterUsesMessaging(definition: FilterDefinition | null): boolean {
   if (!definition) return false;
@@ -295,21 +298,40 @@ function AdminContactsView() {
   const { accounts: accountMap } = useAccount();
   const searchParams = useSearchParams();
   const requestedAccount = searchParams.get('account') || '';
+  const { data: statsData, error: statsError, isLoading: statsLoading, mutate: mutateStats } = useContactStats();
 
-  const { data: aggData, error: aggError, isLoading: aggLoading, mutate } = useContactsAggregate();
-
+  const [baseContacts, setBaseContacts] = useState<Contact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactsError, setContactsError] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
   const [enrichedContacts, setEnrichedContacts] = useState<Contact[] | null>(null);
   const [messagingLoading, setMessagingLoading] = useState(false);
   const [messagingLoaded, setMessagingLoaded] = useState(false);
-
-  const baseContacts = useMemo(
-    () => (aggData?.contacts as Contact[] | undefined || []).map(withMessagingDefaults),
-    [aggData],
-  );
   const contacts = enrichedContacts ?? baseContacts;
-  const perAccount = aggData?.perAccount ?? {};
-  const loading = aggLoading;
-  const fetchError = aggError ? (aggError instanceof Error ? aggError.message : 'Failed to fetch contacts') : null;
+  const loading = contactsLoading || statsLoading;
+  const statsErrorMessage = statsError
+    ? (statsError instanceof Error ? statsError.message : 'Failed to fetch contact stats')
+    : null;
+  const fetchError = contactsError || statsErrorMessage;
+
+  const perAccount = useMemo(() => {
+    const stats = statsData?.stats || {};
+    const next: Record<string, { dealer: string; count: number; connected: boolean; provider: string }> = {};
+    for (const [key, value] of Object.entries(stats)) {
+      const count = typeof value.contactCount === 'number'
+        ? value.contactCount
+        : typeof value.count === 'number'
+          ? value.count
+          : 0;
+      next[key] = {
+        dealer: value.dealer || accountMap[key]?.dealer || key,
+        count,
+        connected: Boolean(value.connected),
+        provider: value.provider || '',
+      };
+    }
+    return next;
+  }, [statsData, accountMap]);
 
   // Reset enriched contacts when base data changes
   useEffect(() => {
@@ -317,23 +339,106 @@ function AdminContactsView() {
     setMessagingLoaded(false);
   }, [baseContacts]);
 
-  const accountOptions = Object.entries(perAccount)
-    .map(([key, val]) => ({
-      key,
-      dealer: val.dealer || accountMap[key]?.dealer || key,
-      storefrontImage: accountMap[key]?.storefrontImage,
-      logos: accountMap[key]?.logos,
-      city: accountMap[key]?.city,
-      state: accountMap[key]?.state,
-    }))
-    .sort((a, b) => a.dealer.localeCompare(b.dealer));
+  const accountOptions = useMemo(() => {
+    const keys = new Set<string>([...Object.keys(accountMap), ...Object.keys(perAccount)]);
+    return [...keys]
+      .map((key) => ({
+        key,
+        dealer: perAccount[key]?.dealer || accountMap[key]?.dealer || key,
+        storefrontImage: accountMap[key]?.storefrontImage,
+        logos: accountMap[key]?.logos,
+        city: accountMap[key]?.city,
+        state: accountMap[key]?.state,
+      }))
+      .sort((a, b) => a.dealer.localeCompare(b.dealer));
+  }, [accountMap, perAccount]);
 
   const presetAccountFilter = useMemo(
-    () => (accountOptions.some((account) => account.key === requestedAccount) ? requestedAccount : ''),
-    [accountOptions, requestedAccount],
+    () => {
+      if (accountOptions.some((account) => account.key === requestedAccount)) {
+        return requestedAccount;
+      }
+      const firstConnected = accountOptions.find((account) => perAccount[account.key]?.connected);
+      return firstConnected?.key || accountOptions[0]?.key || '';
+    },
+    [accountOptions, perAccount, requestedAccount],
   );
 
   const filters = useContactFilters(contacts, presetAccountFilter);
+  const accountKeysToFetch = useMemo(() => {
+    const selected = filters.accountFilters.length > 0
+      ? filters.accountFilters
+      : (presetAccountFilter ? [presetAccountFilter] : []);
+    return [...new Set(selected)];
+  }, [filters.accountFilters, presetAccountFilter]);
+  const accountKeysForRequest = useMemo(
+    () => accountKeysToFetch.slice(0, ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH),
+    [accountKeysToFetch],
+  );
+
+  const fetchData = useCallback(async () => {
+    if (accountKeysForRequest.length === 0) {
+      setBaseContacts([]);
+      setContactsError('Select at least one sub-account to load contacts.');
+      setContactsLoading(false);
+      setMessagingLoaded(false);
+      return;
+    }
+
+    setContactsLoading(true);
+    setContactsError(null);
+
+    const settled = await Promise.allSettled(
+      accountKeysForRequest.map(async (key) => {
+        const res = await fetch(`/api/esp/contacts?accountKey=${encodeURIComponent(key)}&limit=${ADMIN_CONTACTS_LIMIT_PER_ACCOUNT}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          const message = typeof body.error === 'string' ? body.error : `Failed to fetch contacts for ${key}`;
+          throw new Error(message);
+        }
+        const data: SingleAccountResponse = await res.json();
+        return {
+          key,
+          dealer: perAccount[key]?.dealer || accountMap[key]?.dealer || key,
+          contacts: data.contacts || [],
+        };
+      }),
+    );
+
+    const nextContacts: Contact[] = [];
+    const failures: string[] = [];
+
+    for (const result of settled) {
+      if (result.status === 'rejected') {
+        failures.push(result.reason instanceof Error ? result.reason.message : 'Failed to fetch contacts');
+        continue;
+      }
+
+      for (const contact of result.value.contacts) {
+        nextContacts.push(withMessagingDefaults({
+          ...contact,
+          _accountKey: result.value.key,
+          _dealer: result.value.dealer,
+        }));
+      }
+    }
+
+    setBaseContacts(nextContacts);
+    setMessagingLoaded(false);
+    if (failures.length === 0) {
+      setContactsError(null);
+    } else if (failures.length === accountKeysForRequest.length) {
+      setContactsError(failures[0]);
+    } else {
+      setContactsError(`${failures.length} sub-account fetches failed. Showing partial results.`);
+    }
+    setContactsLoading(false);
+  }, [accountKeysForRequest, accountMap, perAccount]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData, refreshTick]);
+
   const selectedCampaignAccountKey =
     filters.accountFilters.length === 1
       ? filters.accountFilters[0]
@@ -411,7 +516,7 @@ function AdminContactsView() {
             <ContactsAccountFilter
               values={filters.accountFilters}
               onChange={filters.setAccountFilters}
-          accounts={accountOptions}
+              accounts={accountOptions}
             />
             <AudiencesMenuButton
               activeAudienceId={filters.activeAudienceId}
@@ -438,9 +543,21 @@ function AdminContactsView() {
         totalCount={contacts.length}
         filteredCount={filters.filtered.length}
         loading={loading || messagingLoading}
-        onRefresh={() => mutate()}
+        onRefresh={() => {
+          void mutateStats();
+          setRefreshTick((value) => value + 1);
+        }}
         contacts={contacts}
       />
+
+      {(accountKeysForRequest.length > 0 || accountKeysToFetch.length > 0) && (
+        <p className="text-[11px] text-[var(--muted-foreground)] mb-3">
+          Showing up to {ADMIN_CONTACTS_LIMIT_PER_ACCOUNT} contacts per selected sub-account
+          {accountKeysToFetch.length > ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH
+            ? ` (first ${ADMIN_CONTACTS_MAX_ACCOUNTS_PER_FETCH} selected accounts).`
+            : '.'}
+        </p>
+      )}
 
       {filters.showFilterBuilder && (
         <FilterBuilder

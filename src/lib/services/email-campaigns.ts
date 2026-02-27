@@ -1,6 +1,10 @@
 import nodemailer from 'nodemailer';
 import { prisma } from '@/lib/prisma';
 import { withConcurrencyLimit } from '@/lib/esp/utils';
+import {
+  isLikelyDeliverableEmail,
+  normalizeEmailAddress,
+} from '@/lib/contact-hygiene';
 
 type EmailCampaignStatus =
   | 'queued'
@@ -13,7 +17,7 @@ type EmailCampaignStatus =
 
 const PROCESSABLE_STATUSES: EmailCampaignStatus[] = ['queued', 'scheduled', 'processing'];
 const TERMINAL_STATUSES: EmailCampaignStatus[] = ['completed', 'partial', 'failed', 'canceled'];
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+const INVALID_EMAIL_ERROR = 'Recipient email is missing or blocked by hygiene policy';
 
 export interface EmailRecipientInput {
   contactId: string;
@@ -79,10 +83,10 @@ function parseDate(value: string | null | undefined): Date | null {
 function normalizeRecipient(input: EmailRecipientInput): EmailRecipientInput | null {
   const contactId = String(input.contactId || '').trim();
   const accountKey = String(input.accountKey || '').trim();
-  const email = String(input.email || '').trim().toLowerCase();
+  const normalizedEmail = normalizeEmailAddress(input.email);
 
   if (!contactId || !accountKey) return null;
-  if (!email || !EMAIL_REGEX.test(email)) {
+  if (!isLikelyDeliverableEmail(normalizedEmail)) {
     return {
       contactId,
       accountKey,
@@ -94,20 +98,43 @@ function normalizeRecipient(input: EmailRecipientInput): EmailRecipientInput | n
   return {
     contactId,
     accountKey,
-    email,
+    email: normalizedEmail,
     fullName: String(input.fullName || '').trim(),
   };
 }
 
 function dedupeRecipients(recipients: EmailRecipientInput[]): EmailRecipientInput[] {
-  const map = new Map<string, EmailRecipientInput>();
+  const byContactKey = new Map<string, EmailRecipientInput>();
   for (const recipient of recipients) {
     const normalized = normalizeRecipient(recipient);
     if (!normalized) continue;
+
     const key = `${normalized.accountKey}::${normalized.contactId}`;
-    if (!map.has(key)) map.set(key, normalized);
+    const existing = byContactKey.get(key);
+    if (!existing) {
+      byContactKey.set(key, normalized);
+      continue;
+    }
+
+    // Prefer a contact row that carries a deliverable email if duplicates exist.
+    if (!existing.email && normalized.email) {
+      byContactKey.set(key, normalized);
+    }
   }
-  return [...map.values()];
+
+  const seenEmails = new Set<string>();
+  const deduped: EmailRecipientInput[] = [];
+  for (const recipient of byContactKey.values()) {
+    if (!recipient.email) {
+      deduped.push(recipient);
+      continue;
+    }
+    if (seenEmails.has(recipient.email)) continue;
+    seenEmails.add(recipient.email);
+    deduped.push(recipient);
+  }
+
+  return deduped;
 }
 
 function normalizeSourceType(value: string | null | undefined): string {
@@ -317,7 +344,7 @@ export async function createEmailCampaign(input: CreateEmailCampaignInput): Prom
         email: recipient.email || null,
         fullName: recipient.fullName || null,
         status: recipient.email ? 'pending' : 'failed',
-        error: recipient.email ? null : 'Recipient email is missing or invalid',
+        error: recipient.email ? null : INVALID_EMAIL_ERROR,
       })),
     });
 
@@ -448,12 +475,13 @@ export async function processEmailCampaign(
   const text = campaign.textContent?.trim() || stripHtml(campaign.htmlContent);
 
   const tasks = campaign.recipients.map((recipient) => async () => {
-    if (!recipient.email || !EMAIL_REGEX.test(recipient.email)) {
+    const recipientEmail = normalizeEmailAddress(recipient.email || '');
+    if (!isLikelyDeliverableEmail(recipientEmail)) {
       await prisma.emailCampaignRecipient.update({
         where: { id: recipient.id },
         data: {
           status: 'failed',
-          error: 'Recipient email is missing or invalid',
+          error: INVALID_EMAIL_ERROR,
         },
       });
       return;
@@ -462,7 +490,7 @@ export async function processEmailCampaign(
     try {
       const info = await transporter.sendMail({
         from,
-        to: recipient.email,
+        to: recipientEmail,
         subject: campaign.subject,
         html,
         text,

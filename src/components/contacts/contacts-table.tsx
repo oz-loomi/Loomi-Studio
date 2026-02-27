@@ -207,7 +207,7 @@ export function ContactsTable({
             <tbody>
               {paged.map(contact => (
                 <ContactRow
-                  key={contact.id}
+                  key={`${contact._accountKey || 'account'}:${contact.id}`}
                   contact={contact}
                   showAccountColumn={showAccountColumn}
                   accountKey={accountKey || contact._accountKey || ''}

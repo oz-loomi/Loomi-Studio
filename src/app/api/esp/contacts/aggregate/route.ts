@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
 import { MANAGEMENT_ROLES } from '@/lib/auth';
 import * as accountService from '@/lib/services/accounts';
@@ -10,14 +10,20 @@ import '@/lib/esp/init';
 /**
  * GET /api/esp/contacts/aggregate
  *
- * Provider-agnostic aggregate contacts across ALL connected accounts.
- * Resolves each account's ESP adapter dynamically.
+ * Provider-agnostic sampled contacts across connected accounts.
+ * Resolves each account's ESP adapter dynamically and fetches a capped page
+ * per account for responsiveness.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const { session, error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {
+    const limitRaw = Number(req.nextUrl.searchParams.get('limitPerAccount') || '120');
+    const limitPerAccount = Number.isFinite(limitRaw)
+      ? Math.max(25, Math.min(250, limitRaw))
+      : 120;
+
     const allAccounts = await accountService.getAccounts();
     const accountMap = new Map(allAccounts.map(a => [a.key, a]));
     const allKeys = allAccounts.filter(a => !a.key.startsWith('_')).map(a => a.key);
@@ -53,14 +59,24 @@ export async function GET() {
           return;
         }
 
-        const raw = await adapter.contacts.fetchAllContacts(credentials.token, credentials.locationId);
-        const normalized = raw.map(c => ({
+        const page = await adapter.contacts.requestContacts({
+          token: credentials.token,
+          locationId: credentials.locationId,
+          limit: limitPerAccount,
+          search: '',
+        });
+        const normalized = page.contacts.map(c => ({
           ...adapter.contacts!.normalizeContact(c),
           _accountKey: accountKey,
           _dealer: dealer,
         }));
         allContacts.push(...normalized);
-        perAccount[accountKey] = { dealer, count: normalized.length, connected: true, provider: adapter.provider };
+        perAccount[accountKey] = {
+          dealer,
+          count: typeof page.total === 'number' ? page.total : normalized.length,
+          connected: true,
+          provider: adapter.provider,
+        };
       } catch (err) {
         errors[accountKey] = err instanceof Error ? err.message : 'Failed to fetch';
         perAccount[accountKey] = { dealer, count: 0, connected: true, provider: 'unknown' };
@@ -74,8 +90,11 @@ export async function GET() {
       perAccount,
       errors,
       meta: {
-        totalContacts: allContacts.length,
+        totalContacts: Object.values(perAccount).reduce((sum, entry) => sum + entry.count, 0),
         accountsFetched: Object.keys(perAccount).length,
+        sampledContacts: allContacts.length,
+        sampled: true,
+        limitPerAccount,
       },
     });
   } catch (err) {
