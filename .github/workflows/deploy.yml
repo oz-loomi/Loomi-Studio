@@ -17,7 +17,6 @@ jobs:
           host: ${{ secrets.DO_HOST }}
           username: root
           key: ${{ secrets.DO_SSH_KEY }}
-          script_stop: true
           command_timeout: 10m
           script: |
             set -Eeuo pipefail
@@ -103,12 +102,12 @@ jobs:
             echo "=== Starting candidate app: $NEXT_APP on port $NEXT_PORT ==="
             pm2 stop "$NEXT_APP" || true
             pm2 delete "$NEXT_APP" || true
-            PORT="$NEXT_PORT" NODE_ENV=production pm2 start npm --name "$NEXT_APP" --cwd "$NEW_RELEASE" --update-env -- start
+            NODE_ENV=production pm2 start ./node_modules/.bin/next --name "$NEXT_APP" --cwd "$NEW_RELEASE" -- start -p "$NEXT_PORT"
 
             echo "=== Waiting for candidate health ==="
             CANDIDATE_OK=0
             i=0
-            while [ $i -lt 30 ]; do
+            while [ $i -lt 60 ]; do
               CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$NEXT_PORT/api/auth/session" || true)
               if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 500 ]; then
                 CANDIDATE_OK=1
@@ -119,6 +118,10 @@ jobs:
             done
             if [ "$CANDIDATE_OK" -ne 1 ]; then
               echo "ERROR: Candidate never became healthy on port $NEXT_PORT"
+              echo "=== PM2 logs for $NEXT_APP ==="
+              pm2 logs "$NEXT_APP" --nostream --lines 40 || true
+              pm2 stop "$NEXT_APP" || true
+              pm2 delete "$NEXT_APP" || true
               exit 1
             fi
 
