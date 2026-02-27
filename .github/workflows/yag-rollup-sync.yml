@@ -74,7 +74,6 @@ jobs:
           host: ${{ secrets.DO_HOST }}
           username: root
           key: ${{ secrets.DO_SSH_KEY }}
-          script_stop: true
           command_timeout: 20m
           script: |
             set -euo pipefail
@@ -83,8 +82,14 @@ jobs:
             set -a && source .env.local && set +a
 
             if [ -z "${INTERNAL_JOB_SECRET:-}" ]; then
-              echo "INTERNAL_JOB_SECRET is missing on server .env.local"
-              exit 1
+              INTERNAL_JOB_SECRET="$(openssl rand -hex 32)"
+              if grep -q '^INTERNAL_JOB_SECRET=' .env.local; then
+                sed -i "s|^INTERNAL_JOB_SECRET=.*$|INTERNAL_JOB_SECRET=${INTERNAL_JOB_SECRET}|" .env.local
+              else
+                printf '\nINTERNAL_JOB_SECRET=%s\n' "${INTERNAL_JOB_SECRET}" >> .env.local
+              fi
+              export INTERNAL_JOB_SECRET
+              pm2 restart loomi-studio --update-env || true
             fi
 
             WIPE_CONFIRM_ALL="false"
@@ -106,7 +111,6 @@ jobs:
           host: ${{ secrets.DO_HOST }}
           username: root
           key: ${{ secrets.DO_SSH_KEY }}
-          script_stop: true
           command_timeout: 35m
           script: |
             set -euo pipefail
@@ -115,8 +119,14 @@ jobs:
             set -a && source .env.local && set +a
 
             if [ -z "${INTERNAL_JOB_SECRET:-}" ]; then
-              echo "INTERNAL_JOB_SECRET is missing on server .env.local"
-              exit 1
+              INTERNAL_JOB_SECRET="$(openssl rand -hex 32)"
+              if grep -q '^INTERNAL_JOB_SECRET=' .env.local; then
+                sed -i "s|^INTERNAL_JOB_SECRET=.*$|INTERNAL_JOB_SECRET=${INTERNAL_JOB_SECRET}|" .env.local
+              else
+                printf '\nINTERNAL_JOB_SECRET=%s\n' "${INTERNAL_JOB_SECRET}" >> .env.local
+              fi
+              export INTERNAL_JOB_SECRET
+              pm2 restart loomi-studio --update-env || true
             fi
 
             PAYLOAD=$(printf '{"fullSync":%s,"dryRun":%s}' '${{ steps.mode.outputs.full_sync }}' '${{ steps.mode.outputs.dry_run }}')
