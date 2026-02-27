@@ -321,7 +321,6 @@ function AdminContactsView() {
   const [enrichedContacts, setEnrichedContacts] = useState<Contact[] | null>(null);
   const [messagingLoading, setMessagingLoading] = useState(false);
   const [messagingLoaded, setMessagingLoaded] = useState(false);
-  const [sampledLimitPerAccount, setSampledLimitPerAccount] = useState<number | null>(null);
   const contacts = enrichedContacts ?? baseContacts;
   const loading = contactsLoading;
   const fetchError = contactsError;
@@ -369,7 +368,6 @@ function AdminContactsView() {
       setContactsError('Select at least one sub-account to load contacts.');
       setContactsLoading(false);
       setMessagingLoaded(false);
-      setSampledLimitPerAccount(null);
       return;
     }
 
@@ -392,7 +390,6 @@ function AdminContactsView() {
         setBaseContacts([]);
         setContactsLoading(false);
         setMessagingLoaded(false);
-        setSampledLimitPerAccount(ADMIN_CONTACTS_FAST_LIMIT_PER_ACCOUNT);
         return;
       }
 
@@ -409,7 +406,6 @@ function AdminContactsView() {
 
       setBaseContacts(sampledContacts);
       setMessagingLoaded(false);
-      setSampledLimitPerAccount(data.meta?.limitPerAccount || ADMIN_CONTACTS_FAST_LIMIT_PER_ACCOUNT);
       if (failures.length === 0) {
         setContactsError(null);
       } else if (failures.length === accountKeysToFetch.length) {
@@ -421,7 +417,6 @@ function AdminContactsView() {
       return;
     }
 
-    setSampledLimitPerAccount(null);
     const nextContacts: Contact[] = [];
     const failures: string[] = [];
     for (let i = 0; i < accountKeysToFetch.length; i += ADMIN_CONTACTS_FETCH_CONCURRENCY) {
@@ -584,16 +579,6 @@ function AdminContactsView() {
         }}
         contacts={contacts}
       />
-
-      <p className="text-[11px] text-[var(--muted-foreground)] mb-3">
-        Group rollup account (Young Automotive Group) is excluded in admin aggregate view to reduce duplicate contacts.
-      </p>
-      {sampledLimitPerAccount && (
-        <p className="text-[11px] text-[var(--muted-foreground)] mb-3">
-          Performance mode is active: showing up to {sampledLimitPerAccount} contacts per selected sub-account.
-          Narrow to one or two sub-accounts to load a deeper set.
-        </p>
-      )}
 
       {filters.showFilterBuilder && (
         <FilterBuilder
