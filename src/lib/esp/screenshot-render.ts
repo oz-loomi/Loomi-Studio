@@ -1,5 +1,37 @@
-import puppeteer from 'puppeteer';
+import puppeteerCore, { type Browser } from 'puppeteer-core';
 import sharp from 'sharp';
+
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+/**
+ * Launch a headless Chromium browser.
+ *
+ * In production (serverless / VPS without Chrome), uses @sparticuz/chromium
+ * which bundles a lightweight Chromium binary.
+ * In development, uses the locally-installed Chromium from the `puppeteer` package.
+ */
+async function launchBrowser(): Promise<Browser> {
+  if (IS_PRODUCTION) {
+    const chromium = (await import('@sparticuz/chromium')).default;
+    return puppeteerCore.launch({
+      args: chromium.args,
+      executablePath: await chromium.executablePath(),
+      headless: true,
+    }) as Promise<Browser>;
+  }
+
+  // Development: use full puppeteer's bundled Chromium
+  const puppeteer = (await import('puppeteer')).default;
+  return puppeteer.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+    ],
+  }) as unknown as Promise<Browser>;
+}
 
 export async function renderCampaignScreenshotFromHtml(params: {
   html: string;
@@ -11,17 +43,9 @@ export async function renderCampaignScreenshotFromHtml(params: {
     throw new Error('Preview HTML is empty');
   }
 
-  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
+  let browser: Browser | null = null;
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    });
+    browser = await launchBrowser();
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 10000, deviceScaleFactor: 2 });

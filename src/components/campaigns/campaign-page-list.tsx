@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   MagnifyingGlassIcon,
@@ -226,57 +226,32 @@ function downloadBlob(blob: Blob, filename: string): void {
 }
 
 /**
- * Render campaign email HTML to a PNG blob client-side using html2canvas.
- * Creates a hidden iframe, injects the HTML, captures it, then cleans up.
+ * Download a high-res PNG screenshot of a campaign email via the server-side
+ * screenshot API (uses @sparticuz/chromium in production).
  */
-async function renderHtmlToPng(html: string): Promise<Blob> {
-  const { default: html2canvas } = await import('html2canvas');
+async function downloadServerScreenshot(
+  accountKey: string,
+  scheduleId: string,
+  fileBaseName: string,
+): Promise<void> {
+  const params = new URLSearchParams({ accountKey, scheduleId });
+  const res = await fetch(`/api/esp/campaigns/screenshot?${params.toString()}`);
 
-  const iframe = document.createElement('iframe');
-  iframe.style.cssText =
-    'position:fixed;left:-10000px;top:0;width:800px;height:10000px;border:none;opacity:0;pointer-events:none;';
-  document.body.appendChild(iframe);
-
-  try {
-    const doc = iframe.contentDocument!;
-    doc.open();
-    doc.write(html);
-    doc.close();
-
-    // Wait for images to load
-    await new Promise<void>((resolve) => {
-      const imgs = Array.from(doc.querySelectorAll('img'));
-      if (imgs.length === 0) { resolve(); return; }
-      let loaded = 0;
-      const check = () => { if (++loaded >= imgs.length) resolve(); };
-      imgs.forEach((img) => {
-        if (img.complete) check();
-        else {
-          img.addEventListener('load', check);
-          img.addEventListener('error', check);
-        }
-      });
-      setTimeout(resolve, 5000);
-    });
-
-    const canvas = await html2canvas(doc.body, {
-      useCORS: true,
-      allowTaint: true,
-      scale: 2,
-      width: 800,
-      windowWidth: 800,
-      backgroundColor: '#ffffff',
-    });
-
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error('Canvas toBlob returned null'))),
-        'image/png',
-      );
-    });
-  } finally {
-    document.body.removeChild(iframe);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(
+      typeof data.error === 'string'
+        ? data.error
+        : `Screenshot failed (${res.status})`,
+    );
   }
+
+  const blob = await res.blob();
+  if (!blob || blob.size === 0) {
+    throw new Error('Screenshot returned empty data');
+  }
+
+  downloadBlob(blob, `${sanitizeFileName(fileBaseName)}.png`);
 }
 
 interface CampaignGroup {
@@ -770,9 +745,12 @@ export function CampaignPageList({
     setOpenMenuId(null);
     setDownloadingId(key);
     try {
-      const payload = await fetchPreviewForCampaign(campaign);
-      const pngBlob = await renderHtmlToPng(payload.html);
-      downloadBlob(pngBlob, `${sanitizeFileName(campaign.name || 'campaign-email')}.png`);
+      const accountKey = campaignAccountKey(campaign);
+      const scheduleId = getCampaignScheduleId(campaign);
+      if (!accountKey || !scheduleId) {
+        throw new Error('Download is unavailable for this campaign.');
+      }
+      await downloadServerScreenshot(accountKey, scheduleId, campaign.name || 'campaign-email');
     } catch (err) {
       console.error('PNG download failed:', err instanceof Error ? err.message : err);
       alert('Failed to download campaign email. Please try again.');
