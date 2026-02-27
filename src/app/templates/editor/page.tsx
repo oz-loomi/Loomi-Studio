@@ -3150,9 +3150,13 @@ export default function TemplateEditorPage() {
   const modeParam = searchParams.get("mode");
   const accountKeyParam = searchParams.get("accountKey") || "";
   const libraryTemplateSlug = searchParams.get("libraryTemplate") || "";
-  const { isAdmin, isAccount, accountKey, accountData } = useAccount();
+  const { isAdmin, isAccount, accountKey, accountData, accounts } = useAccount();
   const { markClean, markDirty } = useUnsavedChanges();
   const effectiveAccountKey = accountKeyParam || accountKey;
+  const effectiveAccountData = useMemo(
+    () => (effectiveAccountKey ? accounts[effectiveAccountKey] || null : accountData),
+    [effectiveAccountKey, accounts, accountData],
+  );
   const mediaPickerAccountKey = effectiveAccountKey || undefined;
   const canBrowseMedia = Boolean(mediaPickerAccountKey || isAdmin);
   const builderMode = searchParams.get("builder");
@@ -3302,8 +3306,8 @@ export default function TemplateEditorPage() {
   );
 
   const previewVariableMap = useMemo(
-    () => buildPreviewVariableMap(accountData, selectedPreviewContact),
-    [accountData, selectedPreviewContact],
+    () => buildPreviewVariableMap(effectiveAccountData, selectedPreviewContact),
+    [effectiveAccountData, selectedPreviewContact],
   );
 
   const missingPreviewVars = useMemo(
@@ -3368,7 +3372,7 @@ export default function TemplateEditorPage() {
   );
 
   const loadPreviewContacts = useCallback(async () => {
-    if (!accountKey) {
+    if (!effectiveAccountKey) {
       setPreviewContacts([]);
       setPreviewContactsError("");
       setSelectedPreviewContactId("__sample__");
@@ -3379,7 +3383,7 @@ export default function TemplateEditorPage() {
     setPreviewContactsError("");
     try {
       const res = await fetch(
-        `/api/esp/contacts?accountKey=${encodeURIComponent(accountKey)}&limit=30`,
+        `/api/esp/contacts?accountKey=${encodeURIComponent(effectiveAccountKey)}&limit=30`,
       );
       const data = await res.json();
       if (!res.ok) {
@@ -3402,7 +3406,7 @@ export default function TemplateEditorPage() {
     } finally {
       setPreviewContactsLoading(false);
     }
-  }, [accountKey]);
+  }, [effectiveAccountKey]);
 
   const loadTemplateHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -4316,7 +4320,10 @@ export default function TemplateEditorPage() {
   const [saveToLibrary, setSaveToLibrary] = useState(false);
   const [saveToLibraryResult, setSaveToLibraryResult] = useState<{ success: boolean; error?: string } | null>(null);
 
-  const connectedProviders = useMemo(() => accountData?.connectedProviders ?? [], [accountData]);
+  const connectedProviders = useMemo(
+    () => effectiveAccountData?.connectedProviders ?? [],
+    [effectiveAccountData],
+  );
 
   const PROVIDER_META: Record<string, { displayName: string; iconSrc: string }> = {
     ghl: {
@@ -4437,7 +4444,7 @@ export default function TemplateEditorPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          accountKey,
+          accountKey: effectiveAccountKey,
           name: templateTitle,
           subject: espSubject || parsed?.frontmatter?.title || "",
           html: compiledHtml,
@@ -5805,11 +5812,11 @@ export default function TemplateEditorPage() {
                 <button
                   onClick={loadPreviewContacts}
                   disabled={
-                    !accountKey || previewContactsLoading
+                    !effectiveAccountKey || previewContactsLoading
                   }
                   className="p-0.5 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
                   title={
-                    accountKey
+                    effectiveAccountKey
                       ? "Refresh contacts"
                       : "Switch to a connected account to load contacts"
                   }
@@ -6752,7 +6759,7 @@ export default function TemplateEditorPage() {
                     No integrations connected. The template will be saved on Loomi only.
                   </p>
                   <Link
-                    href={accountKey ? `/accounts/${accountKey}?tab=integrations` : "/settings"}
+                    href={effectiveAccountKey ? `/accounts/${effectiveAccountKey}?tab=integrations` : "/settings"}
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--primary)] hover:underline"
                   >
                     <LinkIcon className="w-3 h-3" />
