@@ -48,10 +48,17 @@ export async function renderCampaignScreenshotFromHtml(params: {
     browser = await launchBrowser();
 
     const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 10000, deviceScaleFactor: 2 });
+    await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 2 });
     await page.setContent(html, {
       waitUntil: ['networkidle0', 'domcontentloaded'],
       timeout: 15000,
+    });
+
+    // Prevent vh/percentage-based layouts from stretching; measure true content height
+    await page.evaluate(() => {
+      document.documentElement.style.height = 'auto';
+      document.body.style.height = 'auto';
+      document.body.style.overflow = 'visible';
     });
 
     await page.evaluate(() => {
@@ -77,6 +84,16 @@ export async function renderCampaignScreenshotFromHtml(params: {
     });
 
     await new Promise((r) => setTimeout(r, 300));
+
+    // Resize viewport to match actual content height before capturing
+    const contentHeight = await page.evaluate(
+      () => document.documentElement.scrollHeight,
+    );
+    await page.setViewport({
+      width: 1280,
+      height: contentHeight,
+      deviceScaleFactor: 2,
+    });
 
     const rawScreenshot = await page.screenshot({
       type: 'png',
