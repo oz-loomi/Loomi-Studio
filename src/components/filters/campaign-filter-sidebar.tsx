@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ComponentType, type SVGProps } from 'react';
 import {
+  CalendarDaysIcon,
   CheckCircleIcon,
   CheckIcon,
   ClockIcon,
@@ -14,10 +15,21 @@ import {
   XCircleIcon,
 } from '@heroicons/react/24/outline';
 import { AccountAvatar } from '@/components/account-avatar';
+import {
+  DATE_RANGE_PRESETS,
+  type DateRangeKey,
+  getDateRangeLabel,
+  formatCustomRangeLabel,
+} from '@/lib/date-ranges';
 import type {
   CampaignFilterOptions,
   CampaignFilterState,
 } from '@/components/filters/campaign-toolbar';
+
+interface CustomDateRange {
+  start: Date;
+  end: Date;
+}
 
 interface CampaignFilterSidebarProps {
   open?: boolean;
@@ -27,6 +39,10 @@ interface CampaignFilterSidebarProps {
   filters: CampaignFilterState;
   onFiltersChange: (filters: CampaignFilterState) => void;
   options: CampaignFilterOptions;
+  dateRange?: DateRangeKey;
+  onDateRangeChange?: (key: DateRangeKey) => void;
+  customRange?: CustomDateRange | null;
+  onCustomRangeChange?: (range: CustomDateRange) => void;
 }
 
 interface SectionProps {
@@ -311,6 +327,122 @@ function AccountSection({
   );
 }
 
+function toInputDate(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
+function DateRangeSection({
+  dateRange,
+  onDateRangeChange,
+  customRange,
+  onCustomRangeChange,
+}: {
+  dateRange: DateRangeKey;
+  onDateRangeChange: (key: DateRangeKey) => void;
+  customRange?: CustomDateRange | null;
+  onCustomRangeChange?: (range: CustomDateRange) => void;
+}) {
+  const defaultEnd = new Date();
+  const defaultStart = new Date();
+  defaultStart.setMonth(defaultStart.getMonth() - 1);
+  const [startInput, setStartInput] = useState(toInputDate(customRange?.start ?? defaultStart));
+  const [endInput, setEndInput] = useState(toInputDate(customRange?.end ?? defaultEnd));
+
+  useEffect(() => {
+    if (customRange) {
+      setStartInput(toInputDate(customRange.start));
+      setEndInput(toInputDate(customRange.end));
+    }
+  }, [customRange]);
+
+  const standardPresets = DATE_RANGE_PRESETS.filter(p => p.key !== 'custom');
+
+  function handleCustomApply() {
+    const start = new Date(startInput + 'T00:00:00');
+    const end = new Date(endInput + 'T23:59:59');
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
+    if (start > end) return;
+    onDateRangeChange('custom');
+    onCustomRangeChange?.({ start, end });
+  }
+
+  return (
+    <section className="space-y-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
+          Date Range
+        </p>
+        {dateRange !== '6m' && (
+          <button
+            type="button"
+            onClick={() => onDateRangeChange('6m')}
+            className="text-[10px] font-medium text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] transition-colors"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {standardPresets.map((preset) => (
+          <button
+            key={preset.key}
+            type="button"
+            onClick={() => onDateRangeChange(preset.key)}
+            className={`${PILL_BASE_CLASS} ${
+              dateRange === preset.key ? PILL_ACTIVE_CLASS : PILL_INACTIVE_CLASS
+            }`}
+          >
+            <CalendarDaysIcon className="w-3 h-3 flex-shrink-0" />
+            {preset.shortLabel}
+            {dateRange === preset.key && <CheckIcon className="w-3 h-3 flex-shrink-0" />}
+          </button>
+        ))}
+      </div>
+
+      {/* Custom range inputs */}
+      <div className="space-y-2 pt-1">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-[9px] text-[var(--sidebar-muted-foreground)] mb-0.5">Start</label>
+            <input
+              type="date"
+              value={startInput}
+              max={endInput}
+              onChange={e => setStartInput(e.target.value)}
+              className="w-full px-2 py-1.5 text-[11px] rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 text-[var(--sidebar-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="block text-[9px] text-[var(--sidebar-muted-foreground)] mb-0.5">End</label>
+            <input
+              type="date"
+              value={endInput}
+              min={startInput}
+              max={toInputDate(new Date())}
+              onChange={e => setEndInput(e.target.value)}
+              className="w-full px-2 py-1.5 text-[11px] rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 text-[var(--sidebar-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30 transition-colors"
+            />
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleCustomApply}
+          disabled={!startInput || !endInput || startInput > endInput}
+          className="w-full py-1.5 text-[11px] font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Apply Custom Range
+        </button>
+        {dateRange === 'custom' && customRange && (
+          <p className="text-[10px] text-[var(--primary)] font-medium">
+            {formatCustomRangeLabel(customRange.start, customRange.end)}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function CampaignFilterSidebar({
   open,
   onClose,
@@ -319,6 +451,10 @@ export function CampaignFilterSidebar({
   filters,
   onFiltersChange,
   options,
+  dateRange,
+  onDateRangeChange,
+  customRange,
+  onCustomRangeChange,
 }: CampaignFilterSidebarProps) {
   const isOpen = inline ? true : Boolean(open);
 
@@ -333,9 +469,10 @@ export function CampaignFilterSidebar({
 
   if (!isOpen) return null;
 
+  const hasDateFilter = dateRange !== undefined && dateRange !== '6m';
   const activeCount = [filters.account, filters.status, filters.industry]
     .filter((values) => values.length > 0)
-    .length;
+    .length + (hasDateFilter ? 1 : 0);
 
   function setFilter<K extends keyof CampaignFilterState>(
     key: K,
@@ -348,7 +485,7 @@ export function CampaignFilterSidebar({
     <aside
       className={
         inline
-          ? `rounded-2xl text-[var(--sidebar-foreground)] flex flex-col overflow-hidden bg-transparent border border-transparent shadow-none backdrop-blur-0 xl:sticky xl:top-28 xl:max-h-[calc(100vh-8rem)] ${className}`.trim()
+          ? `rounded-2xl text-[var(--sidebar-foreground)] flex flex-col overflow-hidden ${className}`.trim()
           : 'glass-panel glass-panel-strong fixed right-3 top-3 bottom-3 w-[350px] rounded-2xl flex flex-col overflow-hidden'
       }
     >
@@ -357,7 +494,7 @@ export function CampaignFilterSidebar({
             <FunnelIcon className="w-5 h-5 text-black dark:text-[var(--primary)]" />
             <h3 className="text-sm font-bold tracking-tight">Filters</h3>
           </div>
-          {!inline && onClose && (
+          {onClose && (
             <button
               type="button"
               onClick={onClose}
@@ -369,6 +506,15 @@ export function CampaignFilterSidebar({
         </div>
 
         <div className="themed-scrollbar flex-1 overflow-y-auto p-4 space-y-5">
+          {dateRange !== undefined && onDateRangeChange && (
+            <DateRangeSection
+              dateRange={dateRange}
+              onDateRangeChange={onDateRangeChange}
+              customRange={customRange}
+              onCustomRangeChange={onCustomRangeChange}
+            />
+          )}
+
           {options.accounts.length > 0 && (
             <AccountSection
               values={filters.account}
@@ -399,7 +545,10 @@ export function CampaignFilterSidebar({
         <div className="p-4 border-t border-[var(--sidebar-border-soft)] flex items-center justify-between gap-2">
           <button
             type="button"
-            onClick={() => onFiltersChange({ account: [], status: [], oem: [], industry: [] })}
+            onClick={() => {
+              onFiltersChange({ account: [], status: [], oem: [], industry: [] });
+              if (onDateRangeChange) onDateRangeChange('6m');
+            }}
             disabled={activeCount === 0}
             className="px-3 py-2 text-xs rounded-lg border border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] disabled:opacity-50 transition-colors"
           >

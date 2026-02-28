@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
-import { useCampaignsAggregate } from '@/hooks/use-dashboard-data';
+import { useCampaignsAggregate, useWorkflowsAggregate } from '@/hooks/use-dashboard-data';
 import { AdminOnly } from '@/components/route-guard';
 import { CampaignPageAnalytics } from '@/components/campaigns/campaign-page-analytics';
 import { CampaignPageList, type AccountMeta } from '@/components/campaigns/campaign-page-list';
@@ -32,6 +32,24 @@ import {
 } from '@heroicons/react/24/outline';
 import { getAccountOems, industryHasBrands } from '@/lib/oems';
 import { FlowIcon } from '@/components/icon-map';
+
+// ── Tab Icons (from icons8) ──
+
+function AnalyticsTabIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="currentColor" className={className}>
+      <path d="M 64 1 C 56.28 1 50 7.28 50 15 L 50 93 C 50 100.72 56.28 107 64 107 C 71.72 107 78 100.72 78 93 L 78 15 C 78 7.28 71.72 1 64 1 z M 64 7 C 68.41 7 72 10.59 72 15 L 72 93 C 72 97.41 68.41 101 64 101 C 59.59 101 56 97.41 56 93 L 56 15 C 56 10.59 59.59 7 64 7 z M 108 31 C 100.28 31 94 37.28 94 45 L 94 103 C 94 104.66 95.34 106 97 106 C 98.66 106 100 104.66 100 103 L 100 45 C 100 40.59 103.59 37 108 37 C 112.41 37 116 40.59 116 45 L 116 112 C 116 116.41 112.41 120 108 120 L 9 120 C 7.34 120 6 121.34 6 123 C 6 124.66 7.34 126 9 126 L 108 126 C 115.72 126 122 119.72 122 112 L 122 45 C 122 37.28 115.72 31 108 31 z M 20 61 C 12.28 61 6 67.28 6 75 L 6 93 C 6 100.72 12.28 107 20 107 C 27.72 107 34 100.72 34 93 L 34 75 C 34 67.28 27.72 61 20 61 z M 20 67 C 24.41 67 28 70.59 28 75 L 28 93 C 28 97.41 24.41 101 20 101 C 15.59 101 12 97.41 12 93 L 12 75 C 12 70.59 15.59 67 20 67 z" />
+    </svg>
+  );
+}
+
+function ListTabIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" className={className}>
+      <path d="M 12.988281 6.9882812 A 1.0001 1.0001 0 0 0 12.232422 7.359375 L 7.8398438 12.630859 L 4.5996094 10.199219 A 1.0003907 1.0003907 0 0 0 3.4003906 11.800781 L 7.4003906 14.800781 A 1.0001 1.0001 0 0 0 8.7675781 14.640625 L 13.767578 8.640625 A 1.0001 1.0001 0 0 0 12.988281 6.9882812 z M 18.984375 8.9863281 A 1.0001 1.0001 0 0 0 18 10 L 18 12 C 18 13.093063 18.906937 14 20 14 L 43 14 C 44.093063 14 45 13.093063 45 12 L 45 10 A 1.0001 1.0001 0 1 0 43 10 L 43 12 L 20 12 L 20 10 A 1.0001 1.0001 0 0 0 18.984375 8.9863281 z M 12.988281 19.988281 A 1.0001 1.0001 0 0 0 12.232422 20.359375 L 7.8398438 25.630859 L 4.5996094 23.199219 A 1.0003907 1.0003907 0 1 0 3.4003906 24.800781 L 7.4003906 27.800781 A 1.0001 1.0001 0 0 0 8.7675781 27.640625 L 13.767578 21.640625 A 1.0001 1.0001 0 0 0 12.988281 19.988281 z M 18.984375 21.986328 A 1.0001 1.0001 0 0 0 18 23 L 18 25 C 18 26.093063 18.906937 27 20 27 L 43 27 C 44.093063 27 45 26.093063 45 25 L 45 23 A 1.0001 1.0001 0 1 0 43 23 L 43 25 L 20 25 L 20 23 A 1.0001 1.0001 0 0 0 18.984375 21.986328 z M 8 33 C 6.7500003 33 5.6852256 33.504756 5.0019531 34.273438 C 4.3186806 35.042119 4 36.027778 4 37 C 4 37.972222 4.3186806 38.957881 5.0019531 39.726562 C 5.6852256 40.495244 6.7500003 41 8 41 C 9.2499997 41 10.314774 40.495244 10.998047 39.726562 C 11.681319 38.957881 12 37.972222 12 37 C 12 36.027778 11.681319 35.042119 10.998047 34.273438 C 10.314774 33.504756 9.2499997 33 8 33 z M 18.984375 34.986328 A 1.0001 1.0001 0 0 0 18 36 L 18 38 C 18 39.093063 18.906937 40 20 40 L 43 40 C 44.093063 40 45 39.093063 45 38 L 45 36 A 1.0001 1.0001 0 1 0 43 36 L 43 38 L 20 38 L 20 36 A 1.0001 1.0001 0 0 0 18.984375 34.986328 z M 8 35 C 8.7499995 35 9.1852261 35.245244 9.5019531 35.601562 C 9.8186802 35.957881 10 36.472222 10 37 C 10 37.527778 9.8186802 38.042119 9.5019531 38.398438 C 9.1852261 38.754756 8.7499995 39 8 39 C 7.2500005 39 6.8147739 38.754756 6.4980469 38.398438 C 6.1813198 38.042119 6 37.527778 6 37 C 6 36.472222 6.1813198 35.957881 6.4980469 35.601562 C 6.8147739 35.245244 7.2500005 35 8 35 z" />
+    </svg>
+  );
+}
 
 // ── Types ──
 
@@ -77,6 +95,19 @@ interface AccountData {
   storefrontImage?: string;
   logos?: { light?: string; dark?: string; white?: string; black?: string };
 }
+
+interface Workflow {
+  id: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  locationId: string;
+  accountKey?: string;
+  dealer?: string;
+}
+
+type PageTab = 'analytics' | 'list';
 
 // ── Helpers ──
 
@@ -153,7 +184,10 @@ function getCampaignLastUpdatedDate(campaign: Campaign): string {
 function AdminCampaignsPage() {
   const router = useRouter();
   const { data: aggData, error: aggError, isLoading: aggLoading } = useCampaignsAggregate();
+  const { data: wfData, isLoading: wfLoading } = useWorkflowsAggregate();
   const [localError, setLocalError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<PageTab>('analytics');
+  const [sideRailMounted, setSideRailMounted] = useState(false);
 
   const campaigns = (aggData?.campaigns ?? []) as Campaign[];
   const campaignError = useMemo(() => {
@@ -197,10 +231,22 @@ function AdminCampaignsPage() {
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
 
+  const workflows = (wfData?.workflows ?? []) as Workflow[];
+
+  // Side-rail mount/unmount (delayed unmount for slide-out animation)
+  useEffect(() => {
+    if (filtersOpen) {
+      setSideRailMounted(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setSideRailMounted(false), 260);
+    return () => window.clearTimeout(timer);
+  }, [filtersOpen]);
+
   // Sync loading state with SWR
   useEffect(() => {
-    if (!aggLoading) setLoading(false);
-  }, [aggLoading]);
+    if (!aggLoading && !wfLoading) setLoading(false);
+  }, [aggLoading, wfLoading]);
 
   // Fetch account metadata (separate from SWR-managed campaigns)
   useEffect(() => {
@@ -370,6 +416,41 @@ function AdminCampaignsPage() {
     return result;
   }, [campaigns, filters, accountNames, accountMeta, bounds]);
 
+  // Apply same account/industry/date filters to workflows
+  const filteredWorkflows = useMemo(() => {
+    let result = workflows;
+
+    if (filters.account.length > 0) {
+      result = result.filter(w => {
+        const key = w.accountKey;
+        const name = key
+          ? resolveAccountLabel(key, accountNames, accountMeta)
+          : w.dealer;
+        return Boolean(name && filters.account.includes(name));
+      });
+    }
+
+    if (filters.industry.length > 0) {
+      result = result.filter(w => {
+        if (!w.accountKey) return false;
+        const meta = accountMeta[w.accountKey];
+        return Boolean(meta?.category && filters.industry.includes(meta.category));
+      });
+    }
+
+    if (bounds.start) {
+      result = result.filter(w => {
+        const raw = w.updatedAt || w.createdAt;
+        if (!raw) return false;
+        const d = new Date(raw);
+        if (Number.isNaN(d.getTime())) return false;
+        return d.getTime() >= bounds.start!.getTime() && d.getTime() <= bounds.end.getTime();
+      });
+    }
+
+    return result;
+  }, [workflows, filters, accountNames, accountMeta, bounds]);
+
   const selectedAccountLabel = filters.account.length === 1 ? filters.account[0] : null;
 
   const selectedAccountKey = useMemo(() => {
@@ -442,7 +523,7 @@ function AdminCampaignsPage() {
 
   return (
     <div>
-      {/* Sticky header with title + filters */}
+      {/* Sticky header with title + centered tabs + controls */}
       <div className="page-sticky-header mb-8">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
@@ -459,11 +540,44 @@ function AdminCampaignsPage() {
               </p>
             </div>
           </div>
+
+          {/* Centered tab toggle */}
+          <div className="flex items-center rounded-xl border border-[var(--border)] bg-[var(--card)] p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('analytics')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === 'analytics'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <AnalyticsTabIcon className="w-3.5 h-3.5" />
+              Analytics
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('list')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === 'list'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <ListTabIcon className="w-3.5 h-3.5" />
+              Campaigns
+            </button>
+          </div>
+
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <button
               type="button"
               onClick={() => setFiltersOpen((prev) => !prev)}
-              className="inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)] transition-colors"
+              className={`inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border transition-colors ${
+                filtersOpen
+                  ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+              }`}
               aria-pressed={filtersOpen}
             >
               <FunnelIcon className="w-4 h-4" />
@@ -474,12 +588,6 @@ function AdminCampaignsPage() {
                 </span>
               )}
             </button>
-            <DashboardToolbar
-              dateRange={dateRange}
-              onDateRangeChange={setDateRange}
-              customRange={customRange}
-              onCustomRangeChange={setCustomRange}
-            />
             <div ref={createMenuRef} className="relative">
               <button
                 type="button"
@@ -544,43 +652,63 @@ function AdminCampaignsPage() {
           </div>
         </div>
       </div>
-      <div className="w-full max-w-[1600px]">
-        {campaignError && (
-          <div className="px-4 py-3 mb-4 rounded-xl border border-red-500/20 bg-red-500/10 text-sm text-red-300">
-            {campaignError}
-          </div>
-        )}
 
-        <div className="space-y-6">
-          <CampaignPageAnalytics
-            campaigns={filteredCampaigns}
-            loading={loading}
-            showAccountBreakdown
-            accountNames={accountNames}
-            emptyTitle={adminEmptyTitle}
-            emptySubtitle={adminEmptySubtitle}
-            dateRange={dateRange}
-            customRange={customRange}
-          />
+      {/* Dashboard-style grid: content + inline filter side rail */}
+      <div className={sideRailMounted ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
+        {/* Main content column */}
+        <div className="min-w-0">
+          {campaignError && (
+            <div className="px-4 py-3 mb-4 rounded-xl border border-red-500/20 bg-red-500/10 text-sm text-red-300">
+              {campaignError}
+            </div>
+          )}
 
-          <CampaignPageList
-            campaigns={filteredCampaigns}
-            loading={loading}
-            accountNames={accountNames}
-            accountMeta={accountMeta}
-            accountProviders={accountProviders}
-            emptyState={campaignEmptyState}
-          />
+          {activeTab === 'analytics' && (
+            <CampaignPageAnalytics
+              campaigns={filteredCampaigns}
+              loading={loading}
+              showAccountBreakdown
+              accountNames={accountNames}
+              emptyTitle={adminEmptyTitle}
+              emptySubtitle={adminEmptySubtitle}
+              dateRange={dateRange}
+              customRange={customRange}
+              workflows={filteredWorkflows}
+            />
+          )}
+
+          {activeTab === 'list' && (
+            <CampaignPageList
+              campaigns={filteredCampaigns}
+              loading={loading}
+              accountNames={accountNames}
+              accountMeta={accountMeta}
+              accountProviders={accountProviders}
+              emptyState={campaignEmptyState}
+            />
+          )}
         </div>
-      </div>
 
-      <CampaignFilterSidebar
-        open={filtersOpen}
-        onClose={() => setFiltersOpen(false)}
-        filters={filters}
-        onFiltersChange={setFilters}
-        options={filterOptions}
-      />
+        {/* Inline filter side rail */}
+        {sideRailMounted && (
+          <CampaignFilterSidebar
+            inline
+            onClose={() => setFiltersOpen(false)}
+            filters={filters}
+            onFiltersChange={setFilters}
+            options={filterOptions}
+            dateRange={dateRange}
+            onDateRangeChange={setDateRange}
+            customRange={customRange}
+            onCustomRangeChange={setCustomRange}
+            className={`glass-panel glass-panel-strong w-full transition-[opacity,transform,max-height] duration-300 ease-out lg:sticky lg:top-24 lg:w-[360px] ${
+              filtersOpen
+                ? 'pointer-events-auto max-h-[calc(100vh-8rem)] translate-x-0 opacity-100 animate-slide-in-right'
+                : 'pointer-events-none max-h-0 translate-x-4 opacity-0'
+            }`}
+          />
+        )}
+      </div>
     </div>
   );
 }

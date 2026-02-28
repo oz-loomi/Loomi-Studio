@@ -1,12 +1,15 @@
 'use client';
 
 import { useMemo, useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import { useTheme } from '@/contexts/theme-context';
 import {
   PaperAirplaneIcon,
   CheckCircleIcon,
   ClockIcon,
   DocumentTextIcon,
 } from '@heroicons/react/24/outline';
+import { FlowIcon } from '@/components/icon-map';
 import { formatRatePct, sumCampaignEngagement } from '@/lib/campaign-engagement';
 import {
   type DateRangeKey,
@@ -14,6 +17,9 @@ import {
   getMonthBuckets,
 } from '@/lib/date-ranges';
 import type { CustomDateRange } from '@/components/filters/dashboard-toolbar';
+import type { ApexOptions } from 'apexcharts';
+
+const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 // ── Types ──
 
@@ -41,6 +47,17 @@ interface Campaign {
   replyRate?: number;
 }
 
+interface Workflow {
+  id: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  locationId: string;
+  accountKey?: string;
+  dealer?: string;
+}
+
 interface CampaignPageAnalyticsProps {
   campaigns: Campaign[];
   loading?: boolean;
@@ -50,6 +67,7 @@ interface CampaignPageAnalyticsProps {
   emptySubtitle?: string;
   dateRange?: DateRangeKey;
   customRange?: CustomDateRange | null;
+  workflows?: Workflow[];
 }
 
 // ── Helpers ──
@@ -96,7 +114,10 @@ export function CampaignPageAnalytics({
   emptySubtitle = 'Sub-accounts may need to reconnect their integration with campaign scopes',
   dateRange,
   customRange,
+  workflows = [],
 }: CampaignPageAnalyticsProps) {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const [animated, setAnimated] = useState(false);
   const [showAllAccounts, setShowAllAccounts] = useState(false);
 
@@ -172,11 +193,101 @@ export function CampaignPageAnalytics({
     };
   }, [campaigns, showAccountBreakdown, accountNames, dateRange, customRange]);
 
+  // Timeline: campaigns vs workflows over time
+  const timelineData = useMemo(() => {
+    const bounds = dateRange === 'custom' && customRange
+      ? getDateRangeBounds('custom', customRange.start, customRange.end)
+      : getDateRangeBounds(dateRange ?? '6m');
+    const buckets = getMonthBuckets(bounds.monthCount);
+
+    function bucketDate(raw?: string): number {
+      if (!raw) return -1;
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) return -1;
+      return buckets.findIndex(b => d >= b.start && d < b.end);
+    }
+
+    const campaignCounts = new Array(buckets.length).fill(0);
+    const workflowCounts = new Array(buckets.length).fill(0);
+
+    campaigns.forEach(c => {
+      const idx = bucketDate(c.sentAt || c.scheduledAt || c.updatedAt || c.createdAt);
+      if (idx >= 0) campaignCounts[idx]++;
+    });
+
+    workflows.forEach(w => {
+      const idx = bucketDate(w.updatedAt || w.createdAt);
+      if (idx >= 0) workflowCounts[idx]++;
+    });
+
+    const categories = buckets.map(b => b.label);
+    const hasData = campaignCounts.some(v => v > 0) || workflowCounts.some(v => v > 0);
+
+    return {
+      categories,
+      series: [
+        { name: 'Campaigns', data: campaignCounts },
+        { name: 'Workflows', data: workflowCounts },
+      ],
+      hasData,
+    };
+  }, [campaigns, workflows, dateRange, customRange]);
+
+  const chartTextColor = isDark ? '#a1a1aa' : '#71717a';
+  const chartGridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
+  const timelineChartOptions: ApexOptions = useMemo(() => ({
+    chart: {
+      type: 'area',
+      toolbar: { show: false },
+      zoom: { enabled: false },
+      fontFamily: 'inherit',
+      background: 'transparent',
+      animations: { enabled: true, speed: 600, easing: 'easeinout' },
+    },
+    colors: ['#60a5fa', '#8b5cf6'],
+    stroke: { curve: 'smooth', width: 2.5 },
+    fill: {
+      type: 'gradient',
+      gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05, stops: [0, 90, 100] },
+    },
+    xaxis: {
+      categories: timelineData.categories,
+      labels: { style: { colors: chartTextColor, fontSize: '10px' } },
+      axisBorder: { show: false },
+      axisTicks: { show: false },
+    },
+    yaxis: {
+      labels: { style: { colors: chartTextColor, fontSize: '10px' } },
+      min: 0,
+      forceNiceScale: true,
+    },
+    grid: {
+      borderColor: chartGridColor,
+      strokeDashArray: 4,
+      xaxis: { lines: { show: false } },
+    },
+    legend: {
+      position: 'top',
+      horizontalAlign: 'right',
+      labels: { colors: chartTextColor },
+      fontSize: '11px',
+      markers: { size: 4, offsetX: -2 },
+      itemMargin: { horizontal: 10 },
+    },
+    tooltip: {
+      theme: isDark ? 'dark' : 'light',
+      style: { fontSize: '11px' },
+      y: { formatter: (val: number) => `${val}` },
+    },
+    dataLabels: { enabled: false },
+  }), [timelineData.categories, chartTextColor, chartGridColor, isDark]);
+
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[...Array(4)].map((_, i) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
+          {[...Array(5)].map((_, i) => (
             <div key={i} className="glass-card rounded-xl p-4 animate-pulse">
               <div className="w-5 h-5 bg-[var(--muted)] rounded mb-2" />
               <div className="w-12 h-6 bg-[var(--muted)] rounded mb-1" />
@@ -203,7 +314,7 @@ export function CampaignPageAnalytics({
   return (
     <div className="space-y-4">
       {/* Summary stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
         <StatCard
           icon={PaperAirplaneIcon}
           value={campaigns.length}
@@ -240,6 +351,15 @@ export function CampaignPageAnalytics({
           delay={3}
           animated={animated}
         />
+        <StatCard
+          icon={FlowIcon}
+          value={workflows.length}
+          label="Workflows"
+          color="text-violet-400"
+          bgColor="bg-violet-500/10"
+          delay={4}
+          animated={animated}
+        />
       </div>
 
       {analytics.engagement.hasAny && (
@@ -263,6 +383,24 @@ export function CampaignPageAnalytics({
             <EngagementMetric
               label="Unsub + Bounce"
               value={analytics.engagement.unsubscribedCount + analytics.engagement.bouncedCount}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Campaigns vs Workflows timeline */}
+      {timelineData.hasData && (
+        <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-2">
+          <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-blue-400" />
+            Campaigns vs Workflows Over Time
+          </h4>
+          <div className="h-[280px]">
+            <ReactApexChart
+              type="area"
+              height={280}
+              options={timelineChartOptions}
+              series={timelineData.series}
             />
           </div>
         </div>
