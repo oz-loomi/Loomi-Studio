@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   PhotoIcon,
   MagnifyingGlassIcon,
@@ -45,11 +46,13 @@ export interface MediaPickerModalProps {
   accountKey?: string;
   onSelect: (url: string) => void;
   onClose: () => void;
+  fullScreen?: boolean;
 }
 
 // ── Component ──
 
-export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerModalProps) {
+export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = false }: MediaPickerModalProps) {
+  const [mounted, setMounted] = useState(false);
   const [files, setFiles] = useState<MediaFile[]>([]);
   const [folders, setFolders] = useState<MediaFolder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -250,15 +253,28 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
   // ── Render ──
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in"
+      className={`fixed inset-0 z-[220] bg-black/50 animate-overlay-in ${
+        fullScreen ? 'flex items-center justify-center p-2 sm:p-4' : 'flex items-center justify-center'
+      }`}
       onClick={onClose}
     >
       <div
-        className="glass-modal w-[680px] max-h-[80vh] flex flex-col rounded-2xl overflow-hidden"
+        className={`glass-modal flex flex-col overflow-hidden ${
+          fullScreen
+            ? 'w-[92vw] h-[88vh] md:w-[72vw] md:h-[68vh] xl:w-[60vw] xl:h-[60vh] rounded-xl sm:rounded-2xl'
+            : 'w-[680px] max-h-[80vh] rounded-2xl'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ── */}
@@ -469,6 +485,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose }: MediaPickerM
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

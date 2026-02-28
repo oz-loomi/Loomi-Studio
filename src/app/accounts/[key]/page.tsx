@@ -12,6 +12,7 @@ import {
   XMarkIcon,
   ShieldCheckIcon,
   CloudArrowUpIcon,
+  PhotoIcon,
   TrashIcon,
   ExclamationTriangleIcon,
   QuestionMarkCircleIcon,
@@ -21,6 +22,7 @@ import { AdminOnly } from '@/components/route-guard';
 import { OemMultiSelect } from '@/components/oem-multi-select';
 import { UserAvatar } from '@/components/user-avatar';
 import { AccountAvatar } from '@/components/account-avatar';
+import { MediaPickerModal } from '@/components/media-picker-modal';
 import { ContactsTable } from '@/components/contacts/contacts-table';
 import type { Contact } from '@/components/contacts/contacts-table';
 import type { AccountData } from '@/contexts/account-context';
@@ -1350,10 +1352,11 @@ export default function AccountDetailPage() {
             <section className={`${sectionCardClass} lg:col-span-2`}>
               <h3 className={sectionHeadingClass}>Logo Variants</h3>
               <p className="text-[11px] text-[var(--muted-foreground)] mb-6 -mt-2">
-                Upload or paste URLs for each logo variant. Used in email templates and previews.
+                Upload, choose from media library, or paste URLs for each logo variant. Used in email templates and previews.
               </p>
               <div className="mb-6">
                 <LogoSlot
+                  accountKey={key}
                   label="Storefront Image"
                   variant="storefront"
                   value={storefrontImage}
@@ -1371,6 +1374,7 @@ export default function AccountDetailPage() {
                 ]).map(({ label, variant, value, setter, required }) => (
                   <LogoSlot
                     key={variant}
+                    accountKey={key}
                     label={label}
                     variant={variant}
                     value={value}
@@ -2267,6 +2271,7 @@ function AccountContactsTab({ accountKey, isConnected }: { accountKey: string; i
 // Logo Upload Slot Component
 // ════════════════════════════════════════
 function LogoSlot({
+  accountKey,
   label,
   variant,
   value,
@@ -2274,6 +2279,7 @@ function LogoSlot({
   onUpload,
   required,
 }: {
+  accountKey: string;
   label: string;
   variant: AccountImageVariant;
   value: string;
@@ -2286,6 +2292,7 @@ function LogoSlot({
   const [uploading, setUploading] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [imgVersion, setImgVersion] = useState(0);
+  const [showMediaPicker, setShowMediaPicker] = useState(false);
 
   // Reset error when URL changes (re-upload or manual edit)
   useEffect(() => { setImgError(false); }, [value]);
@@ -2395,6 +2402,18 @@ function LogoSlot({
 
       {/* URL fallback + remove */}
       <div className="mt-2 flex gap-1.5">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowMediaPicker(true);
+          }}
+          className="px-2.5 py-1.5 text-[10px] font-medium rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)]/40 transition-colors flex-shrink-0 inline-flex items-center gap-1.5"
+          title="Select from media library"
+        >
+          <PhotoIcon className="w-3.5 h-3.5" />
+          Media Library
+        </button>
         <input
           type="text"
           value={value}
@@ -2412,6 +2431,20 @@ function LogoSlot({
           </button>
         )}
       </div>
+
+      {showMediaPicker && (
+        <MediaPickerModal
+          accountKey={accountKey}
+          fullScreen
+          onSelect={(url) => {
+            onChange(url);
+            setImgError(false);
+            setImgVersion((v) => v + 1);
+            setShowMediaPicker(false);
+          }}
+          onClose={() => setShowMediaPicker(false)}
+        />
+      )}
     </div>
   );
 }
