@@ -30,6 +30,7 @@ import { toast } from '@/lib/toast';
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
 import { LibraryPickerContent } from '@/components/library-picker-content';
+import { getStarterTemplate } from '@/lib/template-starters';
 
 // ── Types ──
 
@@ -938,6 +939,9 @@ export default function TemplatesPage() {
   // Library picker (inside create modal)
   const [libraryPickerMode, setLibraryPickerMode] = useState(false);
   const [createAccountKey, setCreateAccountKey] = useState<string | null>(null);
+  const [createMode, setCreateMode] = useState<'visual' | 'code' | null>(null);
+  const [createName, setCreateName] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const accountDropdownRef = useRef<HTMLDivElement>(null);
@@ -1099,12 +1103,44 @@ export default function TemplatesPage() {
   };
 
   const handleCreateChoice = (mode: 'visual' | 'code') => {
+    setCreateMode(mode);
+    setCreateName('');
+  };
+
+  const handleCreateConfirm = async () => {
+    if (!createMode || !createName.trim()) return;
     const createKey = createAccountKey || (accountFilter !== 'all' ? accountFilter : null) || effectiveAccountKey;
     if (!createKey) return;
-    setShowCreateChoice(false);
-    setLibraryPickerMode(false);
-    setCreateAccountKey(null);
-    router.push(`/templates/editor?mode=${mode}&accountKey=${encodeURIComponent(createKey)}`);
+    setCreating(true);
+    try {
+      const starterSource = getStarterTemplate(createMode, createName.trim());
+      const res = await fetch('/api/esp/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountKey: createKey,
+          name: createName.trim(),
+          html: '',
+          source: starterSource,
+          editorType: createMode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to create template');
+        return;
+      }
+      setShowCreateChoice(false);
+      setLibraryPickerMode(false);
+      setCreateAccountKey(null);
+      setCreateMode(null);
+      setCreateName('');
+      router.push(`/templates/editor?id=${data.template.id}`);
+    } catch {
+      toast.error('Failed to create template');
+    } finally {
+      setCreating(false);
+    }
   };
 
   const selectLibraryTemplate = (slug: string) => {
@@ -1318,34 +1354,53 @@ export default function TemplatesPage() {
         const needsAccountPicker = isAdmin && !modalAccountKey;
         const selectedAccountName = modalAccountKey ? (accounts[modalAccountKey]?.dealer || modalAccountKey) : null;
 
+        // Determine modal title based on current step
+        const modalTitle = needsAccountPicker
+          ? 'Select Account'
+          : libraryPickerMode
+            ? 'Select from Library'
+            : createMode
+              ? 'Name Your Template'
+              : 'Add New Template';
+
+        // Show back button when user can go back a step
+        const showBack = libraryPickerMode || createMode || (!needsAccountPicker && isAdmin && !effectiveAccountKey);
+
+        const handleBack = () => {
+          if (createMode) {
+            setCreateMode(null);
+            setCreateName('');
+          } else if (libraryPickerMode) {
+            setLibraryPickerMode(false);
+          } else {
+            setCreateAccountKey(null);
+          }
+        };
+
+        const handleClose = () => {
+          setShowCreateChoice(false);
+          setLibraryPickerMode(false);
+          setCreateAccountKey(null);
+          setCreateMode(null);
+          setCreateName('');
+        };
+
         return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => { setShowCreateChoice(false); setLibraryPickerMode(false); setCreateAccountKey(null); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={handleClose}>
           <div className={`glass-modal flex flex-col ${libraryPickerMode ? 'w-[960px] max-w-[calc(100vw-3rem)] h-[70vh] max-h-[720px]' : 'w-[640px]'}`} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
               <div className="flex items-center gap-2">
-                {(libraryPickerMode || (!needsAccountPicker && isAdmin && !effectiveAccountKey)) && (
+                {showBack && (
                   <button
-                    onClick={() => {
-                      if (libraryPickerMode) {
-                        setLibraryPickerMode(false);
-                      } else {
-                        setCreateAccountKey(null);
-                      }
-                    }}
+                    onClick={handleBack}
                     className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                   >
                     <ArrowLeftIcon className="w-4 h-4" />
                   </button>
                 )}
-                <h3 className="text-base font-semibold">
-                  {needsAccountPicker
-                    ? 'Select Account'
-                    : libraryPickerMode
-                      ? 'Select from Library'
-                      : 'Add New Template'}
-                </h3>
+                <h3 className="text-base font-semibold">{modalTitle}</h3>
               </div>
-              <button onClick={() => { setShowCreateChoice(false); setLibraryPickerMode(false); setCreateAccountKey(null); }} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+              <button onClick={handleClose} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
@@ -1387,6 +1442,38 @@ export default function TemplatesPage() {
                       );
                     })}
                   </div>
+                </>
+              ) : createMode ? (
+                /* ── Name step ── */
+                <>
+                  {isAdmin && selectedAccountName && (
+                    <p className="text-xs text-[var(--muted-foreground)] mb-3">
+                      Creating for: <span className="font-medium text-[var(--foreground)]">{selectedAccountName}</span>
+                    </p>
+                  )}
+                  <p className="text-sm text-[var(--muted-foreground)] mb-4">
+                    Give your {createMode === 'visual' ? 'Drag & Drop' : 'HTML'} template a name:
+                  </p>
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); handleCreateConfirm(); }}
+                    className="space-y-4"
+                  >
+                    <input
+                      type="text"
+                      value={createName}
+                      onChange={e => setCreateName(e.target.value)}
+                      placeholder="e.g. March Newsletter, Welcome Email..."
+                      autoFocus
+                      className="w-full px-4 py-3 text-sm rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] transition-colors"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!createName.trim() || creating}
+                      className="w-full py-3 text-sm font-medium rounded-xl bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {creating ? 'Creating...' : 'Create Template'}
+                    </button>
+                  </form>
                 </>
               ) : (
                 <>

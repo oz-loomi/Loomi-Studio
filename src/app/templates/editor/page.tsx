@@ -55,127 +55,10 @@ import { ComponentIcon, SectionsIcon } from "@/components/icon-map";
 import { CodeEditor } from "@/components/code-editor";
 import { MediaPickerModal } from "@/components/media-picker-modal";
 import { TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT } from "@/lib/ui-events";
+import { getStarterTemplate } from "@/lib/template-starters";
 
 type EditorMode = "code" | "visual";
 type VisualTab = "settings" | "components";
-
-// ── Default starter templates ──
-
-/** Rich component-based starter for visual (Drag & Drop) mode */
-const VISUAL_STARTER_TEMPLATE = `---
-title: Untitled Template
-rooftop: preview
----
-
-<x-base>
-
-  <x-core.header />
-
-  <x-core.hero
-    headline="Your Headline Goes Here"
-    subheadline="Add a brief description that captures your audience's attention and encourages them to keep reading."
-    fallback-bg="#1a1a2e"
-    headline-color="#ffffff"
-    subheadline-color="#e0e0e0"
-    hero-height="420px"
-    text-align="center"
-    content-valign="middle"
-    primary-button-text="Get Started"
-    primary-button-url="#"
-    primary-button-bg-color="#4f46e5"
-    primary-button-text-color="#ffffff"
-    primary-button-radius="8px"
-  />
-
-  <x-core.spacer size="40" />
-
-  <x-core.copy
-    greeting="Hi {{contact.first_name}},"
-    body="Thank you for being a valued member of our community. We're excited to share some updates with you."
-    align="center"
-    padding="20px 40px"
-  />
-
-  <x-core.spacer size="24" />
-
-  <x-core.features
-    section-title="What We Offer"
-    feature1="Quality Service"
-    feature1-desc="We pride ourselves on delivering exceptional quality in everything we do."
-    feature2="Expert Team"
-    feature2-desc="Our experienced team is here to help you achieve your goals."
-    feature3="Fast Results"
-    feature3-desc="Get the results you need quickly and efficiently."
-    variant="icon"
-    accent-color="#4f46e5"
-    padding="20px 40px"
-  />
-
-  <x-core.spacer size="24" />
-
-  <x-core.cta
-    button-text="Learn More"
-    button-url="#"
-    button-bg-color="#4f46e5"
-    button-text-color="#ffffff"
-    button-radius="8px"
-    section-padding="20px 40px"
-    align="center"
-  />
-
-  <x-core.spacer size="40" />
-
-  <x-core.footer />
-
-</x-base>
-`;
-
-/** Clean starter for code (HTML) editing mode */
-const CODE_STARTER_TEMPLATE = `---
-title: Untitled Template
-rooftop: preview
----
-
-<x-base>
-
-  <x-core.header />
-
-  <x-core.spacer size="24" />
-
-  <x-core.copy
-    greeting="Hi {{contact.first_name}},"
-    body="Thank you for being part of our community. We wanted to reach out with an important update."
-    align="left"
-    padding="20px 40px"
-  />
-
-  <x-core.divider
-    color="#e5e7eb"
-    padding="0 40px"
-  />
-
-  <x-core.copy
-    body="Add the main content of your email here. You can use multiple copy blocks, images, buttons, and other components to build your message."
-    align="left"
-    padding="20px 40px"
-  />
-
-  <x-core.cta
-    button-text="Take Action"
-    button-url="#"
-    button-bg-color="#4f46e5"
-    button-text-color="#ffffff"
-    button-radius="8px"
-    section-padding="20px 40px"
-    align="center"
-  />
-
-  <x-core.spacer size="24" />
-
-  <x-core.footer />
-
-</x-base>
-`;
 
 interface TemplateHistoryVersion {
   id: string;
@@ -3639,7 +3522,7 @@ export default function TemplateEditorPage() {
           .catch((err) => console.error("Error loading library template:", err));
       } else {
         // Brand new blank ESP template — use mode-specific starter
-        const blank = modeParam === "code" ? CODE_STARTER_TEMPLATE : VISUAL_STARTER_TEMPLATE;
+        const blank = getStarterTemplate(modeParam === "code" ? "code" : "visual");
         setCode(blank);
         setOriginalCode(blank);
         setEspTemplateName("Untitled Template");
