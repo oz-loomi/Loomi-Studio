@@ -5,15 +5,18 @@ import * as templateService from '@/lib/services/templates';
 import * as accountEmailService from '@/lib/services/account-emails';
 import { maizzleRender } from '@/lib/maizzle-render';
 import crypto from 'crypto';
-import { readdir, readFile, writeFile, mkdir, unlink, stat } from 'fs/promises';
+import { readdir, stat } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 
-// ── Server-side disk cache ──
+// ── Server-side in-memory LRU cache ──
 
-const CACHE_DIR = path.join(process.cwd(), '.preview-cache');
 const PREVIEW_CACHE_VERSION = process.env.PREVIEW_CACHE_VERSION || '2026-02-22.3';
-const ENGINE_SIGNATURE_TTL_MS = 1000;
+const MAX_MEMORY_CACHE_ENTRIES = 200;
+
+// In production, engine components don't change at runtime — use a long TTL.
+// In dev, a 30s TTL catches component edits without the per-request cost of a full stat walk.
+const ENGINE_SIGNATURE_TTL_MS = process.env.NODE_ENV === 'production' ? 300_000 : 30_000;
 const ENGINE_SIGNATURE_PATHS = [
   path.join(PATHS.engine.root, 'src', 'components'),
   path.join(PATHS.engine.root, 'src', 'layouts'),
@@ -23,6 +26,9 @@ let engineSignatureCache: { value: string; computedAt: number } = {
   value: '',
   computedAt: 0,
 };
+
+// In-memory LRU cache — avoids disk I/O on every preview request
+const memoryCache = new Map<string, string>();
 
 // ── Helpers ──
 
@@ -92,28 +98,30 @@ async function getEngineSignature(): Promise<string> {
   return value;
 }
 
-async function getCacheKey(html: string): Promise<string> {
-  const engineSignature = await getEngineSignature();
+function getCacheKey(html: string, engineSignature: string): string {
   return crypto
     .createHash('md5')
     .update(`${PREVIEW_CACHE_VERSION}:${engineSignature}:${html}`)
     .digest('hex');
 }
 
-async function getCachedPreview(cacheKey: string): Promise<string | null> {
-  const cachePath = path.join(CACHE_DIR, `${cacheKey}.html`);
-  try {
-    return await readFile(cachePath, 'utf-8');
-  } catch {
-    return null;
+function getCachedPreview(cacheKey: string): string | null {
+  const cached = memoryCache.get(cacheKey);
+  if (cached) {
+    // Move to end (LRU refresh)
+    memoryCache.delete(cacheKey);
+    memoryCache.set(cacheKey, cached);
   }
+  return cached ?? null;
 }
 
-async function setCachedPreview(cacheKey: string, html: string) {
-  try {
-    await mkdir(CACHE_DIR, { recursive: true });
-    await writeFile(path.join(CACHE_DIR, `${cacheKey}.html`), html);
-  } catch {}
+function setCachedPreview(cacheKey: string, html: string) {
+  // LRU eviction — delete oldest entries when at capacity
+  if (memoryCache.size >= MAX_MEMORY_CACHE_ENTRIES) {
+    const firstKey = memoryCache.keys().next().value;
+    if (firstKey) memoryCache.delete(firstKey);
+  }
+  memoryCache.set(cacheKey, html);
 }
 
 // ── POST /api/preview — Editor preview ──
@@ -136,9 +144,10 @@ export async function POST(req: NextRequest) {
         : undefined,
     );
 
-    // Check cache — key includes engine file mtimes so stale results are impossible
-    const cacheKey = await getCacheKey(resolvedHtml);
-    const cached = await getCachedPreview(cacheKey);
+    // Check in-memory cache (engine signature is cached with long TTL, avoiding stat walk)
+    const engineSig = await getEngineSignature();
+    const cacheKey = getCacheKey(resolvedHtml, engineSig);
+    const cached = getCachedPreview(cacheKey);
     if (cached) {
       return NextResponse.json({ html: cached });
     }
@@ -149,7 +158,7 @@ export async function POST(req: NextRequest) {
       purge: { safelist: ['*loomi-*'] },
     });
 
-    await setCachedPreview(cacheKey, result);
+    setCachedPreview(cacheKey, result);
     return NextResponse.json({ html: result });
   } catch (err: any) {
     console.error('Preview error:', err);
@@ -213,9 +222,10 @@ export async function GET(req: NextRequest) {
 
     const resolvedHtml = applyPreviewValues(html, previewValues);
 
-    // Check cache
-    const cacheKey = await getCacheKey(resolvedHtml);
-    const cached = await getCachedPreview(cacheKey);
+    // Check in-memory cache
+    const engineSig = await getEngineSignature();
+    const cacheKey = getCacheKey(resolvedHtml, engineSig);
+    const cached = getCachedPreview(cacheKey);
     if (cached) {
       return NextResponse.json({ html: cached });
     }
@@ -226,7 +236,7 @@ export async function GET(req: NextRequest) {
       purge: { safelist: ['*loomi-*'] },
     });
 
-    await setCachedPreview(cacheKey, result);
+    setCachedPreview(cacheKey, result);
     return NextResponse.json({ html: result });
   } catch (err: any) {
     console.error('Preview GET error:', err);
@@ -244,10 +254,8 @@ export async function DELETE() {
   if (error) return error;
 
   try {
-    if (existsSync(CACHE_DIR)) {
-      const files = await readdir(CACHE_DIR);
-      await Promise.all(files.map((f) => unlink(path.join(CACHE_DIR, f))));
-    }
+    memoryCache.clear();
+    engineSignatureCache = { value: '', computedAt: 0 };
     return NextResponse.json({ cleared: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

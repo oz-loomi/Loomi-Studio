@@ -3260,6 +3260,8 @@ export default function TemplateEditorPage() {
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewAbortRef = useRef<AbortController | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const codeRef = useRef(code);
+  const previewCacheRef = useRef(new Map<string, string>());
 
   // Media picker state
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
@@ -3285,6 +3287,9 @@ export default function TemplateEditorPage() {
     setMediaPickerPropKey(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mediaPickerComponentIdx, mediaPickerPropKey]);
+
+  // Keep codeRef in sync for reading in effects without triggering re-runs
+  useEffect(() => { codeRef.current = code; }, [code]);
 
   // Undo/redo history
   const historyRef = useRef<string[]>([]);
@@ -3345,6 +3350,15 @@ export default function TemplateEditorPage() {
       const controller = new AbortController();
       previewAbortRef.current = controller;
 
+      // Check client-side in-memory cache first (avoids network round-trip)
+      const cached = previewCacheRef.current.get(html);
+      if (cached) {
+        previewKeyRef.current += 1;
+        setPreviewHtml(injectLoomiAttributes(cached));
+        setPreviewLoading(false);
+        return;
+      }
+
       setPreviewLoading(true);
       setPreviewError("");
       try {
@@ -3361,6 +3375,12 @@ export default function TemplateEditorPage() {
         if (controller.signal.aborted) return;
         const data = await res.json();
         if (data.html) {
+          // Cache the compiled result (LRU eviction at 100 entries)
+          if (previewCacheRef.current.size > 100) {
+            const firstKey = previewCacheRef.current.keys().next().value;
+            if (firstKey) previewCacheRef.current.delete(firstKey);
+          }
+          previewCacheRef.current.set(html, data.html);
           previewKeyRef.current += 1;
           setPreviewHtml(injectLoomiAttributes(data.html));
         } else if (data.error) setPreviewError(data.error);
@@ -3372,6 +3392,11 @@ export default function TemplateEditorPage() {
     },
     [previewVariableMap],
   );
+
+  // Clear client-side preview cache when preview variables change (different contact selected)
+  useEffect(() => {
+    previewCacheRef.current.clear();
+  }, [previewVariableMap]);
 
   const loadPreviewContacts = useCallback(async () => {
     if (!effectiveAccountKey) {
@@ -3704,33 +3729,30 @@ export default function TemplateEditorPage() {
     }
   }, [showComponentPicker, sectionTags]);
 
-  // Re-compile preview when selected preview data changes
+  // Re-compile preview when preview variables or hidden components change.
+  // Reads parsed/code from refs to avoid double-triggering with syncVisualToCode.
   useEffect(() => {
-    if (!code) return;
+    const currentCode = codeRef.current;
+    const currentParsed = parsedRef.current;
+    if (!currentCode) return;
     const htmlForPreview =
-      editorMode === "visual" && parsed
-        ? serializeTemplateForPreview(parsed, hiddenComponents)
-        : code;
+      editorMode === "visual" && currentParsed
+        ? serializeTemplateForPreview(currentParsed, hiddenComponents)
+        : currentCode;
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     previewTimerRef.current = setTimeout(
       () => compilePreview(htmlForPreview),
-      1000,
+      300,
     );
-  }, [
-    previewVariableMap,
-    editorMode,
-    parsed,
-    hiddenComponents,
-    code,
-    compilePreview,
-  ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewVariableMap, editorMode, hiddenComponents, compilePreview]);
 
   const handleCodeChange = (newCode: string) => {
     if (!historySkipRef.current) pushHistory(code);
     historySkipRef.current = false;
     setCode(newCode);
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-    previewTimerRef.current = setTimeout(() => compilePreview(newCode), 1000);
+    previewTimerRef.current = setTimeout(() => compilePreview(newCode), 300);
   };
 
   const handleModeSwitch = async (mode: EditorMode) => {
@@ -3790,7 +3812,10 @@ export default function TemplateEditorPage() {
     const newParsed = { ...currentParsed, components: newComponents };
     parsedRef.current = newParsed; // Update ref immediately for next synchronous call
     setParsed(newParsed);
-    syncVisualToCode(newParsed);
+    // CSS-mapped props already get instant visual feedback via injectLiveStyle,
+    // so use a lazy 3s background recompile. All other props use the fast 300ms debounce.
+    const isLiveInjectable = !!PROP_CSS_MAP[key] || !!PROP_CSS_MAP[key.replace(/^m:/, '')];
+    syncVisualToCode(newParsed, undefined, isLiveInjectable ? 3000 : 300);
   };
 
   const updateFrontmatter = (key: string, value: string) => {
@@ -3852,7 +3877,7 @@ export default function TemplateEditorPage() {
   };
 
   const syncVisualToCode = useCallback(
-    (template: ParsedTemplate, hidden?: Set<number>) => {
+    (template: ParsedTemplate, hidden?: Set<number>, debounceMs = 300) => {
       if (!historySkipRef.current) pushHistory(code);
       historySkipRef.current = false;
       const newCode = serializeTemplateClient(template);
@@ -3863,7 +3888,7 @@ export default function TemplateEditorPage() {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       previewTimerRef.current = setTimeout(
         () => compilePreview(previewCode),
-        1000,
+        debounceMs,
       );
     },
     [compilePreview, hiddenComponents, code, pushHistory],
@@ -4084,11 +4109,11 @@ export default function TemplateEditorPage() {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       previewTimerRef.current = setTimeout(
         () => compilePreview(previewCode),
-        1000,
+        300,
       );
     } else {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-      previewTimerRef.current = setTimeout(() => compilePreview(prev), 1000);
+      previewTimerRef.current = setTimeout(() => compilePreview(prev), 300);
     }
   }, [code, editorMode, hiddenComponents, compilePreview]);
 
@@ -4111,11 +4136,11 @@ export default function TemplateEditorPage() {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       previewTimerRef.current = setTimeout(
         () => compilePreview(previewCode),
-        1000,
+        300,
       );
     } else {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-      previewTimerRef.current = setTimeout(() => compilePreview(next), 1000);
+      previewTimerRef.current = setTimeout(() => compilePreview(next), 300);
     }
   }, [code, editorMode, hiddenComponents, compilePreview]);
 
@@ -4179,7 +4204,7 @@ export default function TemplateEditorPage() {
         if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
         previewTimerRef.current = setTimeout(
           () => compilePreview(previewCode),
-          1000,
+          300,
         );
       }
       return next;
@@ -4564,7 +4589,7 @@ export default function TemplateEditorPage() {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       previewTimerRef.current = setTimeout(
         () => compilePreview(previewCode),
-        1000,
+        300,
       );
 
       setMessage("Version restored");

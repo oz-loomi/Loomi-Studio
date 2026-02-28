@@ -11,7 +11,6 @@
 import { render } from '@maizzle/framework';
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
 
 const ENGINE_ROOT = process.env.MAIZZLE_ENGINE_ROOT || process.cwd();
 
@@ -36,14 +35,8 @@ process.on('message', async (msg) => {
   if (!msg || msg.type !== 'render') return;
 
   const { id, html, config = {} } = msg;
-  const uid = crypto.randomBytes(6).toString('hex');
-  const tmpDir = path.join(ENGINE_ROOT, 'src', 'templates', `_worker_${uid}`);
-  const tmpFile = path.join(tmpDir, '_preview.html');
 
   try {
-    fs.mkdirSync(tmpDir, { recursive: true });
-    fs.writeFileSync(tmpFile, html, 'utf-8');
-
     const renderConfig = {
       components: {
         root: '.',
@@ -56,13 +49,11 @@ process.on('message', async (msg) => {
       prettify: config.prettify ?? false,
     };
 
+    // render() accepts an HTML string directly — no temp file needed
     const result = await render(html, renderConfig);
     process.send({ type: 'result', id, html: result.html });
   } catch (err) {
     process.send({ type: 'result', id, error: err?.message || 'Render failed' });
-  } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
-    try { fs.rmdirSync(tmpDir); } catch {}
   }
 });
 
