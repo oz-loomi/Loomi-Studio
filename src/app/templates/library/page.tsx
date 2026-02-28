@@ -686,7 +686,6 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                 <h3 className="text-base font-semibold truncate">
                   {tplMap[previewDesign]?.name || formatDesign(previewDesign)}
                 </h3>
-                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{previewDesign}</p>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
@@ -901,7 +900,6 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                   <h3 className="text-base font-semibold truncate">
                     {pt?.name || formatDesign(previewDesign)}
                   </h3>
-                  <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{previewDesign}</p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button

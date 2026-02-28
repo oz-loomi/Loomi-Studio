@@ -54,9 +54,128 @@ import {
 import { ComponentIcon, SectionsIcon } from "@/components/icon-map";
 import { CodeEditor } from "@/components/code-editor";
 import { MediaPickerModal } from "@/components/media-picker-modal";
+import { TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT } from "@/lib/ui-events";
 
 type EditorMode = "code" | "visual";
 type VisualTab = "settings" | "components";
+
+// ── Default starter templates ──
+
+/** Rich component-based starter for visual (Drag & Drop) mode */
+const VISUAL_STARTER_TEMPLATE = `---
+title: Untitled Template
+rooftop: preview
+---
+
+<x-base>
+
+  <x-core.header />
+
+  <x-core.hero
+    headline="Your Headline Goes Here"
+    subheadline="Add a brief description that captures your audience's attention and encourages them to keep reading."
+    fallback-bg="#1a1a2e"
+    headline-color="#ffffff"
+    subheadline-color="#e0e0e0"
+    hero-height="420px"
+    text-align="center"
+    content-valign="middle"
+    primary-button-text="Get Started"
+    primary-button-url="#"
+    primary-button-bg-color="#4f46e5"
+    primary-button-text-color="#ffffff"
+    primary-button-radius="8px"
+  />
+
+  <x-core.spacer size="40" />
+
+  <x-core.copy
+    greeting="Hi {{contact.first_name}},"
+    body="Thank you for being a valued member of our community. We're excited to share some updates with you."
+    align="center"
+    padding="20px 40px"
+  />
+
+  <x-core.spacer size="24" />
+
+  <x-core.features
+    section-title="What We Offer"
+    feature1="Quality Service"
+    feature1-desc="We pride ourselves on delivering exceptional quality in everything we do."
+    feature2="Expert Team"
+    feature2-desc="Our experienced team is here to help you achieve your goals."
+    feature3="Fast Results"
+    feature3-desc="Get the results you need quickly and efficiently."
+    variant="icon"
+    accent-color="#4f46e5"
+    padding="20px 40px"
+  />
+
+  <x-core.spacer size="24" />
+
+  <x-core.cta
+    button-text="Learn More"
+    button-url="#"
+    button-bg-color="#4f46e5"
+    button-text-color="#ffffff"
+    button-radius="8px"
+    section-padding="20px 40px"
+    align="center"
+  />
+
+  <x-core.spacer size="40" />
+
+  <x-core.footer />
+
+</x-base>
+`;
+
+/** Clean starter for code (HTML) editing mode */
+const CODE_STARTER_TEMPLATE = `---
+title: Untitled Template
+rooftop: preview
+---
+
+<x-base>
+
+  <x-core.header />
+
+  <x-core.spacer size="24" />
+
+  <x-core.copy
+    greeting="Hi {{contact.first_name}},"
+    body="Thank you for being part of our community. We wanted to reach out with an important update."
+    align="left"
+    padding="20px 40px"
+  />
+
+  <x-core.divider
+    color="#e5e7eb"
+    padding="0 40px"
+  />
+
+  <x-core.copy
+    body="Add the main content of your email here. You can use multiple copy blocks, images, buttons, and other components to build your message."
+    align="left"
+    padding="20px 40px"
+  />
+
+  <x-core.cta
+    button-text="Take Action"
+    button-url="#"
+    button-bg-color="#4f46e5"
+    button-text-color="#ffffff"
+    button-radius="8px"
+    section-padding="20px 40px"
+    align="center"
+  />
+
+  <x-core.spacer size="24" />
+
+  <x-core.footer />
+
+</x-base>
+`;
 
 interface TemplateHistoryVersion {
   id: string;
@@ -3519,8 +3638,8 @@ export default function TemplateEditorPage() {
           })
           .catch((err) => console.error("Error loading library template:", err));
       } else {
-        // Brand new blank ESP template — initialize with minimal structure
-        const blank = `---\ntitle: Untitled Template\nrooftop: preview\n---\n\n<x-base>\n\n  <x-core.spacer size="40" />\n\n  <x-core.copy\n    greeting="Hello,"\n    body="Start building your email by adding components."\n  />\n\n  <x-core.spacer size="40" />\n\n</x-base>\n`;
+        // Brand new blank ESP template — use mode-specific starter
+        const blank = modeParam === "code" ? CODE_STARTER_TEMPLATE : VISUAL_STARTER_TEMPLATE;
         setCode(blank);
         setOriginalCode(blank);
         setEspTemplateName("Untitled Template");
@@ -3576,6 +3695,31 @@ export default function TemplateEditorPage() {
     }
     markClean();
   }, [hasChanges, markClean, markDirty]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    document.body.dataset.templateAiSidebar = showAiAssistant ? "open" : "closed";
+    window.dispatchEvent(
+      new CustomEvent(TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT, {
+        detail: { open: showAiAssistant },
+      }),
+    );
+  }, [showAiAssistant]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof document !== "undefined") {
+        delete document.body.dataset.templateAiSidebar;
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent(TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT, {
+            detail: { open: false },
+          }),
+        );
+      }
+    };
+  }, []);
 
   // ── Auto-save (3s after last change) ──
   useEffect(() => {
@@ -5094,14 +5238,14 @@ export default function TemplateEditorPage() {
     <div className="flex flex-col h-[calc(100vh-2rem)]">
       {/* Top toolbar */}
       <div className="flex items-center justify-between pb-4 flex-shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <Link
             href={backHref}
             className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
           >
             <ArrowLeftIcon className="w-4 h-4" />
           </Link>
-          <div>
+          <div className="min-w-0">
             {isEditingTitle ? (
               <input
                 type="text"
@@ -5136,7 +5280,7 @@ export default function TemplateEditorPage() {
               />
             ) : (
               <div className="group/title flex items-center gap-1.5">
-                <h2 className="text-lg font-bold capitalize">{designLabel}</h2>
+                <h2 className="text-lg font-bold capitalize truncate">{designLabel}</h2>
                 <button
                   onClick={() => {
                     setEditTitleValue(espMode ? espTemplateName : (parsed?.frontmatter?.title || designLabel));
@@ -5161,8 +5305,68 @@ export default function TemplateEditorPage() {
               )}
             </p>
           </div>
+          {espMode && (
+            <div className="hidden xl:flex items-end gap-2 ml-2 min-w-0 flex-1 max-w-[860px]">
+              <div className="min-w-[220px] flex-1">
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-[10px] text-[var(--muted-foreground)]">
+                    Subject
+                  </label>
+                  <button
+                    onClick={() => handleGenerateEmailMeta("subject")}
+                    disabled={aiMetaLoading}
+                    className="ai-horizon-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-40"
+                    title="Generate subject with Loomi AI"
+                    aria-label="Generate subject with Loomi AI"
+                  >
+                    {aiMetaLoading && aiMetaField === "subject" ? (
+                      <ArrowPathIcon className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <SparklesIcon className="w-3 h-3" />
+                    )}
+                    <span>AI</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={espSubject}
+                  onChange={(e) => setEspSubject(e.target.value)}
+                  placeholder="Subject line..."
+                  className="w-full text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
+                />
+              </div>
+              <div className="min-w-[220px] flex-1">
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-[10px] text-[var(--muted-foreground)]">
+                    Preview Text
+                  </label>
+                  <button
+                    onClick={() => handleGenerateEmailMeta("previewText")}
+                    disabled={aiMetaLoading}
+                    className="ai-horizon-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-40"
+                    title="Generate preview text with Loomi AI"
+                    aria-label="Generate preview text with Loomi AI"
+                  >
+                    {aiMetaLoading && aiMetaField === "previewText" ? (
+                      <ArrowPathIcon className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <SparklesIcon className="w-3 h-3" />
+                    )}
+                    <span>AI</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={espPreviewText}
+                  onChange={(e) => setEspPreviewText(e.target.value)}
+                  placeholder="Preview text..."
+                  className="w-full text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
+                />
+              </div>
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0 ml-3">
           {previewContactsError && (
             <span className="text-[10px] text-amber-400 mr-1">
               {previewContactsError}
@@ -5176,8 +5380,8 @@ export default function TemplateEditorPage() {
             onClick={() => setShowAiAssistant((prev) => !prev)}
             className={`group relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-200 ${
               showAiAssistant
-                ? "text-white border-pink-300/70 ring-1 ring-cyan-300/35 bg-gradient-to-r from-orange-500 via-pink-500 to-purple-500 shadow-[0_8px_24px_rgba(45,212,191,0.35)]"
-                : "ai-ed-btn-inactive hover:ring-1 hover:ring-cyan-300/25 hover:shadow-[0_6px_18px_rgba(45,212,191,0.22)]"
+                ? "ai-ed-btn-active"
+                : "ai-ed-btn-inactive"
             }`}
             title="Open AI assistant"
           >
@@ -5281,20 +5485,23 @@ export default function TemplateEditorPage() {
                     <div className="space-y-3">
                       {/* Subject Line */}
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs text-[var(--muted-foreground)]">Subject Line</label>
+                        <div className="flex items-center gap-1 mb-1">
+                          <label className="text-xs text-[var(--muted-foreground)]">
+                            Subject Line
+                          </label>
                           <button
                             onClick={() => handleGenerateEmailMeta("subject")}
                             disabled={aiMetaLoading}
-                            className="group flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md ai-ed-btn-inactive border border-[var(--ai-ed-btn-border)] hover:ring-1 hover:ring-cyan-300/25 hover:shadow-[0_4px_12px_rgba(45,212,191,0.18)] transition-all duration-200 disabled:opacity-50"
-                            title="Generate with Loomi AI"
+                            className="ai-horizon-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-40"
+                            title="Generate subject with Loomi AI"
+                            aria-label="Generate subject with Loomi AI"
                           >
                             {aiMetaLoading && aiMetaField === "subject" ? (
                               <ArrowPathIcon className="w-3 h-3 animate-spin" />
                             ) : (
-                              <SparklesIcon className="w-3 h-3 transition-transform group-hover:scale-110 group-hover:rotate-6" />
+                              <SparklesIcon className="w-3 h-3" />
                             )}
-                            Generate with Loomi AI
+                            <span>AI</span>
                           </button>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -5310,20 +5517,23 @@ export default function TemplateEditorPage() {
                       </div>
                       {/* Preview Text */}
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs text-[var(--muted-foreground)]">Preview Text</label>
+                        <div className="flex items-center gap-1 mb-1">
+                          <label className="text-xs text-[var(--muted-foreground)]">
+                            Preview Text
+                          </label>
                           <button
                             onClick={() => handleGenerateEmailMeta("previewText")}
                             disabled={aiMetaLoading}
-                            className="group flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md ai-ed-btn-inactive border border-[var(--ai-ed-btn-border)] hover:ring-1 hover:ring-cyan-300/25 hover:shadow-[0_4px_12px_rgba(45,212,191,0.18)] transition-all duration-200 disabled:opacity-50"
-                            title="Generate with Loomi AI"
+                            className="ai-horizon-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-40"
+                            title="Generate preview text with Loomi AI"
+                            aria-label="Generate preview text with Loomi AI"
                           >
                             {aiMetaLoading && aiMetaField === "previewText" ? (
                               <ArrowPathIcon className="w-3 h-3 animate-spin" />
                             ) : (
-                              <SparklesIcon className="w-3 h-3 transition-transform group-hover:scale-110 group-hover:rotate-6" />
+                              <SparklesIcon className="w-3 h-3" />
                             )}
-                            Generate with Loomi AI
+                            <span>AI</span>
                           </button>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -6179,7 +6389,7 @@ export default function TemplateEditorPage() {
                                     applyAiEdits(msg.componentEdits!)
                                   }
                                   disabled={selectedComponent === null}
-                                  className="px-2 py-1 rounded-md text-[10px] font-semibold text-white bg-gradient-to-r from-orange-500/90 to-fuchsia-500/90 shadow-[0_6px_14px_rgba(45,212,191,0.18)] hover:brightness-110 disabled:opacity-40 transition-all"
+                                  className="ai-ed-primary-btn px-2 py-1 rounded-md text-[10px] font-semibold disabled:opacity-40 transition-all"
                                 >
                                   Apply All
                                 </button>
@@ -6204,7 +6414,7 @@ export default function TemplateEditorPage() {
                                     <button
                                       onClick={() => applyAiEdits([edit])}
                                       disabled={selectedComponent === null}
-                                      className="mt-2 px-2 py-1 rounded-md text-[10px] font-semibold text-white bg-gradient-to-r from-orange-500/90 to-fuchsia-500/90 shadow-[0_6px_14px_rgba(45,212,191,0.18)] hover:brightness-110 disabled:opacity-40 transition-all"
+                                      className="ai-ed-primary-btn mt-2 px-2 py-1 rounded-md text-[10px] font-semibold disabled:opacity-40 transition-all"
                                     >
                                       Apply
                                     </button>
@@ -6262,7 +6472,7 @@ export default function TemplateEditorPage() {
                   <button
                     onClick={handleAskAssistant}
                     disabled={aiLoading || !aiPrompt.trim()}
-                    className="p-2.5 rounded-lg text-white bg-gradient-to-r from-orange-500 via-pink-500 to-purple-500 shadow-[0_8px_20px_rgba(45,212,191,0.35)] hover:brightness-110 disabled:opacity-40 transition-all flex-shrink-0"
+                    className="ai-ed-primary-btn p-2.5 rounded-lg disabled:opacity-40 transition-all flex-shrink-0"
                     title="Send"
                   >
                     <PaperAirplaneIcon className="w-4 h-4" />

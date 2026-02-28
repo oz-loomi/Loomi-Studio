@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
 import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-helpers';
+import { getAdapterForAccount } from '@/lib/esp/registry';
 import { prisma } from '@/lib/prisma';
+
+function normalizeTemplateProvider<
+  T extends {
+    provider: string;
+    account?: { espProvider: string } | null;
+  },
+>(template: T) {
+  const resolvedProvider =
+    template.provider && template.provider !== 'unknown'
+      ? template.provider
+      : template.account?.espProvider || template.provider || 'unknown';
+
+  return { ...template, provider: resolvedProvider };
+}
 
 /**
  * GET /api/esp/templates?accountKey=xxx
@@ -30,10 +45,20 @@ export async function GET(req: NextRequest) {
       const templates = await prisma.espTemplate.findMany({
         where: { accountKey },
         orderBy: { updatedAt: 'desc' },
+        include: {
+          account: {
+            select: { espProvider: true },
+          },
+        },
+      });
+      const normalized = templates.map((template) => {
+        const withProvider = normalizeTemplateProvider(template);
+        const { account: _account, ...rest } = withProvider;
+        return rest;
       });
       return NextResponse.json({
-        templates,
-        meta: { total: templates.length, accountKey },
+        templates: normalized,
+        meta: { total: normalized.length, accountKey },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch templates';
@@ -51,10 +76,20 @@ export async function GET(req: NextRequest) {
       const templates = await prisma.espTemplate.findMany({
         where: { accountKey: { in: userAccountKeys } },
         orderBy: { updatedAt: 'desc' },
+        include: {
+          account: {
+            select: { espProvider: true },
+          },
+        },
+      });
+      const normalized = templates.map((template) => {
+        const withProvider = normalizeTemplateProvider(template);
+        const { account: _account, ...rest } = withProvider;
+        return rest;
       });
       return NextResponse.json({
-        templates,
-        meta: { total: templates.length },
+        templates: normalized,
+        meta: { total: normalized.length },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch templates';
@@ -66,10 +101,20 @@ export async function GET(req: NextRequest) {
   try {
     const templates = await prisma.espTemplate.findMany({
       orderBy: { updatedAt: 'desc' },
+      include: {
+        account: {
+          select: { espProvider: true },
+        },
+      },
+    });
+    const normalized = templates.map((template) => {
+      const withProvider = normalizeTemplateProvider(template);
+      const { account: _account, ...rest } = withProvider;
+      return rest;
     });
     return NextResponse.json({
-      templates,
-      meta: { total: templates.length },
+      templates: normalized,
+      meta: { total: normalized.length },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to fetch templates';
@@ -101,10 +146,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Access denied' }, { status: 403 });
   }
 
-  // Resolve adapter — best-effort for provider name; only required when syncing to remote
+  // Resolve adapter+credentials for remote sync calls.
   const resolved = await resolveAdapterAndCredentials(accountKey, {});
   const adapterAvailable = !isResolveError(resolved);
-  const providerName = adapterAvailable ? resolved.adapter.provider : 'unknown';
+
+  // Determine provider for local record creation without requiring valid credentials.
+  let providerName = 'unknown';
+  try {
+    const adapter = await getAdapterForAccount(accountKey);
+    providerName = adapter.provider;
+  } catch {
+    if (adapterAvailable) providerName = resolved.adapter.provider;
+  }
 
   try {
     let remoteId: string | null = null;

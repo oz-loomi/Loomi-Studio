@@ -24,6 +24,30 @@ export async function getTemplates(type?: string) {
   });
 }
 
+export async function getTemplatesWithContent(type?: string) {
+  return prisma.template.findMany({
+    where: type ? { type } : undefined,
+    orderBy: { updatedAt: 'desc' },
+    select: {
+      id: true,
+      slug: true,
+      title: true,
+      content: true,
+      type: true,
+      category: true,
+      preheader: true,
+      createdAt: true,
+      updatedAt: true,
+      createdByUser: {
+        select: { id: true, name: true, avatarUrl: true },
+      },
+      updatedByUser: {
+        select: { id: true, name: true, avatarUrl: true },
+      },
+    },
+  });
+}
+
 export async function getTemplate(slug: string) {
   return prisma.template.findUnique({ where: { slug } });
 }

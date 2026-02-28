@@ -5,6 +5,15 @@ import { parseTemplate } from '@/lib/template-parser';
 import { serializeTemplate } from '@/lib/template-serializer';
 import * as templateService from '@/lib/services/templates';
 
+function extractFrontmatterTitle(content: string): string | undefined {
+  const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!fmMatch) return undefined;
+  const titleMatch = fmMatch[1].match(/^title:\s*(.+)$/m);
+  if (!titleMatch) return undefined;
+  const normalized = titleMatch[1].trim().replace(/^["']|["']$/g, '');
+  return normalized || undefined;
+}
+
 export async function GET(req: NextRequest) {
   const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
@@ -33,12 +42,12 @@ export async function GET(req: NextRequest) {
   }
 
   // List all templates
-  const templates = await templateService.getTemplates(type || undefined);
+  const templates = await templateService.getTemplatesWithContent(type || undefined);
   return NextResponse.json(
     templates.map((t) => ({
       id: t.id,
       design: t.slug,
-      name: t.title,
+      name: extractFrontmatterTitle(t.content) || t.title,
       type: t.type,
       category: t.category,
       updatedAt: t.updatedAt.toISOString(),
@@ -133,17 +142,42 @@ title: ${designLabel}
 
   <x-core.hero
     headline="${designLabel}"
-    subheadline="Your content here"
+    subheadline="Add a brief description that captures your audience's attention."
+    fallback-bg="#1a1a2e"
+    headline-color="#ffffff"
+    subheadline-color="#e0e0e0"
+    hero-height="420px"
+    text-align="center"
+    content-valign="middle"
+    primary-button-text="Get Started"
+    primary-button-url="#"
+    primary-button-bg-color="#4f46e5"
+    primary-button-text-color="#ffffff"
+    primary-button-radius="8px"
   />
 
+  <x-core.spacer size="40" />
+
   <x-core.copy
+    greeting="Hi {{contact.first_name}},"
     body="Add your email content here."
+    align="center"
+    padding="20px 40px"
   />
+
+  <x-core.spacer size="24" />
 
   <x-core.cta
     button-text="Learn More"
     button-url="#"
+    button-bg-color="#4f46e5"
+    button-text-color="#ffffff"
+    button-radius="8px"
+    section-padding="20px 40px"
+    align="center"
   />
+
+  <x-core.spacer size="40" />
 
   <x-core.footer />
 

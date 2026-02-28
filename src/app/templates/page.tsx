@@ -38,6 +38,7 @@ interface EspTemplateRecord {
   accountKey: string;
   provider: string;
   remoteId: string | null;
+  publishedTo?: string | null;
   name: string;
   subject: string | null;
   previewText: string | null;
@@ -117,32 +118,75 @@ function providerIcon(provider: string): string | undefined {
   return PROVIDER_META[provider]?.iconSrc;
 }
 
+function isPublishedToEsp(template: Pick<EspTemplateRecord, 'remoteId' | 'publishedTo'>): boolean {
+  if (template.remoteId) return true;
+  if (!template.publishedTo) return false;
+  try {
+    const parsed = JSON.parse(template.publishedTo);
+    return Boolean(parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0);
+  } catch {
+    return false;
+  }
+}
+
 // ── Extracted sub-components (stable references — never defined inside a render) ──
 
-function ProviderPill({ provider }: { provider: string }) {
+function ProviderLogoCircle({ provider, size = 18 }: { provider: string; size?: number }) {
   const icon = providerIcon(provider);
+  const initials = provider.slice(0, 2).toUpperCase() || '?';
   return (
-    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--muted)] text-[10px] font-medium text-[var(--muted-foreground)]">
-      {icon && (
-        <img src={icon} alt={providerLabel(provider)} className="w-3.5 h-3.5 rounded-full object-cover" />
+    <span
+      title={providerLabel(provider)}
+      className="inline-flex items-center justify-center rounded-full border border-[var(--border)] bg-[var(--muted)] text-[10px] font-semibold text-[var(--muted-foreground)] overflow-hidden flex-shrink-0"
+      style={{ width: size, height: size }}
+    >
+      {icon ? (
+        <img
+          src={icon}
+          alt={providerLabel(provider)}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        initials
       )}
-      {providerLabel(provider)}
     </span>
   );
 }
 
-interface AccountPillProps {
+interface AccountIdentityProps {
   acctKey: string;
   accounts: Record<string, AccountData>;
+  provider: string;
+  showProvider?: boolean;
+  providerLogoSize?: number;
 }
 
-function AccountPill({ acctKey, accounts }: AccountPillProps) {
-  const name = accounts[acctKey]?.dealer || acctKey;
+function AccountIdentity({
+  acctKey,
+  accounts,
+  provider,
+  showProvider = true,
+  providerLogoSize = 18,
+}: AccountIdentityProps) {
+  const account = accounts[acctKey];
+  const name = account?.dealer || acctKey;
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[10px] font-medium text-[var(--primary)]">
-      <BuildingStorefrontIcon className="w-3 h-3" />
-      {name}
-    </span>
+    <div className="flex items-center gap-2 min-w-0">
+      <AccountAvatar
+        name={name}
+        accountKey={acctKey}
+        storefrontImage={account?.storefrontImage}
+        logos={account?.logos}
+        size={20}
+        className="rounded-full border border-[var(--border)] bg-[var(--muted)] flex-shrink-0"
+      />
+      <span className="text-[11px] font-medium text-[var(--muted-foreground)] truncate">
+        {name}
+      </span>
+      {showProvider && (
+        <ProviderLogoCircle provider={provider} size={providerLogoSize} />
+      )}
+    </div>
   );
 }
 
@@ -267,8 +311,16 @@ function TemplateCard({
       <div className="p-4">
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-1.5 min-w-0">
-            <ProviderPill provider={t.provider} />
-            {showAccount && <AccountPill acctKey={t.accountKey} accounts={accounts} />}
+            {showAccount ? (
+              <AccountIdentity
+                acctKey={t.accountKey}
+                accounts={accounts}
+                provider={t.provider}
+                showProvider={isPublishedToEsp(t)}
+              />
+            ) : (
+              <ProviderLogoCircle provider={t.provider} />
+            )}
           </div>
           {!selectMode && (
             <div className="relative flex-shrink-0">
@@ -385,8 +437,18 @@ function TemplateRow({
       <div className="flex-1 min-w-0 cursor-pointer" onClick={selectMode ? undefined : () => onEdit(t.id)}>
         <h3 className="font-semibold text-sm truncate">{t.name}</h3>
       </div>
-      {showAccount && <AccountPill acctKey={t.accountKey} accounts={accounts} />}
-      <ProviderPill provider={t.provider} />
+      {showAccount ? (
+        <div className="min-w-0 max-w-[260px]">
+          <AccountIdentity
+            acctKey={t.accountKey}
+            accounts={accounts}
+            provider={t.provider}
+            showProvider={isPublishedToEsp(t)}
+          />
+        </div>
+      ) : (
+        <ProviderLogoCircle provider={t.provider} />
+      )}
       <span
         className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0"
         style={{ backgroundColor: sc.bg, color: sc.text }}
@@ -1448,8 +1510,17 @@ export default function TemplatesPage() {
               <div className="min-w-0">
                 <h3 className="text-base font-semibold truncate">{previewTemplate.name}</h3>
                 <div className="flex items-center gap-2 mt-1">
-                  <ProviderPill provider={previewTemplate.provider} />
-                  {isAdmin && <AccountPill acctKey={previewTemplate.accountKey} accounts={accounts} />}
+                  {isAdmin ? (
+                    <AccountIdentity
+                      acctKey={previewTemplate.accountKey}
+                      accounts={accounts}
+                      provider={previewTemplate.provider}
+                      showProvider={isPublishedToEsp(previewTemplate)}
+                      providerLogoSize={20}
+                    />
+                  ) : (
+                    <ProviderLogoCircle provider={previewTemplate.provider} size={20} />
+                  )}
                   {previewTemplate.subject && (
                     <span className="text-[10px] text-[var(--muted-foreground)] truncate">
                       Subject: {previewTemplate.subject}
