@@ -1,12 +1,17 @@
 'use client';
 
 import { useMemo, useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import { useTheme } from '@/contexts/theme-context';
 import {
   MegaphoneIcon,
   PaperAirplaneIcon,
   ClockIcon,
 } from '@heroicons/react/24/outline';
 import { FlowIcon } from '@/components/icon-map';
+import type { ApexOptions } from 'apexcharts';
+
+const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 // ── Types ──
 
@@ -43,25 +48,29 @@ const CHART_COLORS = [
   '#ef4444', '#ec4899', '#6366f1', '#14b8a6', '#f97316',
 ];
 
-const CAMPAIGN_STATUS_COLORS: Record<string, { color: string; bg: string }> = {
-  sent:       { color: 'text-green-400', bg: 'bg-green-500/10' },
-  completed:  { color: 'text-green-400', bg: 'bg-green-500/10' },
-  delivered:  { color: 'text-green-400', bg: 'bg-green-500/10' },
-  scheduled:  { color: 'text-blue-400',  bg: 'bg-blue-500/10' },
-  in_progress:{ color: 'text-cyan-400',  bg: 'bg-cyan-500/10' },
-  draft:      { color: 'text-amber-400', bg: 'bg-amber-500/10' },
-  paused:     { color: 'text-orange-400', bg: 'bg-orange-500/10' },
-  archived:   { color: 'text-zinc-400',  bg: 'bg-zinc-500/10' },
+const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
+  sent:        '#10b981',
+  completed:   '#10b981',
+  delivered:   '#10b981',
+  scheduled:   '#3b82f6',
+  in_progress: '#06b6d4',
+  draft:       '#f59e0b',
+  paused:      '#f97316',
+  archived:    '#71717a',
 };
 
-const WORKFLOW_STATUS_COLORS: Record<string, { color: string; bg: string }> = {
-  active:   { color: 'text-green-400', bg: 'bg-green-500/10' },
-  inactive: { color: 'text-zinc-400',  bg: 'bg-zinc-500/10' },
-  draft:    { color: 'text-amber-400', bg: 'bg-amber-500/10' },
+const WORKFLOW_STATUS_COLORS: Record<string, string> = {
+  active:   '#10b981',
+  inactive: '#71717a',
+  draft:    '#f59e0b',
 };
 
-function getStatusColor(status: string, map: Record<string, { color: string; bg: string }>) {
-  return map[status.toLowerCase()] || { color: 'text-zinc-400', bg: 'bg-zinc-500/10' };
+function getCampaignStatusColor(status: string): string {
+  return CAMPAIGN_STATUS_COLORS[status.toLowerCase()] || '#71717a';
+}
+
+function getWorkflowStatusColor(status: string): string {
+  return WORKFLOW_STATUS_COLORS[status.toLowerCase()] || '#71717a';
 }
 
 function accountKeyForRecord(record: { accountKey?: string }): string | null {
@@ -77,6 +86,8 @@ export function CampaignAnalytics({
   showAccountBreakdown,
   accountNames,
 }: CampaignAnalyticsProps) {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const [animated, setAnimated] = useState(false);
 
   useEffect(() => {
@@ -157,6 +168,147 @@ export function CampaignAnalytics({
     };
   }, [campaigns, workflows, showAccountBreakdown, accountNames]);
 
+  // ── Chart config ──
+
+  const chartTextColor = isDark ? '#a1a1aa' : '#71717a';
+  const chartGridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
+  // Campaign status donut
+  const campaignDonutOptions: ApexOptions = useMemo(() => {
+    if (!analytics || analytics.campaignStatusEntries.length === 0) return {} as ApexOptions;
+    return {
+      chart: { type: 'donut', background: 'transparent', animations: { enabled: true, speed: 600, easing: 'easeinout' } },
+      colors: analytics.campaignStatusEntries.map(([status]) => getCampaignStatusColor(status)),
+      labels: analytics.campaignStatusEntries.map(([status]) => status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())),
+      legend: {
+        position: 'right',
+        fontSize: '11px',
+        labels: { colors: chartTextColor },
+        markers: { size: 6, offsetX: -3 },
+        formatter: (seriesName: string, opts: { seriesIndex: number; w: { globals: { series: number[] } } }) => {
+          const val = opts.w.globals.series[opts.seriesIndex];
+          const total = opts.w.globals.series.reduce((a: number, b: number) => a + b, 0);
+          const pct = total > 0 ? Math.round((val / total) * 100) : 0;
+          return `${seriesName}  ${val} (${pct}%)`;
+        },
+      },
+      plotOptions: {
+        pie: {
+          donut: {
+            size: '70%',
+            labels: {
+              show: true,
+              name: { show: true, fontSize: '10px', color: chartTextColor },
+              value: { show: true, fontSize: '18px', fontWeight: 700, color: isDark ? '#e4e4e7' : '#18181b' },
+              total: { show: true, label: 'campaigns', fontSize: '10px', color: chartTextColor, formatter: () => String(campaigns.length) },
+            },
+          },
+        },
+      },
+      dataLabels: { enabled: false },
+      stroke: { show: false },
+      tooltip: { theme: isDark ? 'dark' : 'light' },
+    };
+  }, [analytics, chartTextColor, isDark, campaigns.length]);
+
+  const campaignDonutSeries = useMemo(
+    () => analytics?.campaignStatusEntries.map(([, count]) => count) ?? [],
+    [analytics],
+  );
+
+  // Workflow status donut
+  const workflowDonutOptions: ApexOptions = useMemo(() => {
+    if (!analytics || analytics.workflowStatusEntries.length === 0) return {} as ApexOptions;
+    return {
+      chart: { type: 'donut', background: 'transparent', animations: { enabled: true, speed: 600, easing: 'easeinout' } },
+      colors: analytics.workflowStatusEntries.map(([status]) => getWorkflowStatusColor(status)),
+      labels: analytics.workflowStatusEntries.map(([status]) => status.charAt(0).toUpperCase() + status.slice(1)),
+      legend: {
+        position: 'right',
+        fontSize: '11px',
+        labels: { colors: chartTextColor },
+        markers: { size: 6, offsetX: -3 },
+        formatter: (seriesName: string, opts: { seriesIndex: number; w: { globals: { series: number[] } } }) => {
+          const val = opts.w.globals.series[opts.seriesIndex];
+          const total = opts.w.globals.series.reduce((a: number, b: number) => a + b, 0);
+          const pct = total > 0 ? Math.round((val / total) * 100) : 0;
+          return `${seriesName}  ${val} (${pct}%)`;
+        },
+      },
+      plotOptions: {
+        pie: {
+          donut: {
+            size: '70%',
+            labels: {
+              show: true,
+              name: { show: true, fontSize: '10px', color: chartTextColor },
+              value: { show: true, fontSize: '18px', fontWeight: 700, color: isDark ? '#e4e4e7' : '#18181b' },
+              total: { show: true, label: 'workflows', fontSize: '10px', color: chartTextColor, formatter: () => String(workflows.length) },
+            },
+          },
+        },
+      },
+      dataLabels: { enabled: false },
+      stroke: { show: false },
+      tooltip: { theme: isDark ? 'dark' : 'light' },
+    };
+  }, [analytics, chartTextColor, isDark, workflows.length]);
+
+  const workflowDonutSeries = useMemo(
+    () => analytics?.workflowStatusEntries.map(([, count]) => count) ?? [],
+    [analytics],
+  );
+
+  // Campaigns by account horizontal bar
+  const campaignBarOptions: ApexOptions = useMemo(() => {
+    if (!analytics || analytics.campaignsByAccount.length === 0) return {} as ApexOptions;
+    return {
+      chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, animations: { enabled: true, speed: 600 } },
+      plotOptions: { bar: { horizontal: true, distributed: true, borderRadius: 4, barHeight: '65%' } },
+      colors: analytics.campaignsByAccount.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+      xaxis: {
+        categories: analytics.campaignsByAccount.map(([name]) => name),
+        labels: { style: { colors: chartTextColor, fontSize: '10px' } },
+      },
+      yaxis: { labels: { style: { colors: chartTextColor, fontSize: '11px' }, maxWidth: 120 } },
+      grid: { borderColor: chartGridColor, strokeDashArray: 4, yaxis: { lines: { show: false } } },
+      legend: { show: false },
+      dataLabels: { enabled: false },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => `${val} campaign${val === 1 ? '' : 's'}` } },
+    };
+  }, [analytics, chartTextColor, chartGridColor, isDark]);
+
+  const campaignBarSeries = useMemo(
+    () => [{ name: 'Campaigns', data: analytics?.campaignsByAccount.map(([, count]) => count) ?? [] }],
+    [analytics],
+  );
+
+  // Workflows by account horizontal bar
+  const workflowBarOptions: ApexOptions = useMemo(() => {
+    if (!analytics || analytics.workflowsByAccount.length === 0) return {} as ApexOptions;
+    return {
+      chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, animations: { enabled: true, speed: 600 } },
+      plotOptions: { bar: { horizontal: true, distributed: true, borderRadius: 4, barHeight: '65%' } },
+      colors: analytics.workflowsByAccount.map((_, i) => CHART_COLORS[(i + 4) % CHART_COLORS.length]),
+      xaxis: {
+        categories: analytics.workflowsByAccount.map(([name]) => name),
+        labels: { style: { colors: chartTextColor, fontSize: '10px' } },
+      },
+      yaxis: { labels: { style: { colors: chartTextColor, fontSize: '11px' }, maxWidth: 120 } },
+      grid: { borderColor: chartGridColor, strokeDashArray: 4, yaxis: { lines: { show: false } } },
+      legend: { show: false },
+      dataLabels: { enabled: false },
+      tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => `${val} workflow${val === 1 ? '' : 's'}` } },
+    };
+  }, [analytics, chartTextColor, chartGridColor, isDark]);
+
+  const workflowBarSeries = useMemo(
+    () => [{ name: 'Workflows', data: analytics?.workflowsByAccount.map(([, count]) => count) ?? [] }],
+    [analytics],
+  );
+
+  // ── Render ──
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -233,116 +385,44 @@ export function CampaignAnalytics({
         {/* Campaign Status Distribution */}
         {analytics.campaignStatusEntries.length > 0 && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-1">
-            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4 flex items-center gap-1.5">
+            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-blue-400" />
               Campaign Status
             </h4>
-            <div className="flex items-center gap-6">
-              <DonutChart
-                segments={analytics.campaignStatusEntries.map(([, count], i) => ({
-                  value: count,
-                  color: CHART_COLORS[i % CHART_COLORS.length],
-                }))}
-                total={campaigns.length}
-                centerLabel="campaigns"
-                animated={animated}
-              />
-              <div className="flex-1 space-y-2 min-w-0">
-                {analytics.campaignStatusEntries.map(([status, count]) => {
-                  const cfg = getStatusColor(status, CAMPAIGN_STATUS_COLORS);
-                  const pct = campaigns.length > 0 ? ((count / campaigns.length) * 100).toFixed(0) : '0';
-                  return (
-                    <div key={status} className="flex items-center gap-2 text-xs">
-                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.bg}`} style={{ backgroundColor: cfg.color.includes('green') ? '#10b981' : cfg.color.includes('blue') ? '#3b82f6' : cfg.color.includes('amber') ? '#f59e0b' : cfg.color.includes('cyan') ? '#06b6d4' : cfg.color.includes('orange') ? '#f97316' : '#71717a' }} />
-                      <span className="capitalize text-[var(--muted-foreground)]">{status.replace(/_/g, ' ')}</span>
-                      <span className="ml-auto font-medium tabular-nums">{count}</span>
-                      <span className="text-[var(--muted-foreground)] text-[10px] w-8 text-right">{pct}%</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <ReactApexChart type="donut" height={180} options={campaignDonutOptions} series={campaignDonutSeries} />
           </div>
         )}
 
         {/* Workflow Status Distribution */}
         {analytics.workflowStatusEntries.length > 0 && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-2">
-            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4 flex items-center gap-1.5">
+            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-purple-400" />
               Workflow Status
             </h4>
-            <div className="flex items-center gap-6">
-              <DonutChart
-                segments={analytics.workflowStatusEntries.map(([, count], i) => ({
-                  value: count,
-                  color: CHART_COLORS[(i + 3) % CHART_COLORS.length],
-                }))}
-                total={workflows.length}
-                centerLabel="workflows"
-                animated={animated}
-              />
-              <div className="flex-1 space-y-2 min-w-0">
-                {analytics.workflowStatusEntries.map(([status, count]) => {
-                  const cfg = getStatusColor(status, WORKFLOW_STATUS_COLORS);
-                  const pct = workflows.length > 0 ? ((count / workflows.length) * 100).toFixed(0) : '0';
-                  return (
-                    <div key={status} className="flex items-center gap-2 text-xs">
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.color.includes('green') ? '#10b981' : cfg.color.includes('amber') ? '#f59e0b' : '#71717a' }} />
-                      <span className="capitalize text-[var(--muted-foreground)]">{status}</span>
-                      <span className="ml-auto font-medium tabular-nums">{count}</span>
-                      <span className="text-[var(--muted-foreground)] text-[10px] w-8 text-right">{pct}%</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <ReactApexChart type="donut" height={180} options={workflowDonutOptions} series={workflowDonutSeries} />
           </div>
         )}
 
         {/* Campaigns per Account */}
         {showAccountBreakdown && analytics.campaignsByAccount.length > 0 && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-3">
-            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4 flex items-center gap-1.5">
+            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-green-400" />
               Campaigns by Account
             </h4>
-            <div className="space-y-2.5">
-              {analytics.campaignsByAccount.map(([name, count], i) => (
-                <BarRow
-                  key={name}
-                  label={name}
-                  value={count}
-                  max={analytics.maxCampaignAccount}
-                  color={CHART_COLORS[i % CHART_COLORS.length]}
-                  animated={animated}
-                  delay={i * 60}
-                />
-              ))}
-            </div>
+            <ReactApexChart type="bar" height={Math.max(analytics.campaignsByAccount.length * 36, 120)} options={campaignBarOptions} series={campaignBarSeries} />
           </div>
         )}
 
         {/* Workflows per Account */}
         {showAccountBreakdown && analytics.workflowsByAccount.length > 0 && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-4">
-            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4 flex items-center gap-1.5">
+            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-cyan-400" />
               Workflows by Account
             </h4>
-            <div className="space-y-2.5">
-              {analytics.workflowsByAccount.map(([name, count], i) => (
-                <BarRow
-                  key={name}
-                  label={name}
-                  value={count}
-                  max={analytics.maxWorkflowAccount}
-                  color={CHART_COLORS[(i + 4) % CHART_COLORS.length]}
-                  animated={animated}
-                  delay={i * 60}
-                />
-              ))}
-            </div>
+            <ReactApexChart type="bar" height={Math.max(analytics.workflowsByAccount.length * 36, 120)} options={workflowBarOptions} series={workflowBarSeries} />
           </div>
         )}
       </div>
@@ -382,103 +462,6 @@ function StatCard({
       <p className="text-2xl font-bold tabular-nums">{value}</p>
       <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{label}</p>
       {sub && <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{sub}</p>}
-    </div>
-  );
-}
-
-function BarRow({
-  label,
-  value,
-  max,
-  color,
-  animated,
-  delay = 0,
-}: {
-  label: string;
-  value: number;
-  max: number;
-  color: string;
-  animated: boolean;
-  delay?: number;
-}) {
-  const pct = max > 0 ? (value / max) * 100 : 0;
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-xs text-[var(--muted-foreground)] w-24 truncate capitalize">{label}</span>
-      <div className="flex-1 h-5 rounded-full bg-[var(--muted)] overflow-hidden relative">
-        <div
-          className="h-full rounded-full transition-all duration-700 ease-out"
-          style={{
-            width: animated ? `${Math.max(pct, 2)}%` : '0%',
-            backgroundColor: color,
-            opacity: 0.75,
-            transitionDelay: `${delay}ms`,
-          }}
-        />
-      </div>
-      <span className="text-xs font-medium tabular-nums w-8 text-right">{value}</span>
-    </div>
-  );
-}
-
-function DonutChart({
-  segments,
-  total,
-  centerLabel,
-  animated,
-}: {
-  segments: { value: number; color: string }[];
-  total: number;
-  centerLabel?: string;
-  animated: boolean;
-}) {
-  const size = 80;
-  const strokeWidth = 10;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-
-  let accumulatedOffset = 0;
-
-  return (
-    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="var(--muted)"
-          strokeWidth={strokeWidth}
-        />
-        {segments.map((seg, i) => {
-          const pct = total > 0 ? seg.value / total : 0;
-          const segLength = pct * circumference;
-          const offset = accumulatedOffset;
-          accumulatedOffset += segLength;
-
-          return (
-            <circle
-              key={i}
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={seg.color}
-              strokeWidth={strokeWidth}
-              strokeDasharray={`${animated ? segLength : 0} ${circumference}`}
-              strokeDashoffset={-offset}
-              strokeLinecap="butt"
-              style={{
-                transition: `stroke-dasharray 0.8s cubic-bezier(0.16, 1, 0.3, 1) ${i * 100}ms`,
-              }}
-            />
-          );
-        })}
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-sm font-bold">{total}</span>
-        {centerLabel && <span className="text-[8px] text-[var(--muted-foreground)]">{centerLabel}</span>}
-      </div>
     </div>
   );
 }
