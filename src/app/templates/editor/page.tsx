@@ -940,6 +940,845 @@ function isValidHex(hex: string): boolean {
 // Render a single form field
 const VARIABLE_ELIGIBLE_TYPES = new Set(["text", "textarea", "url", "image"]);
 
+const RICH_TEXT_ALLOWED_TAGS = new Set([
+  "p",
+  "br",
+  "b",
+  "strong",
+  "i",
+  "em",
+  "u",
+  "span",
+  "ul",
+  "ol",
+  "li",
+]);
+
+const RICH_TEXT_ALLOWED_STYLE_PROPS = new Set([
+  "color",
+  "font-size",
+  "line-height",
+  "font-weight",
+  "font-style",
+  "text-decoration",
+]);
+
+function normalizeHexColor(value: string): string | null {
+  const input = value.trim().toLowerCase();
+  if (!input) return null;
+  const prefixed = input.startsWith("#") ? input : `#${input}`;
+  if (/^#[0-9a-f]{3}$/.test(prefixed)) {
+    return `#${prefixed[1]}${prefixed[1]}${prefixed[2]}${prefixed[2]}${prefixed[3]}${prefixed[3]}`;
+  }
+  if (/^#[0-9a-f]{6}$/.test(prefixed)) return prefixed;
+  return null;
+}
+
+function cssColorToHex(value: string): string | null {
+  const direct = normalizeHexColor(value);
+  if (direct) return direct;
+
+  const text = value.trim().toLowerCase();
+  const rgbMatch = text.match(/^rgba?\(([^)]+)\)$/);
+  if (!rgbMatch) return null;
+  const parts = rgbMatch[1].split(",").map((p) => p.trim());
+  if (parts.length < 3) return null;
+  const nums = parts.slice(0, 3).map((p) => Number.parseInt(p, 10));
+  if (nums.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return null;
+  return `#${nums.map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function isSafeCssColor(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return Boolean(
+    normalizeHexColor(v) ||
+      /^rgba?\([\d\s,.%]+\)$/.test(v) ||
+      /^hsla?\([\d\s,.%]+\)$/.test(v) ||
+      /^var\(--[a-z0-9-]+\)$/.test(v),
+  );
+}
+
+function sanitizeInlineStyle(styleText: string): string {
+  const safeEntries: string[] = [];
+  for (const rawEntry of styleText.split(";")) {
+    const entry = rawEntry.trim();
+    if (!entry) continue;
+    const idx = entry.indexOf(":");
+    if (idx === -1) continue;
+    const key = entry.slice(0, idx).trim().toLowerCase();
+    const value = entry.slice(idx + 1).trim();
+    if (!RICH_TEXT_ALLOWED_STYLE_PROPS.has(key) || !value) continue;
+
+    let valid = false;
+    if (key === "color") {
+      valid = isSafeCssColor(value);
+    } else if (key === "font-size") {
+      valid = /^\d+(\.\d+)?(px|em|rem|%)$/i.test(value);
+    } else if (key === "line-height") {
+      valid = /^normal$/i.test(value) || /^\d+(\.\d+)?(px|em|rem|%)?$/i.test(value);
+    } else if (key === "font-weight") {
+      valid = /^(normal|bold|[1-9]00)$/i.test(value);
+    } else if (key === "font-style") {
+      valid = /^(normal|italic|oblique)$/i.test(value);
+    } else if (key === "text-decoration") {
+      valid = /^(none|underline|line-through)(\s+(none|underline|line-through))*$/i.test(value);
+    }
+
+    if (valid) safeEntries.push(`${key}: ${value}`);
+  }
+  return safeEntries.join("; ");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function sanitizeRichTextHtml(raw: string): string {
+  if (!raw) return "";
+
+  if (typeof window === "undefined") {
+    return raw.trim();
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${raw}</div>`, "text/html");
+  const root = doc.body.firstElementChild as HTMLElement | null;
+  if (!root) return "";
+
+  const sanitizeNode = (node: Node) => {
+    const children = Array.from(node.childNodes);
+    for (const child of children) {
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        const el = child as HTMLElement;
+        const tag = el.tagName.toLowerCase();
+
+        if (!RICH_TEXT_ALLOWED_TAGS.has(tag)) {
+          const parent = el.parentNode;
+          if (!parent) continue;
+          while (el.firstChild) parent.insertBefore(el.firstChild, el);
+          parent.removeChild(el);
+          continue;
+        }
+
+        for (const attr of Array.from(el.attributes)) {
+          if (attr.name.toLowerCase() === "style") {
+            const cleanedStyle = sanitizeInlineStyle(attr.value || "");
+            if (cleanedStyle) {
+              el.setAttribute("style", cleanedStyle);
+            } else {
+              el.removeAttribute("style");
+            }
+          } else {
+            el.removeAttribute(attr.name);
+          }
+        }
+      }
+      sanitizeNode(child);
+    }
+  };
+
+  sanitizeNode(root);
+
+  return root.innerHTML
+    .replace(/<div>/gi, "<p>")
+    .replace(/<\/div>/gi, "</p>")
+    .replace(/<p>\s*<\/p>/gi, "<br>")
+    .replace(/(?:<br\s*\/?>\s*){3,}/gi, "<br><br>");
+}
+
+function normalizeRichTextValue(value: string): string {
+  const normalized = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (!normalized.trim()) return "";
+
+  const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(normalized);
+  if (looksLikeHtml) return sanitizeRichTextHtml(normalized);
+
+  return sanitizeRichTextHtml(escapeHtml(normalized).replace(/\n/g, "<br>"));
+}
+
+function stripRichText(html: string): string {
+  if (!html) return "";
+  if (typeof window === "undefined") {
+    return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${html}</div>`, "text/html");
+  return (doc.body.textContent || "").replace(/\u00a0/g, " ").trim();
+}
+
+function moveCaretToEnd(el: HTMLElement) {
+  if (typeof window === "undefined") return;
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+const COPY_PROP_KEYS_MOVED_TO_EDITOR = new Set([
+  "greeting",
+  "greeting-size",
+  "greeting-color",
+  "greeting-weight",
+  "greeting-spacing",
+  "greeting-transform",
+  "greeting-margin",
+  "body-size",
+  "body-color",
+  "body-weight",
+  "body-margin",
+  "line-height",
+]);
+
+function mergeCopyGreetingIntoBody(greeting: string, body: string): string {
+  const normalizedGreeting = normalizeRichTextValue(greeting || "");
+  const normalizedBody = normalizeRichTextValue(body || "");
+
+  if (!normalizedGreeting) return normalizedBody;
+  if (!normalizedBody) return normalizedGreeting;
+
+  const greetingText = stripRichText(normalizedGreeting).replace(/\s+/g, " ").trim();
+  const bodyText = stripRichText(normalizedBody).replace(/\s+/g, " ").trim();
+  if (greetingText && bodyText.startsWith(greetingText)) {
+    return normalizedBody;
+  }
+
+  return `${normalizedGreeting}<br><br>${normalizedBody}`;
+}
+
+function RichTextField({
+  value,
+  onChange,
+  placeholderText,
+  onInsertVariable,
+  brandColors,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  placeholderText?: string;
+  onInsertVariable?: (token: string) => void;
+  brandColors?: { label: string; value: string }[];
+}) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const selectionRef = useRef<Range | null>(null);
+  const colorButtonRef = useRef<HTMLButtonElement>(null);
+  const colorDropdownRef = useRef<HTMLDivElement>(null);
+  const [isFocused, setIsFocused] = useState(false);
+  const [internalHtml, setInternalHtml] = useState("");
+  const [colorOpen, setColorOpen] = useState(false);
+  const [commandState, setCommandState] = useState({
+    bold: false,
+    italic: false,
+    underline: false,
+    unordered: false,
+    ordered: false,
+  });
+  const [fontSizeControl, setFontSizeControl] = useState("16px");
+  const [lineHeightControl, setLineHeightControl] = useState("1.8");
+  const [textColor, setTextColor] = useState("#111111");
+  const [colorHexInput, setColorHexInput] = useState("#111111");
+
+  const fontSizeOptions = ["12px", "14px", "16px", "18px", "20px", "24px", "28px", "32px"];
+  const lineHeightOptions = ["normal", "1.2", "1.4", "1.6", "1.8", "2"];
+
+  const getCurrentLinePrefixText = useCallback((): string | null => {
+    if (typeof window === "undefined") return null;
+    const root = editorRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.rangeCount === 0 || !selection.isCollapsed) {
+      return null;
+    }
+
+    const caretRange = selection.getRangeAt(0);
+    if (!root.contains(caretRange.startContainer)) return null;
+
+    let block: HTMLElement | null = null;
+    let probe: Node | null = caretRange.startContainer;
+    while (probe && probe !== root) {
+      if (probe.nodeType === Node.ELEMENT_NODE) {
+        const tag = (probe as HTMLElement).tagName.toLowerCase();
+        if (tag === "p" || tag === "div" || tag === "li") {
+          block = probe as HTMLElement;
+          break;
+        }
+      }
+      probe = probe.parentNode;
+    }
+    if (!block) block = root;
+
+    const prefixRange = document.createRange();
+    prefixRange.selectNodeContents(block);
+    prefixRange.setEnd(caretRange.startContainer, caretRange.startOffset);
+    const fullPrefix = prefixRange.toString().replace(/\u00a0/g, " ");
+    const currentLine = fullPrefix.split("\n").pop() ?? fullPrefix;
+    return currentLine;
+  }, []);
+
+  const ensureListStyles = useCallback(() => {
+    const root = editorRef.current;
+    if (!root) return;
+
+    root.querySelectorAll("ul").forEach((ul) => {
+      const list = ul as HTMLElement;
+      list.style.listStyleType = "disc";
+      list.style.paddingLeft = "1.25rem";
+      list.style.margin = "0.5rem 0";
+    });
+
+    root.querySelectorAll("ol").forEach((ol) => {
+      const list = ol as HTMLElement;
+      list.style.listStyleType = "decimal";
+      list.style.paddingLeft = "1.25rem";
+      list.style.margin = "0.5rem 0";
+    });
+  }, []);
+
+  const saveSelection = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const el = editorRef.current;
+    const selection = window.getSelection();
+    if (!el || !selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return;
+    selectionRef.current = range.cloneRange();
+  }, []);
+
+  const restoreSelection = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const el = editorRef.current;
+    const selection = window.getSelection();
+    if (!el || !selection) return;
+
+    if (selectionRef.current) {
+      selection.removeAllRanges();
+      selection.addRange(selectionRef.current);
+      return;
+    }
+
+    moveCaretToEnd(el);
+  }, []);
+
+  const getSelectionAnchorElement = useCallback((): HTMLElement | null => {
+    if (typeof window === "undefined") return null;
+    const root = editorRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.rangeCount === 0) return null;
+
+    let node: Node | null = selection.anchorNode;
+    if (!node || !root.contains(node)) return null;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+
+    let el = node as HTMLElement | null;
+    while (el && el !== root) {
+      const tag = el.tagName.toLowerCase();
+      if (["span", "b", "strong", "i", "em", "u", "p", "li", "div"].includes(tag)) {
+        return el;
+      }
+      el = el.parentElement;
+    }
+    return root;
+  }, []);
+
+  const updateToolbarState = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const root = editorRef.current;
+    const selection = window.getSelection();
+    const anchorNode = selection?.anchorNode ?? null;
+    if (!root || !selection || selection.rangeCount === 0 || !anchorNode || !root.contains(anchorNode)) {
+      setCommandState({
+        bold: false,
+        italic: false,
+        underline: false,
+        unordered: false,
+        ordered: false,
+      });
+      return;
+    }
+
+    let bold = false;
+    let italic = false;
+    let underline = false;
+    let unordered = false;
+    let ordered = false;
+    try {
+      bold = document.queryCommandState("bold");
+      italic = document.queryCommandState("italic");
+      underline = document.queryCommandState("underline");
+      unordered = document.queryCommandState("insertUnorderedList");
+      ordered = document.queryCommandState("insertOrderedList");
+    } catch {
+      // Ignore command-state failures in non-standard browser contexts.
+    }
+
+    const anchor = getSelectionAnchorElement();
+    if (anchor) {
+      unordered = unordered || !!anchor.closest("ul");
+      ordered = ordered || !!anchor.closest("ol");
+
+      const computed = window.getComputedStyle(anchor);
+      const nextFontSize = computed.fontSize || "16px";
+      const nextLineHeight = computed.lineHeight && computed.lineHeight !== "normal"
+        ? computed.lineHeight
+        : "normal";
+      const nextColor = cssColorToHex(computed.color) || "#111111";
+
+      setFontSizeControl(nextFontSize);
+      setLineHeightControl(nextLineHeight);
+      setTextColor(nextColor);
+      setColorHexInput(nextColor);
+    }
+
+    setCommandState({
+      bold,
+      italic,
+      underline,
+      unordered,
+      ordered,
+    });
+  }, [getSelectionAnchorElement]);
+
+  useEffect(() => {
+    const onSelectionChange = () => updateToolbarState();
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
+  }, [updateToolbarState]);
+
+  useEffect(() => {
+    if (!colorOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        colorDropdownRef.current && !colorDropdownRef.current.contains(target) &&
+        colorButtonRef.current && !colorButtonRef.current.contains(target)
+      ) {
+        setColorOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [colorOpen]);
+
+  useEffect(() => {
+    setInternalHtml(normalizeRichTextValue(value || ""));
+  }, [value]);
+
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    if (el.innerHTML !== internalHtml) {
+      el.innerHTML = internalHtml;
+    }
+    ensureListStyles();
+    updateToolbarState();
+  }, [ensureListStyles, internalHtml, updateToolbarState]);
+
+  const commitEditorValue = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+
+    const sanitized = sanitizeRichTextHtml(el.innerHTML);
+    if (sanitized !== el.innerHTML) {
+      const wasFocused = document.activeElement === el;
+      el.innerHTML = sanitized;
+      if (wasFocused) moveCaretToEnd(el);
+    }
+
+    setInternalHtml(sanitized);
+    onChange(sanitized);
+    updateToolbarState();
+  }, [onChange, updateToolbarState]);
+
+  const runCommand = useCallback((command: "bold" | "italic" | "underline" | "insertUnorderedList" | "insertOrderedList") => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    restoreSelection();
+    document.execCommand(command);
+    if (command === "insertUnorderedList" || command === "insertOrderedList") {
+      ensureListStyles();
+    }
+    commitEditorValue();
+    saveSelection();
+    updateToolbarState();
+  }, [commitEditorValue, ensureListStyles, restoreSelection, saveSelection, updateToolbarState]);
+
+  const applyInlineStyle = useCallback((styleKey: "font-size" | "line-height" | "color", styleValue: string) => {
+    const el = editorRef.current;
+    if (!el || typeof window === "undefined") return;
+
+    el.focus();
+    restoreSelection();
+
+    if (styleKey === "color") {
+      document.execCommand("styleWithCSS", false, "true");
+      document.execCommand("foreColor", false, styleValue);
+    } else {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      if (!el.contains(range.commonAncestorContainer)) return;
+
+      if (range.collapsed) {
+        let target: HTMLElement | null =
+          range.startContainer.nodeType === Node.ELEMENT_NODE
+            ? (range.startContainer as HTMLElement)
+            : range.startContainer.parentElement;
+
+        while (target && target !== el) {
+          const tag = target.tagName.toLowerCase();
+          if (["span", "p", "li", "div"].includes(tag)) break;
+          target = target.parentElement;
+        }
+
+        if (!target || target === el) {
+          const span = document.createElement("span");
+          span.style.setProperty(styleKey, styleValue);
+          span.appendChild(document.createTextNode("\u200b"));
+          range.insertNode(span);
+          const nextRange = document.createRange();
+          nextRange.setStart(span.firstChild!, 1);
+          nextRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(nextRange);
+        } else {
+          target.style.setProperty(styleKey, styleValue);
+        }
+      } else {
+        const styledSpan = document.createElement("span");
+        styledSpan.style.setProperty(styleKey, styleValue);
+        const extracted = range.extractContents();
+        styledSpan.appendChild(extracted);
+        range.insertNode(styledSpan);
+        const nextRange = document.createRange();
+        nextRange.selectNodeContents(styledSpan);
+        nextRange.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(nextRange);
+      }
+    }
+
+    ensureListStyles();
+    commitEditorValue();
+    saveSelection();
+    updateToolbarState();
+  }, [commitEditorValue, ensureListStyles, restoreSelection, saveSelection, updateToolbarState]);
+
+  const applyColor = useCallback((rawColor: string) => {
+    const normalized = normalizeHexColor(rawColor) || cssColorToHex(rawColor);
+    if (!normalized) return;
+    setTextColor(normalized);
+    setColorHexInput(normalized);
+    applyInlineStyle("color", normalized);
+  }, [applyInlineStyle]);
+
+  const insertVariableAtCursor = useCallback((token: string) => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+
+    const inserted = document.execCommand("insertText", false, token);
+    if (!inserted && typeof window !== "undefined") {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        const textNode = document.createTextNode(token);
+        range.insertNode(textNode);
+        range.setStartAfter(textNode);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } else {
+        el.appendChild(document.createTextNode(token));
+        moveCaretToEnd(el);
+      }
+    }
+
+    commitEditorValue();
+    saveSelection();
+    updateToolbarState();
+  }, [commitEditorValue, saveSelection, updateToolbarState]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== " ") return;
+
+    const linePrefix = getCurrentLinePrefixText();
+    if (linePrefix === null) return;
+
+    const text = linePrefix.replace(/\u00a0/g, " ");
+    const unorderedMatch = /^\s*-$/.test(text);
+    const orderedMatch = /^\s*1(?:\.|\)|\s-)$/.test(text);
+    if (!unorderedMatch && !orderedMatch) return;
+
+    e.preventDefault();
+
+    const command = unorderedMatch ? "insertUnorderedList" : "insertOrderedList";
+    document.execCommand(command);
+    ensureListStyles();
+    const markerCleanupPattern = unorderedMatch
+      ? /^\s*-\s*$/
+      : /^\s*1(?:\.|\)|\s-)\s*$/;
+    const root = editorRef.current;
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    let activeLi: HTMLLIElement | null = null;
+    let probe: Node | null = sel?.anchorNode || null;
+    while (probe && root && probe !== root) {
+      if (probe.nodeType === Node.ELEMENT_NODE && (probe as HTMLElement).tagName.toLowerCase() === "li") {
+        activeLi = probe as HTMLLIElement;
+        break;
+      }
+      probe = probe.parentNode;
+    }
+    if (!activeLi) {
+      activeLi = root?.querySelector("li:last-of-type") as HTMLLIElement | null;
+    }
+    if (activeLi && markerCleanupPattern.test((activeLi.textContent || "").replace(/\u00a0/g, " ").trim())) {
+      activeLi.innerHTML = "";
+      moveCaretToEnd(activeLi);
+    }
+    commitEditorValue();
+    saveSelection();
+    updateToolbarState();
+  }, [commitEditorValue, ensureListStyles, getCurrentLinePrefixText, saveSelection, updateToolbarState]);
+
+  const isEmpty = stripRichText(internalHtml).length === 0;
+  const toolbarButtonClass = (active: boolean) =>
+    `px-2 py-1 text-xs rounded border transition-colors ${
+      active
+        ? "border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary)]"
+        : "border-[var(--border)] bg-[var(--input)] hover:border-[var(--primary)]"
+    }`;
+
+  return (
+    <div className="space-y-1.5" data-no-component-drag>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 flex-wrap">
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runCommand("bold")}
+            className={`${toolbarButtonClass(commandState.bold)} font-semibold`}
+            title="Bold"
+          >
+            B
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runCommand("italic")}
+            className={`${toolbarButtonClass(commandState.italic)} italic`}
+            title="Italic"
+          >
+            I
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runCommand("underline")}
+            className={`${toolbarButtonClass(commandState.underline)} underline`}
+            title="Underline"
+          >
+            U
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runCommand("insertUnorderedList")}
+            className={toolbarButtonClass(commandState.unordered)}
+            title="Bulleted list"
+          >
+            • List
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runCommand("insertOrderedList")}
+            className={toolbarButtonClass(commandState.ordered)}
+            title="Numbered list"
+          >
+            1. List
+          </button>
+          <select
+            value={fontSizeOptions.includes(fontSizeControl) ? fontSizeControl : "custom"}
+            onChange={(e) => {
+              const selected = e.target.value === "custom" ? fontSizeControl : e.target.value;
+              setFontSizeControl(selected);
+              applyInlineStyle("font-size", selected);
+            }}
+            className="h-7 px-2 text-xs rounded border border-[var(--border)] bg-[var(--input)]"
+            title="Text size"
+          >
+            {!fontSizeOptions.includes(fontSizeControl) && (
+              <option value="custom">{fontSizeControl}</option>
+            )}
+            {fontSizeOptions.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+          <select
+            value={lineHeightOptions.includes(lineHeightControl) ? lineHeightControl : "custom"}
+            onChange={(e) => {
+              const selected = e.target.value === "custom" ? lineHeightControl : e.target.value;
+              setLineHeightControl(selected);
+              applyInlineStyle("line-height", selected);
+            }}
+            className="h-7 px-2 text-xs rounded border border-[var(--border)] bg-[var(--input)]"
+            title="Line height"
+          >
+            {!lineHeightOptions.includes(lineHeightControl) && (
+              <option value="custom">{lineHeightControl}</option>
+            )}
+            {lineHeightOptions.map((lh) => (
+              <option key={lh} value={lh}>
+                {lh}
+              </option>
+            ))}
+          </select>
+          <div className="relative" data-no-component-drag>
+            <button
+              ref={colorButtonRef}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setColorOpen((prev) => !prev)}
+              className={`h-7 px-2 text-xs rounded border flex items-center gap-1.5 ${
+                colorOpen
+                  ? "border-[var(--primary)] bg-[var(--primary)]/10"
+                  : "border-[var(--border)] bg-[var(--input)]"
+              }`}
+              title="Text color"
+            >
+              <span
+                className="w-3 h-3 rounded-sm border border-[var(--border)]"
+                style={{ backgroundColor: textColor }}
+              />
+              <span className="font-mono">{textColor}</span>
+            </button>
+            {colorOpen && (
+              <div
+                ref={colorDropdownRef}
+                className="absolute left-0 top-full mt-1 z-20 w-56 rounded-lg border border-[var(--border)] bg-[var(--card)] shadow-xl p-2 space-y-2"
+              >
+                {brandColors && brandColors.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-1">
+                      Brand Colors
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {brandColors.map((color) => (
+                        <button
+                          key={`${color.label}-${color.value}`}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => applyColor(color.value)}
+                          title={`${color.label} (${color.value})`}
+                          className="w-5 h-5 rounded border border-[var(--border)]"
+                          style={{ backgroundColor: color.value }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={normalizeHexColor(textColor) || "#111111"}
+                    onChange={(e) => applyColor(e.target.value)}
+                    className="w-8 h-8 rounded border border-[var(--border)] bg-transparent p-0.5"
+                    title="Pick custom color"
+                  />
+                  <input
+                    type="text"
+                    value={colorHexInput}
+                    onChange={(e) => setColorHexInput(e.target.value)}
+                    onBlur={() => {
+                      const normalized = normalizeHexColor(colorHexInput);
+                      if (normalized) {
+                        setColorHexInput(normalized);
+                        applyColor(normalized);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const normalized = normalizeHexColor(colorHexInput);
+                        if (normalized) {
+                          setColorHexInput(normalized);
+                          applyColor(normalized);
+                        }
+                        setColorOpen(false);
+                      }
+                    }}
+                    placeholder="#111111"
+                    className="flex-1 h-8 px-2 text-xs font-mono rounded border border-[var(--border)] bg-[var(--input)]"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        {onInsertVariable && (
+          <VariablePickerButton onInsert={insertVariableAtCursor} />
+        )}
+      </div>
+
+      <div className="relative">
+        {isEmpty && !isFocused && placeholderText && (
+          <span className="pointer-events-none absolute left-3 top-2 text-sm text-[var(--muted-foreground)]">
+            {placeholderText}
+          </span>
+        )}
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          data-no-component-drag
+          onFocus={() => {
+            setIsFocused(true);
+            saveSelection();
+            updateToolbarState();
+          }}
+          onBlur={() => {
+            setIsFocused(false);
+            commitEditorValue();
+            updateToolbarState();
+          }}
+          onInput={() => {
+            commitEditorValue();
+            saveSelection();
+            updateToolbarState();
+          }}
+          onKeyDown={handleKeyDown}
+          onKeyUp={() => {
+            saveSelection();
+            updateToolbarState();
+          }}
+          onMouseUp={() => {
+            saveSelection();
+            updateToolbarState();
+          }}
+          onPaste={(e) => {
+            e.preventDefault();
+            const text = e.clipboardData.getData("text/plain");
+            document.execCommand("insertText", false, text);
+            commitEditorValue();
+            saveSelection();
+            updateToolbarState();
+          }}
+          className="w-full min-h-[110px] max-h-[420px] overflow-auto resize-y whitespace-pre-wrap break-words bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm leading-6 outline-none focus:border-[var(--primary)] [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-2 [&_li]:my-0.5"
+        />
+      </div>
+    </div>
+  );
+}
+
 function PropField({
   prop,
   value,
@@ -1308,20 +2147,13 @@ function PropField({
   }
   if (prop.type === "textarea") {
     return (
-      <div className="relative">
-        <textarea
-          value={value || ""}
-          onChange={(e) => onChange(e.target.value)}
-          rows={3}
-          className="w-full bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm resize-none"
-          placeholder={placeholderText}
-        />
-        {onInsertVariable && (
-          <div className="absolute top-1 right-1">
-            <VariablePickerButton onInsert={onInsertVariable} />
-          </div>
-        )}
-      </div>
+      <RichTextField
+        value={value || ""}
+        onChange={onChange}
+        placeholderText={placeholderText}
+        onInsertVariable={onInsertVariable}
+        brandColors={brandColors}
+      />
     );
   }
   if (prop.type === "image") {
@@ -2355,6 +3187,7 @@ function ComponentPropsRenderer({
   accountLogos?: { light: string; dark: string; white?: string; black?: string };
 }) {
   const groups = schema.repeatableGroups || [];
+  const isCopyComponent = schema.name === "copy";
 
   // For numbered groups (feature{n}, stat-{n}), determine how many items have data
   const getNumberedGroupItemCount = (group: RepeatableGroup): number => {
@@ -2422,10 +3255,29 @@ function ComponentPropsRenderer({
       const target = propByKey.get(propKey);
       if (!target) return compProps[propKey] || "";
       const isResp = !!target.responsive;
+      let resolved = compProps[propKey] || target.default || "";
       if (isResp && previewWidth === "mobile") {
-        return compProps[`m:${propKey}`] || compProps[propKey] || target.default || "";
+        resolved = compProps[`m:${propKey}`] || compProps[propKey] || target.default || "";
       }
-      return compProps[propKey] || target.default || "";
+
+      if (isCopyComponent && propKey === "body") {
+        return mergeCopyGreetingIntoBody(compProps.greeting || "", resolved);
+      }
+
+      return resolved;
+    };
+
+    const handleStandardPropChange = (
+      prop: (typeof allSchemaProps)[number],
+      effectiveKey: string,
+      val: string,
+    ) => {
+      if (isCopyComponent && prop.key === "body") {
+        onPropChange(effectiveKey, normalizeRichTextValue(val || ""));
+        if (compProps.greeting) onPropChange("greeting", "");
+        return;
+      }
+      onPropChange(effectiveKey, val);
     };
 
     // Filter out props gated by conditionalOn when the referenced prop is falsy
@@ -2444,6 +3296,9 @@ function ComponentPropsRenderer({
       const styleKey = p.key.replace(/-(width|color)$/, "-style");
       if (!propByKey.has(styleKey)) return true;
       return String(getEffectivePropValue(styleKey)).trim().toLowerCase() !== "none";
+    }).filter((p) => {
+      if (!isCopyComponent) return true;
+      return !COPY_PROP_KEYS_MOVED_TO_EDITOR.has(p.key);
     });
     // Helper: inline types show label beside the control (small widgets)
     const isInlineType = (type: string) => type === 'select' || type === 'toggle' || type === 'color';
@@ -2454,7 +3309,10 @@ function ComponentPropsRenderer({
     const resolve = (prop: typeof allSchemaProps[0]) => {
       const isResp = !!prop.responsive;
       const effectiveKey = (isResp && isMobile) ? `m:${prop.key}` : prop.key;
-      const value = compProps[effectiveKey] || '';
+      let value = compProps[effectiveKey] || '';
+      if (isCopyComponent && prop.key === "body") {
+        value = getEffectivePropValue(prop.key);
+      }
       const desktopVal = compProps[prop.key] || '';
       const mobilePlaceholder = desktopVal || prop.default || '';
       const hasMobileOverride = isResp && !!compProps[`m:${prop.key}`];
@@ -2555,7 +3413,7 @@ function ComponentPropsRenderer({
                     <PropField
                       prop={r.propOverride}
                       value={r.value}
-                      onChange={(val) => onPropChange(r.effectiveKey, val)}
+                      onChange={(val) => handleStandardPropChange(prop, r.effectiveKey, val)}
                       onLiveStyle={
                         onLiveStyle ? (val) => onLiveStyle(prop.key, val) : undefined
                       }
@@ -2573,7 +3431,7 @@ function ComponentPropsRenderer({
                   <PropField
                     prop={r.propOverride}
                     value={r.value}
-                    onChange={(val) => onPropChange(r.effectiveKey, val)}
+                    onChange={(val) => handleStandardPropChange(prop, r.effectiveKey, val)}
                     onLiveStyle={
                       onLiveStyle ? (val) => onLiveStyle(prop.key, val) : undefined
                     }
@@ -2600,7 +3458,7 @@ function ComponentPropsRenderer({
                     <PropField
                       prop={rNext.propOverride}
                       value={rNext.value}
-                      onChange={(val) => onPropChange(rNext.effectiveKey, val)}
+                      onChange={(val) => handleStandardPropChange(nextProp, rNext.effectiveKey, val)}
                       onLiveStyle={
                         onLiveStyle
                           ? (val) => onLiveStyle(nextProp.key, val)
@@ -2620,7 +3478,7 @@ function ComponentPropsRenderer({
                   <PropField
                     prop={rNext.propOverride}
                     value={rNext.value}
-                    onChange={(val) => onPropChange(rNext.effectiveKey, val)}
+                    onChange={(val) => handleStandardPropChange(nextProp, rNext.effectiveKey, val)}
                     onLiveStyle={
                       onLiveStyle
                         ? (val) => onLiveStyle(nextProp.key, val)
@@ -2653,7 +3511,7 @@ function ComponentPropsRenderer({
               <PropField
                 prop={r.propOverride}
                 value={r.value}
-                onChange={(val) => onPropChange(r.effectiveKey, val)}
+                onChange={(val) => handleStandardPropChange(prop, r.effectiveKey, val)}
                 onLiveStyle={
                   onLiveStyle ? (val) => onLiveStyle(prop.key, val) : undefined
                 }
@@ -2750,7 +3608,7 @@ function ComponentPropsRenderer({
             <PropField
               prop={r.propOverride}
               value={r.value}
-              onChange={(val) => onPropChange(r.effectiveKey, val)}
+              onChange={(val) => handleStandardPropChange(prop, r.effectiveKey, val)}
               onLiveStyle={
                 onLiveStyle ? (val) => onLiveStyle(prop.key, val) : undefined
               }
@@ -5197,7 +6055,8 @@ export default function TemplateEditorPage() {
       const isInput =
         activeEl instanceof HTMLInputElement ||
         activeEl instanceof HTMLTextAreaElement ||
-        activeEl instanceof HTMLSelectElement;
+        activeEl instanceof HTMLSelectElement ||
+        (activeEl instanceof HTMLElement && activeEl.isContentEditable);
 
       // Cmd/Ctrl+S → Save
       if (mod && e.key === "s") {
@@ -5229,8 +6088,8 @@ export default function TemplateEditorPage() {
         handleOpenHistory();
         return;
       }
-      // ? → Show keyboard shortcuts (only when not in an input)
-      if (e.key === "?" && !isInput && !mod) {
+      // Cmd/Ctrl + / → Show keyboard shortcuts (only when not in an input)
+      if (mod && e.code === "Slash" && !isInput) {
         e.preventDefault();
         setShowShortcuts((prev) => !prev);
         return;
@@ -6266,7 +7125,17 @@ export default function TemplateEditorPage() {
                             const mouseTarget = dragMouseTargetRef.current;
                             if (mouseTarget) {
                               const tag = mouseTarget.tagName.toLowerCase();
-                              if (tag === "input" || tag === "select" || tag === "textarea" || tag === "button" || mouseTarget.closest("button") || mouseTarget.closest(".range-slider")) {
+                              if (
+                                tag === "input" ||
+                                tag === "select" ||
+                                tag === "textarea" ||
+                                tag === "button" ||
+                                tag === "label" ||
+                                mouseTarget.isContentEditable ||
+                                mouseTarget.closest("button") ||
+                                mouseTarget.closest(".range-slider") ||
+                                mouseTarget.closest("[data-no-component-drag]")
+                              ) {
                                 e.preventDefault();
                                 return;
                               }
