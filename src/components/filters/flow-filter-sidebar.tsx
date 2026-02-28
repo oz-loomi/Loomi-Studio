@@ -341,7 +341,7 @@ export function FlowFilterSidebar({
     <aside
       className={
         inline
-          ? `rounded-2xl text-[var(--sidebar-foreground)] flex flex-col overflow-hidden bg-transparent border border-transparent shadow-none backdrop-blur-0 xl:sticky xl:top-28 xl:max-h-[calc(100vh-8rem)] ${className}`.trim()
+          ? `rounded-2xl text-[var(--sidebar-foreground)] flex flex-col overflow-hidden ${className}`.trim()
           : 'glass-panel glass-panel-strong fixed right-3 top-3 bottom-3 w-[350px] rounded-2xl flex flex-col overflow-hidden'
       }
     >
@@ -350,7 +350,7 @@ export function FlowFilterSidebar({
             <FunnelIcon className="w-5 h-5 text-[var(--primary)]" />
             <h3 className="text-sm font-bold tracking-tight">Filters</h3>
           </div>
-          {!inline && onClose && (
+          {onClose && (
             <button
               type="button"
               onClick={onClose}

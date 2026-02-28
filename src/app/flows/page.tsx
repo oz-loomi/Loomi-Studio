@@ -8,8 +8,8 @@ import { FlowList, type AccountMeta } from '@/components/flows/flow-list';
 import type { FlowFilterState, FlowFilterOptions } from '@/components/filters/flow-toolbar';
 import { FlowFilterSidebar } from '@/components/filters/flow-filter-sidebar';
 import {
-  InformationCircleIcon,
-  XMarkIcon,
+  ChartBarIcon,
+  ListBulletIcon,
   PlusIcon,
   FunnelIcon,
 } from '@heroicons/react/24/outline';
@@ -62,6 +62,8 @@ function workflowAccountKey(workflow: Workflow): string | null {
   return workflow.accountKey || null;
 }
 
+type PageTab = 'analytics' | 'list';
+
 function AdminFlowsPage() {
   const { data: aggData, error: aggError, isLoading: aggLoading } = useWorkflowsAggregate();
 
@@ -90,7 +92,8 @@ function AdminFlowsPage() {
   const [accountMeta, setAccountMeta] = useState<Record<string, AccountMeta>>({});
   const [accountProviders, setAccountProviders] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [activeTab, setActiveTab] = useState<PageTab>('analytics');
+  const [sideRailMounted, setSideRailMounted] = useState(false);
 
   const [filters, setFilters] = useState<FlowFilterState>({
     account: [],
@@ -98,7 +101,18 @@ function AdminFlowsPage() {
     oem: [],
     industry: [],
   });
-  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilterCount = [filters.account, filters.status, filters.oem, filters.industry]
+    .filter((values) => values.length > 0).length;
+
+  useEffect(() => {
+    if (filtersOpen) {
+      setSideRailMounted(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setSideRailMounted(false), 260);
+    return () => window.clearTimeout(timer);
+  }, [filtersOpen]);
 
   // Sync loading state with SWR
   useEffect(() => {
@@ -312,15 +326,51 @@ function AdminFlowsPage() {
             </div>
           </div>
 
+          <div className="flex items-center rounded-xl border border-[var(--border)] bg-[var(--card)] p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('analytics')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === 'analytics'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <ChartBarIcon className="w-3.5 h-3.5" />
+              Analytics
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('list')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === 'list'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <ListBulletIcon className="w-3.5 h-3.5" />
+              Flows
+            </button>
+          </div>
+
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <button
               type="button"
-              onClick={() => setFiltersCollapsed((prev) => !prev)}
-              className="inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)] transition-colors"
-              aria-pressed={!filtersCollapsed}
+              onClick={() => setFiltersOpen((prev) => !prev)}
+              className={`inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border transition-colors ${
+                filtersOpen
+                  ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+              }`}
+              aria-pressed={filtersOpen}
             >
               <FunnelIcon className="w-4 h-4" />
-              {filtersCollapsed ? 'Show Filters' : 'Hide Filters'}
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="w-5 h-5 rounded-full bg-[var(--primary)] text-white text-[10px] flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
             {createFlowHref ? (
               <a
@@ -346,51 +396,24 @@ function AdminFlowsPage() {
         </div>
       </div>
 
-      <div className="w-full max-w-[1600px] flex flex-col xl:flex-row gap-4 items-start">
-        {!filtersCollapsed && (
-          <FlowFilterSidebar
-            inline
-            className="w-full xl:w-[320px] xl:flex-shrink-0"
-            filters={filters}
-            onFiltersChange={setFilters}
-            options={filterOptions}
-          />
-        )}
-
-        <div className="w-full max-w-[1250px] flex-1 min-w-0">
+      <div className={sideRailMounted ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
+        <div className="min-w-0">
           {flowError && (
             <div className="px-4 py-3 mb-4 rounded-xl border border-red-500/20 bg-red-500/10 text-sm text-red-300">
               {flowError}
             </div>
           )}
 
-          {!bannerDismissed && (
-            <div className="flex items-start gap-3 px-4 py-3 mb-6 rounded-xl bg-[var(--primary)]/5 border border-[var(--primary)]/15">
-              <InformationCircleIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0 mt-0.5" />
-              <div className="flex-1 text-sm text-[var(--muted-foreground)]">
-                <span className="font-medium text-[var(--foreground)]">Workflow setup is managed in your connected ESP</span>
-                {' — '}
-                Use <span className="font-medium text-[var(--primary)]">Create Flow in {flowBuilderLabel}</span> to build or publish workflows.
-              </div>
-              <button
-                type="button"
-                onClick={() => setBannerDismissed(true)}
-                className="flex-shrink-0 mt-0.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-                aria-label="Dismiss"
-              >
-                <XMarkIcon className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          <div className="space-y-6">
+          {activeTab === 'analytics' && (
             <FlowAnalytics
               workflows={filteredWorkflows}
               loading={loading}
               showAccountBreakdown
               accountNames={accountNames}
             />
+          )}
 
+          {activeTab === 'list' && (
             <FlowList
               workflows={filteredWorkflows}
               loading={loading}
@@ -399,8 +422,23 @@ function AdminFlowsPage() {
               accountProviders={accountProviders}
               emptyState={flowEmptyState}
             />
-          </div>
+          )}
         </div>
+
+        {sideRailMounted && (
+          <FlowFilterSidebar
+            inline
+            onClose={() => setFiltersOpen(false)}
+            filters={filters}
+            onFiltersChange={setFilters}
+            options={filterOptions}
+            className={`glass-panel glass-panel-strong w-full transition-[opacity,transform,max-height] duration-300 ease-out lg:sticky lg:top-24 lg:w-[360px] ${
+              filtersOpen
+                ? 'pointer-events-auto max-h-[calc(100vh-8rem)] translate-x-0 opacity-100 animate-slide-in-right'
+                : 'pointer-events-none max-h-0 translate-x-4 opacity-0'
+            }`}
+          />
+        )}
       </div>
     </div>
   );
