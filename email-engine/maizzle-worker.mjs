@@ -48,14 +48,24 @@ try {
 } catch {}
 
 /**
+ * Strip YAML frontmatter (--- ... ---) from template source.
+ * PostHTML doesn't understand frontmatter and renders the delimiters as visible text.
+ */
+function stripFrontmatter(src) {
+  const match = src.match(/^\s*---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  return match ? src.slice(match[0].length) : src;
+}
+
+/**
  * Fast preview render — PostHTML component expansion only.
  * Skips PostCSS, Tailwind, CSS inlining, purging, and all other transformers.
  * Components already use inline styles, so preview looks correct without CSS processing.
  */
 async function renderPreview(html) {
+  const clean = stripFrontmatter(html);
   const result = await posthtml([
     components(COMPONENT_CONFIG),
-  ]).process(html, {
+  ]).process(clean, {
     recognizeSelfClosing: true,
     xmlMode: false,
     closingSingleTag: 'slash',

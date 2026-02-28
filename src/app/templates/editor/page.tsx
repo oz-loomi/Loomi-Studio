@@ -907,6 +907,7 @@ function PropField({
   onLiveStyle,
   onBrowseMedia,
   onInsertVariable,
+  brandColors,
 }: {
   prop: {
     key: string;
@@ -921,6 +922,7 @@ function PropField({
   onLiveStyle?: (val: string) => void;
   onBrowseMedia?: () => void;
   onInsertVariable?: (token: string) => void;
+  brandColors?: { label: string; value: string }[];
 }) {
   const placeholderText = prop.placeholder || prop.default;
 
@@ -953,22 +955,91 @@ function PropField({
     );
   }
   if (prop.type === "color") {
+    const swatches = brandColors?.filter((c) => c.value) || [];
     return (
-      <div className="w-[124px] flex items-center bg-[var(--input)] border border-[var(--border)] rounded-lg overflow-hidden">
-        <input
-          type="color"
-          value={value || placeholderText || "#000000"}
-          onInput={(e) => onLiveStyle?.((e.target as HTMLInputElement).value)}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-8 h-8 cursor-pointer bg-transparent flex-shrink-0 border-none p-0.5"
-        />
-        <input
-          type="text"
-          value={value || ""}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-[82px] bg-transparent border-none px-2 py-1.5 text-xs font-mono outline-none"
-          placeholder={placeholderText || "#000000"}
-        />
+      <div className="flex items-center gap-1.5">
+        {swatches.length > 0 && (
+          <div className="flex items-center gap-0.5">
+            {swatches.map((c) => (
+              <button
+                key={c.label}
+                type="button"
+                onClick={() => { onChange(c.value); onLiveStyle?.(c.value); }}
+                title={`${c.label} (${c.value})`}
+                className={`w-5 h-5 rounded-full border-2 flex-shrink-0 transition-all hover:scale-110 ${value?.toLowerCase() === c.value.toLowerCase() ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-[var(--border)]"}`}
+                style={{ backgroundColor: c.value }}
+              />
+            ))}
+          </div>
+        )}
+        <div className="w-[124px] flex items-center bg-[var(--input)] border border-[var(--border)] rounded-lg overflow-hidden">
+          <input
+            type="color"
+            value={value || placeholderText || "#000000"}
+            onInput={(e) => onLiveStyle?.((e.target as HTMLInputElement).value)}
+            onChange={(e) => onChange(e.target.value)}
+            className="w-8 h-8 cursor-pointer bg-transparent flex-shrink-0 border-none p-0.5"
+          />
+          <input
+            type="text"
+            value={value || ""}
+            onChange={(e) => onChange(e.target.value)}
+            className="w-[82px] bg-transparent border-none px-2 py-1.5 text-xs font-mono outline-none"
+            placeholder={placeholderText || "#000000"}
+          />
+        </div>
+      </div>
+    );
+  }
+  if (prop.type === "fontSelect") {
+    const [fontOpen, setFontOpen] = useState(false);
+    const fontRef = useRef<HTMLDivElement>(null);
+    const selectedFont = prop.options?.find((o) => o.value === value);
+    useEffect(() => {
+      if (!fontOpen) return;
+      const handleClick = (e: MouseEvent) => {
+        if (fontRef.current && !fontRef.current.contains(e.target as Node)) setFontOpen(false);
+      };
+      document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }, [fontOpen]);
+    return (
+      <div ref={fontRef} className="relative w-full">
+        <button
+          type="button"
+          onClick={() => setFontOpen(!fontOpen)}
+          className="w-full flex items-center justify-between bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm text-left hover:border-[var(--primary)] transition-colors"
+        >
+          <span
+            className="truncate"
+            style={{ fontFamily: value || placeholderText || "inherit" }}
+          >
+            {selectedFont?.label || "Default (Helvetica)"}
+          </span>
+          <ChevronDownIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0 ml-2" />
+        </button>
+        {fontOpen && (
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-[var(--border)] rounded-lg shadow-lg overflow-hidden max-h-[260px] overflow-y-auto backdrop-blur-xl bg-[var(--card)]/80">
+            <button
+              type="button"
+              onClick={() => { onChange(""); onLiveStyle?.(""); setFontOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--muted)] transition-colors ${!value ? "bg-[var(--muted)] text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}
+            >
+              Default (Helvetica)
+            </button>
+            {prop.options?.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => { onChange(opt.value); onLiveStyle?.(opt.value); setFontOpen(false); }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--muted)] transition-colors ${value === opt.value ? "bg-[var(--muted)] text-[var(--foreground)]" : "text-[var(--foreground)]"}`}
+                style={{ fontFamily: opt.value }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -1182,11 +1253,13 @@ function BorderSideEditor({
   values,
   onChange,
   onLiveStyle,
+  brandColors,
 }: {
   props: { key: string; label: string; type: string; default?: string; options?: { label: string; value: string }[] }[];
   values: Record<string, string>;
   onChange: (key: string, val: string) => void;
   onLiveStyle?: (key: string, val: string) => void;
+  brandColors?: { label: string; value: string }[];
 }) {
   const sides = ["top", "right", "bottom", "left"] as const;
   type Side = (typeof sides)[number];
@@ -1417,23 +1490,39 @@ function BorderSideEditor({
             <label className="text-[11px] text-[var(--muted-foreground)]">
               Border Color
             </label>
-            <div className="w-[124px] flex items-center bg-[var(--input)] border border-[var(--border)] rounded-lg overflow-hidden">
-              <input
-                type="color"
-                value={values[shorthandColor.key] || shorthandColor.default || "#000000"}
-                onInput={(e) =>
-                  onLiveStyle?.(shorthandColor.key, (e.target as HTMLInputElement).value)
-                }
-                onChange={(e) => handleBorderColorChange(e.target.value)}
-                className="w-8 h-8 cursor-pointer bg-transparent flex-shrink-0 border-none p-0.5"
-              />
-              <input
-                type="text"
-                value={values[shorthandColor.key] || ""}
-                onChange={(e) => handleBorderColorChange(e.target.value)}
-                className="w-[82px] bg-transparent border-none px-2 py-1.5 text-xs font-mono outline-none"
-                placeholder={shorthandColor.default || "#000000"}
-              />
+            <div className="flex items-center gap-1.5">
+              {brandColors && brandColors.filter((c) => c.value).length > 0 && (
+                <div className="flex items-center gap-0.5">
+                  {brandColors.filter((c) => c.value).map((c) => (
+                    <button
+                      key={c.label}
+                      type="button"
+                      onClick={() => { handleBorderColorChange(c.value); onLiveStyle?.(shorthandColor.key, c.value); }}
+                      title={`${c.label} (${c.value})`}
+                      className={`w-5 h-5 rounded-full border-2 flex-shrink-0 transition-all hover:scale-110 ${(values[shorthandColor.key] || "")?.toLowerCase() === c.value.toLowerCase() ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-[var(--border)]"}`}
+                      style={{ backgroundColor: c.value }}
+                    />
+                  ))}
+                </div>
+              )}
+              <div className="w-[124px] flex items-center bg-[var(--input)] border border-[var(--border)] rounded-lg overflow-hidden">
+                <input
+                  type="color"
+                  value={values[shorthandColor.key] || shorthandColor.default || "#000000"}
+                  onInput={(e) =>
+                    onLiveStyle?.(shorthandColor.key, (e.target as HTMLInputElement).value)
+                  }
+                  onChange={(e) => handleBorderColorChange(e.target.value)}
+                  className="w-8 h-8 cursor-pointer bg-transparent flex-shrink-0 border-none p-0.5"
+                />
+                <input
+                  type="text"
+                  value={values[shorthandColor.key] || ""}
+                  onChange={(e) => handleBorderColorChange(e.target.value)}
+                  className="w-[82px] bg-transparent border-none px-2 py-1.5 text-xs font-mono outline-none"
+                  placeholder={shorthandColor.default || "#000000"}
+                />
+              </div>
             </div>
           </div>
         </>
@@ -2021,6 +2110,7 @@ function ComponentPropsRenderer({
   onBrowseMedia,
   onInsertVariable,
   previewWidth,
+  brandColors,
 }: {
   schema: { name?: string; repeatableGroups?: RepeatableGroup[] };
   props: Record<string, string>;
@@ -2044,6 +2134,7 @@ function ComponentPropsRenderer({
   onBrowseMedia?: (propKey: string) => void;
   onInsertVariable?: (propKey: string, token: string) => void;
   previewWidth: 'desktop' | 'mobile';
+  brandColors?: { label: string; value: string }[];
 }) {
   const groups = schema.repeatableGroups || [];
 
@@ -2250,6 +2341,7 @@ function ComponentPropsRenderer({
                       onLiveStyle={
                         onLiveStyle ? (val) => onLiveStyle(prop.key, val) : undefined
                       }
+                      brandColors={brandColors}
                     />
                   </div>
                 </div>
@@ -2273,6 +2365,7 @@ function ComponentPropsRenderer({
                         : undefined
                     }
                     onInsertVariable={varPickerFor(prop, r.effectiveKey, r.value)}
+                    brandColors={brandColors}
                   />
                 </>
               )}
@@ -2295,6 +2388,7 @@ function ComponentPropsRenderer({
                           ? (val) => onLiveStyle(nextProp.key, val)
                           : undefined
                       }
+                      brandColors={brandColors}
                     />
                   </div>
                 </div>
@@ -2320,6 +2414,7 @@ function ComponentPropsRenderer({
                         : undefined
                     }
                     onInsertVariable={varPickerFor(nextProp, rNext.effectiveKey, rNext.value)}
+                    brandColors={brandColors}
                   />
                 </>
               )}
@@ -2344,6 +2439,7 @@ function ComponentPropsRenderer({
                 onLiveStyle={
                   onLiveStyle ? (val) => onLiveStyle(prop.key, val) : undefined
                 }
+                brandColors={brandColors}
               />
             </div>
           </div>,
@@ -2371,6 +2467,7 @@ function ComponentPropsRenderer({
                   : undefined
               }
               onInsertVariable={varPickerFor(prop, r.effectiveKey, r.value)}
+              brandColors={brandColors}
             />
           </div>,
         );
@@ -2473,6 +2570,7 @@ function ComponentPropsRenderer({
                       ? (token: string) => onInsertVariable(prop.key, token)
                       : undefined
                   }
+                  brandColors={brandColors}
                 />
               </div>
               <button
@@ -2594,6 +2692,7 @@ function ComponentPropsRenderer({
                   values={compProps}
                   onChange={onPropChange}
                   onLiveStyle={onLiveStyle ? (key, val) => onLiveStyle(key, val) : undefined}
+                  brandColors={brandColors}
                 />
               );
             }
@@ -2695,6 +2794,7 @@ interface SettingsField {
   target: string;
   placeholder?: string;
   half?: boolean;
+  options?: { label: string; value: string }[];
 }
 
 interface SettingsSection {
@@ -2725,6 +2825,20 @@ const HERO_BUTTON_PROP_MAP: Record<string, string[]> = {
   "button-padding": ["primary-button-padding", "secondary-button-padding"],
 };
 
+const WEBSAFE_FONTS = [
+  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Helvetica', value: 'Helvetica Neue, Helvetica, Arial, sans-serif' },
+  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
+  { label: 'Tahoma', value: 'Tahoma, Geneva, sans-serif' },
+  { label: 'Trebuchet MS', value: 'Trebuchet MS, Helvetica, sans-serif' },
+  { label: 'Georgia', value: 'Georgia, Times New Roman, serif' },
+  { label: 'Times New Roman', value: 'Times New Roman, Times, serif' },
+  { label: 'Palatino', value: 'Palatino Linotype, Book Antiqua, Palatino, serif' },
+  { label: 'Garamond', value: 'Garamond, Georgia, serif' },
+  { label: 'Courier New', value: 'Courier New, Courier, monospace' },
+  { label: 'Lucida Console', value: 'Lucida Console, Monaco, monospace' },
+];
+
 // Settings sections with static defaults (no theme system)
 const SETTINGS_SECTIONS: SettingsSection[] = [
   {
@@ -2732,6 +2846,20 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     key: "meta",
     fields: [
       { key: "fm:title", label: "Title", type: "text", target: "frontmatter" },
+    ],
+  },
+  {
+    label: "Typography",
+    key: "typography",
+    fields: [
+      {
+        key: "font",
+        label: "Font Family",
+        type: "fontSelect",
+        target: "allComponentsFont",
+        placeholder: 'Helvetica Neue, Helvetica, Arial, sans-serif',
+        options: WEBSAFE_FONTS,
+      },
     ],
   },
   {
@@ -2908,6 +3036,7 @@ const PROP_CSS_MAP: Record<string, string> = {
   "outer-padding": "padding",
   "brand-padding": "padding",
   // Font
+  font: "font-family",
   "font-size": "font-size",
   "greeting-size": "font-size",
   "body-size": "font-size",
@@ -3159,6 +3288,17 @@ export default function TemplateEditorPage() {
     () => (effectiveAccountKey ? accounts[effectiveAccountKey] || null : accountData),
     [effectiveAccountKey, accounts, accountData],
   );
+  const brandColors = useMemo(() => {
+    const colors = effectiveAccountData?.branding?.colors;
+    if (!colors) return undefined;
+    const entries: { label: string; value: string }[] = [];
+    if (colors.primary) entries.push({ label: "Primary", value: colors.primary });
+    if (colors.secondary) entries.push({ label: "Secondary", value: colors.secondary });
+    if (colors.accent) entries.push({ label: "Accent", value: colors.accent });
+    if (colors.background) entries.push({ label: "Background", value: colors.background });
+    if (colors.text) entries.push({ label: "Text", value: colors.text });
+    return entries.length > 0 ? entries : undefined;
+  }, [effectiveAccountData?.branding?.colors]);
   const mediaPickerAccountKey = effectiveAccountKey || undefined;
   const canBrowseMedia = Boolean(mediaPickerAccountKey || isAdmin);
   const builderMode = searchParams.get("builder");
@@ -3495,19 +3635,35 @@ export default function TemplateEditorPage() {
       setEspRecordId(espTemplateId);
       fetch(`/api/esp/templates/${espTemplateId}`)
         .then((r) => r.json())
-        .then((data) => {
+        .then(async (data) => {
           if (data.error) { console.error(data.error); return; }
           const t = data.template;
           setEspSubject(t.subject || "");
           setEspPreviewText(t.previewText || "");
-          const raw = t.source || t.html || "";
+
+          // Resolve source — library: references need fetching from the library
+          let raw = "";
+          const isLibRef = typeof t.source === "string" && t.source.startsWith("library:");
+          if (isLibRef) {
+            const slug = t.source.slice("library:".length);
+            try {
+              const libRes = await fetch(`/api/templates?design=${slug}&type=template&format=raw`);
+              const libData = await libRes.json();
+              raw = libData.raw || t.html || "";
+            } catch {
+              raw = t.html || "";
+            }
+          } else {
+            raw = t.source || t.html || "";
+          }
+
           setCode(raw);
           setOriginalCode(raw);
           // Prefer frontmatter title over DB name for display
           const parsedRaw = parseTemplate(raw);
           const fmTitle = parsedRaw?.frontmatter?.title;
           setEspTemplateName(fmTitle || t.name || "");
-          if (t.editorType === "code" || !t.source) {
+          if (t.editorType === "code" || (!t.source && !isLibRef)) {
             setEditorMode("code");
             compilePreview(raw);
           } else {
@@ -3527,19 +3683,35 @@ export default function TemplateEditorPage() {
     if (accountKeyParam && !design) {
       setEspMode(true);
       if (modeParam === "code") setEditorMode("code");
+      // Apply branding font to all components in a parsed template
+      const applyBrandingFont = (p: ParsedTemplate): ParsedTemplate => {
+        const brandFont = effectiveAccountData?.branding?.fonts?.body;
+        if (!brandFont || !p.components.length) return p;
+        // Only apply if no component already has an explicit font set
+        const hasExplicitFont = p.components.some((c) => c.props.font);
+        if (hasExplicitFont) return p;
+        return {
+          ...p,
+          components: p.components.map((c) => ({ ...c, props: { ...c.props, font: brandFont } })),
+        };
+      };
       // If starting from a library template, load its source
       if (libraryTemplateSlug) {
         fetch(`/api/templates?design=${libraryTemplateSlug}&type=template&format=raw`)
           .then((r) => r.json())
           .then((rawData) => {
             if (rawData.raw) {
-              setCode(rawData.raw);
-              setOriginalCode(rawData.raw);
               const p = parseTemplate(rawData.raw);
               if (p?.frontmatter) {
-                setParsed(p);
-                compilePreview(serializeTemplateForPreview(p, new Set()));
+                const withFont = applyBrandingFont(p);
+                const serialized = serializeTemplateClient(withFont);
+                setCode(serialized);
+                setOriginalCode(rawData.raw);
+                setParsed(withFont);
+                compilePreview(serializeTemplateForPreview(withFont, new Set()));
               } else {
+                setCode(rawData.raw);
+                setOriginalCode(rawData.raw);
                 compilePreview(rawData.raw);
               }
             }
@@ -3548,14 +3720,19 @@ export default function TemplateEditorPage() {
       } else {
         // Brand new blank ESP template — use mode-specific starter
         const blank = getStarterTemplate(modeParam === "code" ? "code" : "visual");
-        setCode(blank);
-        setOriginalCode(blank);
-        setEspTemplateName("Untitled Template");
         const p = parseTemplate(blank);
         if (p?.frontmatter) {
-          setParsed(p);
-          compilePreview(serializeTemplateForPreview(p, new Set()));
+          const withFont = applyBrandingFont(p);
+          const serialized = serializeTemplateClient(withFont);
+          setCode(serialized);
+          setOriginalCode(blank);
+          setEspTemplateName("Untitled Template");
+          setParsed(withFont);
+          compilePreview(serializeTemplateForPreview(withFont, new Set()));
         } else {
+          setCode(blank);
+          setOriginalCode(blank);
+          setEspTemplateName("Untitled Template");
           compilePreview(blank);
         }
       }
@@ -3837,6 +4014,23 @@ export default function TemplateEditorPage() {
       delete newBaseProps[key];
     }
     const newParsed = { ...parsed, baseProps: newBaseProps };
+    setParsed(newParsed);
+    syncVisualToCode(newParsed);
+  };
+
+  // Update font on all components at once (global typography setting).
+  const updateAllComponentsFont = (value: string) => {
+    if (!parsed) return;
+    const newComponents = parsed.components.map((comp) => {
+      const newProps = { ...comp.props };
+      if (value) {
+        newProps.font = value;
+      } else {
+        delete newProps.font;
+      }
+      return { ...comp, props: newProps };
+    });
+    const newParsed = { ...parsed, components: newComponents };
     setParsed(newParsed);
     syncVisualToCode(newParsed);
   };
@@ -5477,6 +5671,10 @@ export default function TemplateEditorPage() {
                             let val = "";
                             if (f.target === "frontmatter") {
                               val = parsed.frontmatter[fKey] || "";
+                            } else if (f.target === "allComponentsFont") {
+                              // Read font from the first component that has one
+                              const firstWithFont = parsed.components.find((c) => c.props.font);
+                              val = firstWithFont?.props.font || "";
                             } else if (f.target === "ctaComponents") {
                               const firstButtonComp = parsed.components.find(
                                 (c) => c.type === "cta" || c.type === "hero",
@@ -5509,6 +5707,8 @@ export default function TemplateEditorPage() {
                             const handleChange = (v: string) => {
                               if (f.target === "frontmatter")
                                 updateFrontmatter(fKey, v);
+                              else if (f.target === "allComponentsFont")
+                                updateAllComponentsFont(v);
                               else if (f.target === "ctaComponents")
                                 updateCtaComponents(fKey, v);
                               else updateBaseProp(fKey, v);
@@ -5522,6 +5722,18 @@ export default function TemplateEditorPage() {
                                     fKey,
                                     v,
                                   );
+                              } else if (
+                                f.target === "allComponentsFont" &&
+                                parsed
+                              ) {
+                                parsed.components.forEach((_c, idx) => {
+                                  injectLiveStyle(
+                                    iframeRef.current,
+                                    idx,
+                                    "font-family",
+                                    v,
+                                  );
+                                });
                               } else if (
                                 f.target === "ctaComponents" &&
                                 parsed
@@ -5569,6 +5781,7 @@ export default function TemplateEditorPage() {
                                           ? (token: string) => r1.handleChange(r1.val + token)
                                           : undefined
                                       }
+                                      brandColors={brandColors}
                                     />
                                   </div>
                                   <div className="flex-1 min-w-0">
@@ -5585,6 +5798,7 @@ export default function TemplateEditorPage() {
                                           ? (token: string) => r2.handleChange(r2.val + token)
                                           : undefined
                                       }
+                                      brandColors={brandColors}
                                     />
                                   </div>
                                 </div>,
@@ -5607,6 +5821,7 @@ export default function TemplateEditorPage() {
                                         ? (token: string) => r.handleChange(r.val + token)
                                         : undefined
                                     }
+                                    brandColors={brandColors}
                                   />
                                 </div>,
                               );
@@ -5618,6 +5833,39 @@ export default function TemplateEditorPage() {
                       </div>
                     </div>
                   ))}
+
+                {/* Brand palette reference (account-level only) */}
+                {visualTab === "settings" && effectiveAccountKey && parsed && (
+                  <div className="mt-4">
+                    <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
+                      Brand Palette
+                    </h3>
+                    {brandColors && brandColors.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {brandColors.map((c) => (
+                          <div key={c.label} className="flex items-center gap-1.5 bg-[var(--muted)] rounded-lg px-2 py-1.5">
+                            <div
+                              className="w-4 h-4 rounded-full border border-[var(--border)] flex-shrink-0"
+                              style={{ backgroundColor: c.value }}
+                            />
+                            <span className="text-[11px] text-[var(--muted-foreground)]">{c.label}</span>
+                            <span className="text-[10px] font-mono text-[var(--muted-foreground)]/60">{c.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[var(--muted-foreground)]">
+                        No brand colors configured.{" "}
+                        <Link
+                          href={`/accounts/${effectiveAccountKey}?tab=branding`}
+                          className="text-[var(--primary)] hover:underline"
+                        >
+                          Set up branding
+                        </Link>
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Components sub-tab */}
                 {visualTab === "components" && (
@@ -5859,6 +6107,7 @@ export default function TemplateEditorPage() {
                                     onInsertVariable={(propKey, token) =>
                                       updateComponentProp(index, propKey, (comp.props[propKey] || '') + token)
                                     }
+                                    brandColors={brandColors}
                                   />
                                 ) : (
                                   rawProps &&
