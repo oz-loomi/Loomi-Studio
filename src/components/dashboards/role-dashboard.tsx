@@ -9,7 +9,6 @@ import {
   ArrowPathIcon,
   BookOpenIcon,
   BuildingStorefrontIcon,
-  CalendarDaysIcon,
   ChartBarIcon,
   CheckCircleIcon,
   CommandLineIcon,
@@ -28,14 +27,13 @@ import {
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
 import { roleDisplayName } from '@/lib/roles';
-import { DashboardToolbar, type AccountOption, type CustomDateRange } from '@/components/filters/dashboard-toolbar';
+import { type AccountOption, type CustomDateRange } from '@/components/filters/dashboard-toolbar';
 import {
   type DateRangeBounds,
   type DateRangeKey,
   DATE_RANGE_PRESETS,
   DEFAULT_DATE_RANGE,
   filterByDateRange,
-  formatCustomRangeLabel,
   getDateRangeBounds,
   getMonthBuckets,
 } from '@/lib/date-ranges';
@@ -572,19 +570,13 @@ function ManagementRoleDashboard({
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
   const [accountSearchQuery, setAccountSearchQuery] = useState('');
-  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
-  const [repDropdownOpen, setRepDropdownOpen] = useState(false);
-  const defaultEnd = new Date();
-  const defaultStart = new Date();
-  defaultStart.setMonth(defaultStart.getMonth() - 1);
-  const [dateStartInput, setDateStartInput] = useState(() => (customRange?.start ?? defaultStart).toISOString().split('T')[0]);
-  const [dateEndInput, setDateEndInput] = useState(() => (customRange?.end ?? defaultEnd).toISOString().split('T')[0]);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [selectedRepIds, setSelectedRepIds] = useState<string[]>([]);
   const [superAdminPresetName, setSuperAdminPresetName] = useState('');
   const [superAdminPresets, setSuperAdminPresets] = useState<SuperAdminFilterPreset[]>([]);
   const [superAdminPresetsHydrated, setSuperAdminPresetsHydrated] = useState(false);
   const lastFocusedRef = useRef<string | null>(null);
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
 
   const [emails, setEmails] = useState<EmailListItem[]>([]);
   const [loomiEmailCampaigns, setLoomiEmailCampaigns] = useState<LoomiEmailCampaign[]>([]);
@@ -709,7 +701,7 @@ function ManagementRoleDashboard({
     setManagementSideRailMounted(false);
   }, [role, developerMode, isAccountMode, focusedAccountKey]);
 
-  const managementSideRailOpen = customizePanelOpen || filtersPanelOpen;
+  const managementSideRailOpen = customizePanelOpen;
 
   useEffect(() => {
     if (managementSideRailOpen) {
@@ -720,6 +712,24 @@ function ManagementRoleDashboard({
     const timer = window.setTimeout(() => setManagementSideRailMounted(false), 260);
     return () => window.clearTimeout(timer);
   }, [managementSideRailOpen]);
+
+  useEffect(() => {
+    if (!filtersPanelOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target as Node)) {
+        setFiltersPanelOpen(false);
+      }
+    }
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === 'Escape') setFiltersPanelOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [filtersPanelOpen]);
 
   useEffect(() => {
     if (!isAccountMode || !focusedAccountKey) {
@@ -1846,19 +1856,15 @@ function ManagementRoleDashboard({
     />
   );
 
-  const managementFiltersPanel = (
-    <aside
-      aria-hidden={!filtersPanelOpen}
-      className={`glass-panel glass-panel-strong w-full rounded-2xl flex flex-col overflow-hidden transition-[opacity,transform,max-height] duration-300 ease-out lg:sticky lg:top-24 lg:w-[360px] ${
-        filtersPanelOpen
-          ? 'pointer-events-auto max-h-[calc(100vh-8rem)] translate-x-0 opacity-100 animate-slide-in-right'
-          : 'pointer-events-none max-h-0 translate-x-4 opacity-0'
-      }`}
+  const filtersDropdown = filtersPanelOpen ? (
+    <div
+      ref={filterDropdownRef}
+      className="absolute right-0 top-full mt-2 z-50 glass-panel glass-panel-strong w-[420px] max-h-[calc(100vh-8rem)] rounded-2xl flex flex-col overflow-hidden animate-fade-in-up"
     >
-      <div className="border-b border-[var(--sidebar-border-soft)] px-5 py-4">
+      <div className="border-b border-[var(--sidebar-border-soft)] px-5 py-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <FunnelIcon className="h-5 w-5 text-[var(--primary)]" />
+            <FunnelIcon className="h-4 w-4 text-[var(--primary)]" />
             <h3 className="text-sm font-bold tracking-tight">Filters</h3>
           </div>
           <button
@@ -1869,108 +1875,9 @@ function ManagementRoleDashboard({
             <XMarkIcon className="h-4 w-4" />
           </button>
         </div>
-        <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
-          Sub-Accounts: {selectedAccounts.length === 0 ? 'all' : selectedAccounts.length} · Reps: {selectedRepIds.length === 0 ? 'all' : selectedRepIds.length}
-        </p>
       </div>
 
       <div className="themed-scrollbar flex-1 space-y-5 overflow-y-auto p-4">
-        {/* Date Range */}
-        <section className="space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
-              Date Range
-            </p>
-            {dateRange !== '6m' && (
-              <button
-                type="button"
-                onClick={() => setDateRange('6m' as DateRangeKey)}
-                className="text-[10px] font-medium text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] transition-colors"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            {DATE_RANGE_PRESETS.filter(p => p.key !== 'custom').map((preset) => (
-              <button
-                key={preset.key}
-                type="button"
-                onClick={() => setDateRange(preset.key)}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors ${
-                  dateRange === preset.key
-                    ? 'border-[var(--primary)]/60 bg-[var(--primary)]/14 text-[var(--primary)]'
-                    : 'border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:border-[var(--primary)]/35 hover:bg-[var(--sidebar-muted)]/70'
-                }`}
-              >
-                <CalendarDaysIcon className="w-3 h-3 flex-shrink-0" />
-                {preset.label}
-                {dateRange === preset.key && <CheckIcon className="w-3 h-3 flex-shrink-0" />}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setDateRange('custom' as DateRangeKey)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors ${
-                dateRange === 'custom'
-                  ? 'border-[var(--primary)]/60 bg-[var(--primary)]/14 text-[var(--primary)]'
-                  : 'border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:border-[var(--primary)]/35 hover:bg-[var(--sidebar-muted)]/70'
-              }`}
-            >
-              <CalendarDaysIcon className="w-3 h-3 flex-shrink-0" />
-              Custom
-              {dateRange === 'custom' && <CheckIcon className="w-3 h-3 flex-shrink-0" />}
-            </button>
-          </div>
-
-          {dateRange === 'custom' && (
-            <div className="space-y-2 pt-1">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[9px] text-[var(--sidebar-muted-foreground)] mb-0.5">Start</label>
-                  <input
-                    type="date"
-                    value={dateStartInput}
-                    max={dateEndInput}
-                    onChange={e => setDateStartInput(e.target.value)}
-                    className="w-full px-2 py-1.5 text-[11px] rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 text-[var(--sidebar-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30 transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[9px] text-[var(--sidebar-muted-foreground)] mb-0.5">End</label>
-                  <input
-                    type="date"
-                    value={dateEndInput}
-                    min={dateStartInput}
-                    max={new Date().toISOString().split('T')[0]}
-                    onChange={e => setDateEndInput(e.target.value)}
-                    className="w-full px-2 py-1.5 text-[11px] rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 text-[var(--sidebar-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30 transition-colors"
-                  />
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const start = new Date(dateStartInput + 'T00:00:00');
-                  const end = new Date(dateEndInput + 'T23:59:59');
-                  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return;
-                  setCustomRange({ start, end });
-                }}
-                disabled={!dateStartInput || !dateEndInput || dateStartInput > dateEndInput}
-                className="w-full py-1.5 text-[11px] font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Apply Custom Range
-              </button>
-              {customRange && (
-                <p className="text-[10px] text-[var(--primary)] font-medium">
-                  {formatCustomRangeLabel(customRange.start, customRange.end)}
-                </p>
-              )}
-            </div>
-          )}
-        </section>
-
         {/* Sub-Account */}
         <section className="space-y-2.5">
           <div className="flex items-center justify-between gap-2">
@@ -1985,7 +1892,7 @@ function ManagementRoleDashboard({
           <div className="flex flex-wrap gap-1.5">
             <button
               type="button"
-              onClick={() => { setSelectedAccounts([]); setAccountDropdownOpen(false); }}
+              onClick={() => setSelectedAccounts([])}
               className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors ${
                 selectedAccounts.length === 0
                   ? 'border-[var(--primary)]/60 bg-[var(--primary)]/14 text-[var(--primary)]'
@@ -2013,17 +1920,9 @@ function ManagementRoleDashboard({
                 <XMarkIcon className="w-3 h-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
               </button>
             ))}
-            <button
-              type="button"
-              onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
-              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:border-[var(--primary)]/35 hover:bg-[var(--sidebar-muted)]/70"
-            >
-              {accountDropdownOpen ? 'Close' : '+ Add'}
-            </button>
           </div>
 
-          {accountDropdownOpen && (
-            <div className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-2 space-y-2">
+          <div className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-2 space-y-2">
               <div className="relative">
                 <MagnifyingGlassIcon className="w-3.5 h-3.5 text-[var(--sidebar-muted-foreground)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
@@ -2034,7 +1933,7 @@ function ManagementRoleDashboard({
                   className="w-full h-8 rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 pl-8 pr-2 text-[11px] text-[var(--sidebar-foreground)] placeholder:text-[var(--sidebar-muted-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30"
                 />
               </div>
-              <div className="themed-scrollbar space-y-1 max-h-64 overflow-y-auto pr-1">
+              <div className="themed-scrollbar space-y-1 max-h-52 overflow-y-auto pr-1">
                 {filteredAccountOptions.map((account) => {
                   const selected = selectedAccounts.includes(account.key);
                   const location = [account.city, account.state].filter(Boolean).join(', ');
@@ -2075,8 +1974,7 @@ function ManagementRoleDashboard({
                   </p>
                 )}
               </div>
-            </div>
-          )}
+          </div>
         </section>
 
         {(isSuperAdmin || isDeveloper) && repScopeOptions.length > 0 ? (
@@ -2092,7 +1990,7 @@ function ManagementRoleDashboard({
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
-                onClick={() => { setSelectedRepIds([]); setRepDropdownOpen(false); }}
+                onClick={() => setSelectedRepIds([])}
                 className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors ${
                   selectedRepIds.length === 0
                     ? 'border-[var(--primary)]/60 bg-[var(--primary)]/14 text-[var(--primary)]'
@@ -2112,16 +2010,8 @@ function ManagementRoleDashboard({
                   <XMarkIcon className="w-3 h-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </button>
               ))}
-              <button
-                type="button"
-                onClick={() => setRepDropdownOpen(!repDropdownOpen)}
-                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:border-[var(--primary)]/35 hover:bg-[var(--sidebar-muted)]/70"
-              >
-                {repDropdownOpen ? 'Close' : '+ Add'}
-              </button>
             </div>
-            {repDropdownOpen && (
-              <div className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-2 space-y-1">
+            <div className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-2 space-y-1">
                 <div className="themed-scrollbar space-y-1 max-h-48 overflow-y-auto pr-1">
                   {repScopeOptions.map((rep) => {
                     const selected = selectedRepIds.includes(rep.id);
@@ -2142,8 +2032,7 @@ function ManagementRoleDashboard({
                     );
                   })}
                 </div>
-              </div>
-            )}
+            </div>
           </section>
         ) : null}
 
@@ -2163,7 +2052,7 @@ function ManagementRoleDashboard({
                 onClick={saveSuperAdminPreset}
                 className="h-9 rounded-lg bg-[var(--primary)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90"
               >
-                Save Quick Filter
+                Save
               </button>
             </div>
 
@@ -2205,24 +2094,24 @@ function ManagementRoleDashboard({
         ) : null}
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-[var(--sidebar-border-soft)] p-4">
+      <div className="flex items-center justify-between gap-2 border-t border-[var(--sidebar-border-soft)] px-4 py-3">
         <button
           type="button"
           onClick={clearSuperAdminFilters}
-          className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
         >
-          Reset Filters
+          Reset
         </button>
         <button
           type="button"
           onClick={() => setFiltersPanelOpen(false)}
-          className="rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 px-3 py-2 text-xs text-white transition-colors hover:bg-[var(--primary)]"
+          className="rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 px-3 py-1.5 text-xs text-white transition-colors hover:bg-[var(--primary)]"
         >
           Done
         </button>
       </div>
-    </aside>
-  );
+    </div>
+  ) : null;
 
   const activeFilterCount = (selectedAccounts.length > 0 ? 1 : 0) + (selectedRepIds.length > 0 ? 1 : 0);
 
@@ -2368,33 +2257,35 @@ function ManagementRoleDashboard({
               <SquaresPlusIcon className="h-4 w-4" />
               <span className="hidden sm:inline">Customize</span>
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (filtersPanelOpen) {
-                  setFiltersPanelOpen(false);
-                  return;
-                }
-                dashboardCustomization.setEditMode(false);
-                setCustomizePanelOpen(false);
-                setDraggedWidgetId(null);
-                setManagementSideRailMounted(true);
-                setFiltersPanelOpen(true);
-              }}
-              className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
-                filtersPanelOpen
-                  ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              <FunnelIcon className="h-4 w-4" />
-              <span className="hidden sm:inline">Filters</span>
-              {activeFilterCount > 0 ? (
-                <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--primary)]">
-                  {activeFilterCount}
-                </span>
-              ) : null}
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  if (filtersPanelOpen) {
+                    setFiltersPanelOpen(false);
+                    return;
+                  }
+                  dashboardCustomization.setEditMode(false);
+                  setCustomizePanelOpen(false);
+                  setDraggedWidgetId(null);
+                  setFiltersPanelOpen(true);
+                }}
+                className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
+                  filtersPanelOpen
+                    ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                    : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+                }`}
+              >
+                <FunnelIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">Filters</span>
+                {activeFilterCount > 0 ? (
+                  <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--primary)]">
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </button>
+              {filtersDropdown}
+            </div>
           </div>
         </div>
       </div>
@@ -2516,7 +2407,7 @@ function ManagementRoleDashboard({
             </div>
           ))}
           </div>
-          {managementSideRailMounted ? (filtersPanelOpen ? managementFiltersPanel : managementCustomizePanel) : null}
+          {managementSideRailMounted ? managementCustomizePanel : null}
         </div>
       ) : null}
 
@@ -2842,7 +2733,7 @@ function ManagementRoleDashboard({
             </div>
           )) : null}
           </div>
-          {managementSideRailMounted ? (filtersPanelOpen ? managementFiltersPanel : managementCustomizePanel) : null}
+          {managementSideRailMounted ? managementCustomizePanel : null}
         </div>
       ) : null}
     </div>
