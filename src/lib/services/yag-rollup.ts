@@ -1004,9 +1004,12 @@ async function fetchAllGhlContactsForRollup(
   maxContacts: number,
 ): Promise<Record<string, unknown>[]> {
   const allContacts: Record<string, unknown>[] = [];
+  const seenContactIds = new Set<string>();
+  const seenCursors = new Set<string>();
   let hasMore = true;
   let startAfter: string | undefined;
   let page = 0;
+  let useSearchEndpoint = false;
 
   while (hasMore && allContacts.length < maxContacts) {
     const query = new URLSearchParams({
@@ -1016,7 +1019,8 @@ async function fetchAllGhlContactsForRollup(
     if (startAfter) query.set('startAfter', startAfter);
     if (page > 0 && startAfter) query.set('startAfterId', startAfter);
 
-    const res = await fetch(`${GHL_BASE}/contacts/?${query.toString()}`, {
+    const endpointPath = useSearchEndpoint ? '/contacts/search' : '/contacts/';
+    const res = await fetch(`${GHL_BASE}${endpointPath}?${query.toString()}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -1026,30 +1030,10 @@ async function fetchAllGhlContactsForRollup(
     });
 
     if (!res.ok) {
-      // First page fallback: some accounts only support /contacts/search.
-      if (page === 0) {
-        const fallbackQuery = new URLSearchParams({
-          locationId,
-          limit: String(Math.min(GHL_PAGE_SIZE, maxContacts)),
-        });
-        const fallbackRes = await fetch(`${GHL_BASE}/contacts/search?${fallbackQuery.toString()}`, {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Version: API_VERSION,
-            Accept: 'application/json',
-          },
-        });
-        if (!fallbackRes.ok) {
-          throw new Error(`GHL contacts fetch failed (${fallbackRes.status})`);
-        }
-        const fallbackData = await fallbackRes.json();
-        const fallbackContacts =
-          (Array.isArray(fallbackData?.contacts) && fallbackData.contacts) ||
-          (Array.isArray(fallbackData?.data?.contacts) && fallbackData.data.contacts) ||
-          (Array.isArray(fallbackData?.data) && fallbackData.data) ||
-          [];
-        return (fallbackContacts as Record<string, unknown>[]).slice(0, maxContacts);
+      // Some accounts only support /contacts/search; retry first page there.
+      if (page === 0 && !useSearchEndpoint) {
+        useSearchEndpoint = true;
+        continue;
       }
 
       throw new Error(`GHL contacts fetch failed (${res.status})`);
@@ -1064,20 +1048,33 @@ async function fetchAllGhlContactsForRollup(
 
     if (contactsRaw.length === 0) break;
 
-    allContacts.push(...contactsRaw);
-    if (allContacts.length >= maxContacts) break;
-
-    const nextPageUrl = data?.meta?.nextPageUrl || data?.meta?.nextPage;
-    const startAfterId = data?.meta?.startAfterId;
-    if (startAfterId) {
-      startAfter = String(startAfterId);
-    } else {
-      const lastContact = contactsRaw[contactsRaw.length - 1] as Record<string, unknown> | undefined;
-      const lastId = lastContact?.id || lastContact?._id;
-      startAfter = typeof lastId === 'string' ? lastId : '';
+    let newContactsThisPage = 0;
+    for (const raw of contactsRaw as Record<string, unknown>[]) {
+      const contactId = extractRawContactId(raw);
+      if (contactId && seenContactIds.has(contactId)) continue;
+      if (contactId) seenContactIds.add(contactId);
+      allContacts.push(raw);
+      newContactsThisPage += 1;
+      if (allContacts.length >= maxContacts) break;
     }
+    if (allContacts.length >= maxContacts) break;
+    if (newContactsThisPage === 0) break;
 
-    hasMore = contactsRaw.length >= GHL_PAGE_SIZE && Boolean(startAfter) && Boolean(nextPageUrl || startAfterId);
+    const startAfterId = data?.meta?.startAfterId;
+    const lastContact = contactsRaw[contactsRaw.length - 1] as Record<string, unknown> | undefined;
+    const lastId = lastContact?.id || lastContact?._id;
+    const nextCursor = typeof startAfterId === 'string' && startAfterId.trim()
+      ? startAfterId.trim()
+      : typeof lastId === 'string' && lastId.trim()
+        ? lastId.trim()
+        : '';
+    if (!nextCursor) break;
+    if (seenCursors.has(nextCursor)) break;
+    seenCursors.add(nextCursor);
+    startAfter = nextCursor;
+
+    // Some GHL variants omit nextPage metadata; continue while page is full and cursor advances.
+    hasMore = contactsRaw.length >= GHL_PAGE_SIZE && Boolean(startAfter);
     page += 1;
   }
 

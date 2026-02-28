@@ -18,7 +18,6 @@ import { AccountAvatar } from '@/components/account-avatar';
 import {
   DATE_RANGE_PRESETS,
   type DateRangeKey,
-  getDateRangeLabel,
   formatCustomRangeLabel,
 } from '@/lib/date-ranges';
 import type {

@@ -2750,8 +2750,8 @@ function ClientRoleDashboard({
   userName: string | null;
 }) {
   const [loading, setLoading] = useState(true);
-  const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
-  const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
+  const [dateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
+  const [customRange] = useState<CustomDateRange | null>(null);
 
   const [espCampaigns, setEspCampaigns] = useState<EspCampaign[]>([]);
   const [loomiEmailCampaigns, setLoomiEmailCampaigns] = useState<LoomiEmailCampaign[]>([]);

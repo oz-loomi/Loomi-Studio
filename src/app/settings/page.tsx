@@ -3314,6 +3314,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           dryRun,
           mode,
           confirmAll: !dryRun && mode === 'all',
+          maxDeletes: mode === 'all' ? 500000 : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
