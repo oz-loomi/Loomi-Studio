@@ -21,6 +21,8 @@ export interface RenderConfig {
   prettify?: boolean;
   /** PurgeCSS config. Default: { safelist: ['*loomi-*'] } */
   purge?: boolean | { safelist?: string[] };
+  /** Set to false to skip PostCSS/Tailwind entirely (preview mode). Default: true (inline + purge). */
+  css?: false;
   /** Per-request timeout in ms. Default: 15000 */
   timeout?: number;
 }
@@ -29,7 +31,7 @@ interface RenderRequest {
   type: 'render';
   id: string;
   html: string;
-  config: { prettify?: boolean; purge?: boolean | { safelist?: string[] } };
+  config: { prettify?: boolean; purge?: boolean | { safelist?: string[] }; css?: false };
 }
 
 interface PendingRequest {
@@ -88,6 +90,7 @@ class MaizzleRenderService {
       config: {
         prettify: config.prettify,
         purge: config.purge,
+        css: config.css,
       },
     };
 

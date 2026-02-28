@@ -152,10 +152,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ html: cached });
     }
 
-    // Compile via persistent worker (no prettify for preview — it renders in an iframe)
+    // Compile via persistent worker — skip CSS processing for preview.
+    // Components already use inline styles; PostCSS/Tailwind is only needed for export.
     const result = await maizzleRender.renderTemplate(resolvedHtml, {
       prettify: false,
-      purge: { safelist: ['*loomi-*'] },
+      css: false,
     });
 
     setCachedPreview(cacheKey, result);
@@ -230,10 +231,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ html: cached });
     }
 
-    // Compile via persistent worker (no prettify for preview)
+    // Compile via persistent worker — skip CSS processing for preview.
     const result = await maizzleRender.renderTemplate(resolvedHtml, {
       prettify: false,
-      purge: { safelist: ['*loomi-*'] },
+      css: false,
     });
 
     setCachedPreview(cacheKey, result);
