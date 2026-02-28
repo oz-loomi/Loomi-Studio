@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
-import { MANAGEMENT_ROLES } from '@/lib/auth';
+import { ELEVATED_ROLES } from '@/lib/auth';
 import { runYagRollupSync } from '@/lib/services/yag-rollup';
 
 function parseOptionalInt(value: unknown): number | undefined {
@@ -11,16 +11,23 @@ function parseOptionalInt(value: unknown): number | undefined {
 }
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole(...MANAGEMENT_ROLES);
+  const { session, error } = await requireRole(...ELEVATED_ROLES);
   if (error) return error;
 
   try {
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
     const result = await runYagRollupSync({
+      jobKey: typeof body.jobKey === 'string' ? body.jobKey : undefined,
       dryRun: body.dryRun === true,
       fullSync: body.fullSync === true,
       sourceAccountLimit: parseOptionalInt(body.sourceAccountLimit),
       maxUpserts: parseOptionalInt(body.maxUpserts),
+      triggerSource: 'settings-ui',
+      triggeredByUserId: session!.user.id,
+      triggeredByUserName: session!.user.name || null,
+      triggeredByUserEmail: session!.user.email || null,
+      triggeredByUserRole: session!.user.role || null,
+      triggeredByUserAvatarUrl: session!.user.avatarUrl || null,
     });
 
     const statusCode = result.status === 'failed' ? 500 : 200;

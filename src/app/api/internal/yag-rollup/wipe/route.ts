@@ -30,9 +30,11 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await runYagRollupWipe({
+      jobKey: typeof body.jobKey === 'string' ? body.jobKey : undefined,
       dryRun,
       mode,
       maxDeletes: parseOptionalInt(body.maxDeletes),
+      triggerSource: 'internal-job',
     });
 
     const statusCode = result.status === 'failed' ? 500 : 200;
@@ -42,4 +44,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
-import { MANAGEMENT_ROLES } from '@/lib/auth';
+import { ELEVATED_ROLES } from '@/lib/auth';
 import { runYagRollupWipe, type YagRollupWipeMode } from '@/lib/services/yag-rollup';
 
 function parseOptionalInt(value: unknown): number | undefined {
@@ -15,7 +15,7 @@ function parseMode(value: unknown): YagRollupWipeMode {
 }
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole(...MANAGEMENT_ROLES);
+  const { session, error } = await requireRole(...ELEVATED_ROLES);
   if (error) return error;
 
   try {
@@ -31,9 +31,16 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await runYagRollupWipe({
+      jobKey: typeof body.jobKey === 'string' ? body.jobKey : undefined,
       dryRun,
       mode,
       maxDeletes: parseOptionalInt(body.maxDeletes),
+      triggerSource: 'settings-ui',
+      triggeredByUserId: session!.user.id,
+      triggeredByUserName: session!.user.name || null,
+      triggeredByUserEmail: session!.user.email || null,
+      triggeredByUserRole: session!.user.role || null,
+      triggeredByUserAvatarUrl: session!.user.avatarUrl || null,
     });
 
     const statusCode = result.status === 'failed' ? 500 : 200;
@@ -43,4 +50,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

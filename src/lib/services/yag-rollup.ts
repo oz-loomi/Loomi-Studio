@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import * as accountService from '@/lib/services/accounts';
 import { isYagRollupAccount } from '@/lib/accounts/rollup';
 import {
@@ -12,7 +13,8 @@ import { withConcurrencyLimit } from '@/lib/esp/utils';
 import { GHL_BASE, API_VERSION } from '@/lib/esp/adapters/ghl/constants';
 import '@/lib/esp/init';
 
-const YAG_ROLLUP_SINGLETON_KEY = 'primary';
+const DEFAULT_YAG_ROLLUP_JOB_KEY = 'yag-rollup';
+const LEGACY_YAG_ROLLUP_JOB_KEY = 'primary';
 const GHL_PAGE_SIZE = 100;
 const DEFAULT_INCREMENTAL_LOOKBACK_HOURS = 48;
 const DEFAULT_SOURCE_ACCOUNT_CONCURRENCY = 3;
@@ -22,7 +24,16 @@ const DEFAULT_MAX_UPSERTS_PER_RUN = 10_000;
 const DEFAULT_TARGET_DELETE_CONCURRENCY = 4;
 const DEFAULT_MAX_DELETES_PER_RUN = 50_000;
 const DEFAULT_MAX_TARGET_CONTACTS_FOR_WIPE = 150_000;
+const DEFAULT_SCHEDULE_INTERVAL_HOURS = 1;
+const DEFAULT_SCHEDULE_MINUTE_UTC = 15;
+const DEFAULT_FULL_SYNC_HOUR_UTC = 3;
+const DEFAULT_FULL_SYNC_MINUTE_UTC = 45;
 const ROLLUP_TAG_PREFIX = 'rollup-src:';
+
+export interface YagRollupJobSummary {
+  key: string;
+  label: string;
+}
 
 export interface YagRollupAccountOption {
   key: string;
@@ -33,6 +44,11 @@ export interface YagRollupConfigPayload {
   targetAccountKey: string;
   sourceAccountKeys: string[];
   enabled: boolean;
+  scheduleIntervalHours: number;
+  scheduleMinuteUtc: number;
+  fullSyncEnabled: boolean;
+  fullSyncHourUtc: number;
+  fullSyncMinuteUtc: number;
   scrubInvalidEmails: boolean;
   scrubInvalidPhones: boolean;
   updatedByUserId: string | null;
@@ -51,25 +67,79 @@ export interface YagRollupConfigSnapshot {
   isDefaultConfig: boolean;
 }
 
+export interface YagRollupConfigHistoryEntry {
+  id: string;
+  changedAt: string;
+  changedFields: string[];
+  changedByUserId: string | null;
+  changedByUserName: string | null;
+  changedByUserEmail: string | null;
+  changedByUserRole: string | null;
+  changedByUserAvatarUrl: string | null;
+}
+
+export interface YagRollupRunHistoryEntry {
+  id: string;
+  runType: 'sync' | 'wipe';
+  status: 'ok' | 'failed' | 'disabled';
+  dryRun: boolean;
+  fullSync: boolean | null;
+  wipeMode: YagRollupWipeMode | null;
+  triggerSource: string | null;
+  targetAccountKey: string | null;
+  sourceAccountKeys: string[];
+  totals: Record<string, unknown> | null;
+  errors: Record<string, unknown> | null;
+  triggeredByUserId: string | null;
+  triggeredByUserName: string | null;
+  triggeredByUserEmail: string | null;
+  triggeredByUserRole: string | null;
+  triggeredByUserAvatarUrl: string | null;
+  startedAt: string;
+  finishedAt: string;
+  createdAt: string;
+}
+
+export interface YagRollupRunTriggerInput {
+  triggerSource?: string | null;
+  triggeredByUserId?: string | null;
+  triggeredByUserName?: string | null;
+  triggeredByUserEmail?: string | null;
+  triggeredByUserRole?: string | null;
+  triggeredByUserAvatarUrl?: string | null;
+}
+
 export interface SaveYagRollupConfigInput {
   targetAccountKey: string;
   sourceAccountKeys: string[];
   enabled: boolean;
+  scheduleIntervalHours: number;
+  scheduleMinuteUtc: number;
+  fullSyncEnabled: boolean;
+  fullSyncHourUtc: number;
+  fullSyncMinuteUtc: number;
   scrubInvalidEmails: boolean;
   scrubInvalidPhones: boolean;
   updatedByUserId?: string | null;
+  updatedByUserName?: string | null;
+  updatedByUserEmail?: string | null;
+  updatedByUserRole?: string | null;
+  updatedByUserAvatarUrl?: string | null;
 }
 
-export interface RunYagRollupSyncOptions {
+export interface RunYagRollupSyncOptions extends YagRollupRunTriggerInput {
+  jobKey?: string;
   dryRun?: boolean;
   fullSync?: boolean;
+  enforceSchedule?: boolean;
   sourceAccountLimit?: number;
   maxUpserts?: number;
 }
 
 export type YagRollupWipeMode = 'all' | 'tagged';
 
-export interface RunYagRollupWipeOptions {
+export interface RunYagRollupWipeOptions extends YagRollupRunTriggerInput {
+  jobKey?: string;
   dryRun?: boolean;
   mode?: YagRollupWipeMode;
   maxDeletes?: number;
@@ -176,6 +246,12 @@ function envInt(name: string, fallback: number, min: number, max: number): numbe
   return Math.max(min, Math.min(max, Math.floor(raw)));
 }
 
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
 function toIsoOrNull(date: Date | null | undefined): string | null {
   return date instanceof Date ? date.toISOString() : null;
 }
@@ -184,6 +260,214 @@ function parseDateMs(value: string): number | null {
   if (!value) return null;
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function normalizeYagRollupJobKey(jobKey: string | null | undefined): string {
+  const raw = String(jobKey || '').trim().toLowerCase();
+  if (!raw || raw === DEFAULT_YAG_ROLLUP_JOB_KEY) return LEGACY_YAG_ROLLUP_JOB_KEY;
+  return raw;
+}
+
+export function normalizeYagRollupJobKeyForRoute(dbKey: string): string {
+  const raw = String(dbKey || '').trim().toLowerCase();
+  return raw === LEGACY_YAG_ROLLUP_JOB_KEY ? DEFAULT_YAG_ROLLUP_JOB_KEY : raw;
+}
+
+export function isValidYagRollupJobKey(jobKey: string): boolean {
+  return /^[a-z0-9][a-z0-9-]{1,47}$/.test(jobKey);
+}
+
+function toJobLabel(routeKey: string): string {
+  if (routeKey === DEFAULT_YAG_ROLLUP_JOB_KEY) return 'YAG Rollup';
+  return routeKey
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function sameStringSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const aSet = new Set(a);
+  if (aSet.size !== b.length) return false;
+  return b.every((value) => aSet.has(value));
+}
+
+type YagRollupConfigWriteValues = {
+  targetAccountKey: string;
+  sourceAccountKeys: string[];
+  enabled: boolean;
+  scheduleIntervalHours: number;
+  scheduleMinuteUtc: number;
+  fullSyncEnabled: boolean;
+  fullSyncHourUtc: number;
+  fullSyncMinuteUtc: number;
+  scrubInvalidEmails: boolean;
+  scrubInvalidPhones: boolean;
+  updatedByUserId: string | null;
+};
+
+function normalizeYagRollupConfigWriteInput(
+  input: SaveYagRollupConfigInput,
+): YagRollupConfigWriteValues {
+  return {
+    targetAccountKey: input.targetAccountKey,
+    sourceAccountKeys: uniqueKeys(input.sourceAccountKeys),
+    enabled: Boolean(input.enabled),
+    scheduleIntervalHours: clampInt(
+      input.scheduleIntervalHours,
+      DEFAULT_SCHEDULE_INTERVAL_HOURS,
+      1,
+      24,
+    ),
+    scheduleMinuteUtc: clampInt(
+      input.scheduleMinuteUtc,
+      DEFAULT_SCHEDULE_MINUTE_UTC,
+      0,
+      55,
+    ),
+    fullSyncEnabled: Boolean(input.fullSyncEnabled),
+    fullSyncHourUtc: clampInt(
+      input.fullSyncHourUtc,
+      DEFAULT_FULL_SYNC_HOUR_UTC,
+      0,
+      23,
+    ),
+    fullSyncMinuteUtc: clampInt(
+      input.fullSyncMinuteUtc,
+      DEFAULT_FULL_SYNC_MINUTE_UTC,
+      0,
+      55,
+    ),
+    scrubInvalidEmails: Boolean(input.scrubInvalidEmails),
+    scrubInvalidPhones: Boolean(input.scrubInvalidPhones),
+    updatedByUserId: input.updatedByUserId || null,
+  };
+}
+
+function resolveYagRollupChangedFields(
+  previous: {
+    targetAccountKey: string;
+    sourceAccountKeys: string;
+    enabled: boolean;
+    scheduleIntervalHours: number;
+    scheduleMinuteUtc: number;
+    fullSyncEnabled: boolean;
+    fullSyncHourUtc: number;
+    fullSyncMinuteUtc: number;
+    scrubInvalidEmails: boolean;
+    scrubInvalidPhones: boolean;
+  } | null,
+  next: YagRollupConfigWriteValues,
+): string[] {
+  const fields: string[] = [];
+  if (!previous) {
+    return [
+      'targetAccountKey',
+      'sourceAccountKeys',
+      'enabled',
+      'scheduleIntervalHours',
+      'scheduleMinuteUtc',
+      'fullSyncEnabled',
+      'fullSyncHourUtc',
+      'fullSyncMinuteUtc',
+      'scrubInvalidEmails',
+      'scrubInvalidPhones',
+    ];
+  }
+
+  if (previous.targetAccountKey !== next.targetAccountKey) fields.push('targetAccountKey');
+  if (!sameStringSet(parseJsonStringArray(previous.sourceAccountKeys), next.sourceAccountKeys)) fields.push('sourceAccountKeys');
+  if (Boolean(previous.enabled) !== next.enabled) fields.push('enabled');
+  if (previous.scheduleIntervalHours !== next.scheduleIntervalHours) fields.push('scheduleIntervalHours');
+  if (previous.scheduleMinuteUtc !== next.scheduleMinuteUtc) fields.push('scheduleMinuteUtc');
+  if (Boolean(previous.fullSyncEnabled) !== next.fullSyncEnabled) fields.push('fullSyncEnabled');
+  if (previous.fullSyncHourUtc !== next.fullSyncHourUtc) fields.push('fullSyncHourUtc');
+  if (previous.fullSyncMinuteUtc !== next.fullSyncMinuteUtc) fields.push('fullSyncMinuteUtc');
+  if (Boolean(previous.scrubInvalidEmails) !== next.scrubInvalidEmails) fields.push('scrubInvalidEmails');
+  if (Boolean(previous.scrubInvalidPhones) !== next.scrubInvalidPhones) fields.push('scrubInvalidPhones');
+  return fields;
+}
+
+function isMissingYagRollupHistoryTableError(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    return err.code === 'P2021' && String(err.message || '').includes('YagRollupConfigHistory');
+  }
+  return String((err as { message?: string } | null)?.message || '').includes('YagRollupConfigHistory');
+}
+
+function isMissingYagRollupRunHistoryTableError(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    return err.code === 'P2021' && String(err.message || '').includes('YagRollupRunHistory');
+  }
+  return String((err as { message?: string } | null)?.message || '').includes('YagRollupRunHistory');
+}
+
+type YagRollupRunTriggerValues = {
+  triggerSource: string | null;
+  triggeredByUserId: string | null;
+  triggeredByUserName: string | null;
+  triggeredByUserEmail: string | null;
+  triggeredByUserRole: string | null;
+  triggeredByUserAvatarUrl: string | null;
+};
+
+function normalizeYagRollupRunTrigger(
+  input: YagRollupRunTriggerInput | undefined,
+): YagRollupRunTriggerValues {
+  const normalize = (value: unknown, maxLength: number): string | null => {
+    if (typeof value !== 'string') return null;
+    const cleaned = value.trim();
+    if (!cleaned) return null;
+    return cleaned.slice(0, maxLength);
+  };
+
+  return {
+    triggerSource: normalize(input?.triggerSource, 64),
+    triggeredByUserId: normalize(input?.triggeredByUserId, 128),
+    triggeredByUserName: normalize(input?.triggeredByUserName, 128),
+    triggeredByUserEmail: normalize(input?.triggeredByUserEmail, 256),
+    triggeredByUserRole: normalize(input?.triggeredByUserRole, 64),
+    triggeredByUserAvatarUrl: normalize(input?.triggeredByUserAvatarUrl, 512),
+  };
+}
+
+function toYagRollupConfigPayload(row: {
+  targetAccountKey: string;
+  sourceAccountKeys: string;
+  enabled: boolean;
+  scheduleIntervalHours: number;
+  scheduleMinuteUtc: number;
+  fullSyncEnabled: boolean;
+  fullSyncHourUtc: number;
+  fullSyncMinuteUtc: number;
+  scrubInvalidEmails: boolean;
+  scrubInvalidPhones: boolean;
+  updatedByUserId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  lastSyncedAt: Date | null;
+  lastSyncStatus: string | null;
+  lastSyncSummary: string | null;
+}): YagRollupConfigPayload {
+  return {
+    targetAccountKey: row.targetAccountKey,
+    sourceAccountKeys: parseJsonStringArray(row.sourceAccountKeys),
+    enabled: row.enabled,
+    scheduleIntervalHours: row.scheduleIntervalHours,
+    scheduleMinuteUtc: row.scheduleMinuteUtc,
+    fullSyncEnabled: row.fullSyncEnabled,
+    fullSyncHourUtc: row.fullSyncHourUtc,
+    fullSyncMinuteUtc: row.fullSyncMinuteUtc,
+    scrubInvalidEmails: row.scrubInvalidEmails,
+    scrubInvalidPhones: row.scrubInvalidPhones,
+    updatedByUserId: row.updatedByUserId || null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    lastSyncedAt: toIsoOrNull(row.lastSyncedAt),
+    lastSyncStatus: row.lastSyncStatus || null,
+    lastSyncSummary: parseJsonObject(row.lastSyncSummary),
+  };
 }
 
 function normalizeAccountOptions(
@@ -213,6 +497,11 @@ function buildDefaultConfig(
     targetAccountKey,
     sourceAccountKeys,
     enabled: true,
+    scheduleIntervalHours: DEFAULT_SCHEDULE_INTERVAL_HOURS,
+    scheduleMinuteUtc: DEFAULT_SCHEDULE_MINUTE_UTC,
+    fullSyncEnabled: true,
+    fullSyncHourUtc: DEFAULT_FULL_SYNC_HOUR_UTC,
+    fullSyncMinuteUtc: DEFAULT_FULL_SYNC_MINUTE_UTC,
     scrubInvalidEmails: true,
     scrubInvalidPhones: true,
     updatedByUserId: null,
@@ -230,6 +519,11 @@ function hydrateSavedConfig(
     targetAccountKey: string;
     sourceAccountKeys: string;
     enabled: boolean;
+    scheduleIntervalHours: number;
+    scheduleMinuteUtc: number;
+    fullSyncEnabled: boolean;
+    fullSyncHourUtc: number;
+    fullSyncMinuteUtc: number;
     scrubInvalidEmails: boolean;
     scrubInvalidPhones: boolean;
     updatedByUserId: string | null;
@@ -252,6 +546,31 @@ function hydrateSavedConfig(
     targetAccountKey,
     sourceAccountKeys,
     enabled: Boolean(row.enabled),
+    scheduleIntervalHours: clampInt(
+      row.scheduleIntervalHours,
+      DEFAULT_SCHEDULE_INTERVAL_HOURS,
+      1,
+      24,
+    ),
+    scheduleMinuteUtc: clampInt(
+      row.scheduleMinuteUtc,
+      DEFAULT_SCHEDULE_MINUTE_UTC,
+      0,
+      55,
+    ),
+    fullSyncEnabled: Boolean(row.fullSyncEnabled),
+    fullSyncHourUtc: clampInt(
+      row.fullSyncHourUtc,
+      DEFAULT_FULL_SYNC_HOUR_UTC,
+      0,
+      23,
+    ),
+    fullSyncMinuteUtc: clampInt(
+      row.fullSyncMinuteUtc,
+      DEFAULT_FULL_SYNC_MINUTE_UTC,
+      0,
+      55,
+    ),
     scrubInvalidEmails: Boolean(row.scrubInvalidEmails),
     scrubInvalidPhones: Boolean(row.scrubInvalidPhones),
     updatedByUserId: row.updatedByUserId || null,
@@ -263,9 +582,75 @@ function hydrateSavedConfig(
   };
 }
 
+export async function listYagRollupJobs(): Promise<YagRollupJobSummary[]> {
+  const rows = await prisma.yagRollupConfig.findMany({
+    select: { singletonKey: true },
+    orderBy: [{ createdAt: 'asc' }],
+  });
+
+  const dbKeys = new Set(rows.map((row) => String(row.singletonKey || '').trim()).filter(Boolean));
+  dbKeys.add(LEGACY_YAG_ROLLUP_JOB_KEY);
+
+  return [...dbKeys]
+    .map((dbKey) => normalizeYagRollupJobKeyForRoute(dbKey))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+    .map((key) => ({ key, label: toJobLabel(key) }));
+}
+
+export async function createYagRollupJob(
+  requestedJobKey: string,
+): Promise<YagRollupJobSummary> {
+  const routeKey = String(requestedJobKey || '').trim().toLowerCase();
+  if (!isValidYagRollupJobKey(routeKey)) {
+    throw new Error('jobKey must be 2-48 chars and use only lowercase letters, numbers, and hyphens');
+  }
+  const dbKey = normalizeYagRollupJobKey(routeKey);
+
+  const existing = await prisma.yagRollupConfig.findUnique({
+    where: { singletonKey: dbKey },
+    select: { id: true },
+  });
+  if (existing) {
+    throw new Error('A job with this key already exists');
+  }
+
+  const accounts = await accountService.getAccounts();
+  const accountOptions = normalizeAccountOptions(
+    accounts.map((account) => ({
+      key: account.key,
+      dealer: account.dealer || null,
+    })),
+  );
+  const defaults = buildDefaultConfig(accountOptions);
+
+  await prisma.yagRollupConfig.create({
+    data: {
+      singletonKey: dbKey,
+      targetAccountKey: defaults.targetAccountKey,
+      sourceAccountKeys: JSON.stringify(defaults.sourceAccountKeys),
+      enabled: defaults.enabled,
+      scheduleIntervalHours: defaults.scheduleIntervalHours,
+      scheduleMinuteUtc: defaults.scheduleMinuteUtc,
+      fullSyncEnabled: defaults.fullSyncEnabled,
+      fullSyncHourUtc: defaults.fullSyncHourUtc,
+      fullSyncMinuteUtc: defaults.fullSyncMinuteUtc,
+      scrubInvalidEmails: defaults.scrubInvalidEmails,
+      scrubInvalidPhones: defaults.scrubInvalidPhones,
+    },
+  });
+
+  return {
+    key: routeKey,
+    label: toJobLabel(routeKey),
+  };
+}
+
 export async function getYagRollupConfigSnapshot(
   accountKeys?: string[],
+  jobKey?: string,
 ): Promise<YagRollupConfigSnapshot> {
+  const configSingletonKey = normalizeYagRollupJobKey(jobKey);
   const accounts = await accountService.getAccounts(accountKeys);
   const accountOptions = normalizeAccountOptions(
     accounts.map((account) => ({
@@ -276,7 +661,7 @@ export async function getYagRollupConfigSnapshot(
 
   const defaultConfig = buildDefaultConfig(accountOptions);
   const saved = await prisma.yagRollupConfig.findUnique({
-    where: { singletonKey: YAG_ROLLUP_SINGLETON_KEY },
+    where: { singletonKey: configSingletonKey },
   });
 
   const config = saved
@@ -307,43 +692,310 @@ export async function getYagRollupConfigSnapshot(
   };
 }
 
+export async function listYagRollupConfigHistory(
+  limit = 25,
+  jobKey?: string,
+): Promise<YagRollupConfigHistoryEntry[]> {
+  const configSingletonKey = normalizeYagRollupJobKey(jobKey);
+  let rows: Array<{
+    id: string;
+    changedFields: string;
+    changedByUserId: string | null;
+    changedByUserName: string | null;
+    changedByUserEmail: string | null;
+    changedByUserRole: string | null;
+    changedByUserAvatarUrl: string | null;
+    createdAt: Date;
+  }> = [];
+  try {
+    rows = await prisma.yagRollupConfigHistory.findMany({
+      where: { configSingletonKey },
+      orderBy: { createdAt: 'desc' },
+      take: clampInt(limit, 25, 1, 100),
+    });
+  } catch (err) {
+    if (isMissingYagRollupHistoryTableError(err)) return [];
+    throw err;
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    changedAt: row.createdAt.toISOString(),
+    changedFields: parseJsonStringArray(row.changedFields),
+    changedByUserId: row.changedByUserId || null,
+    changedByUserName: row.changedByUserName || null,
+    changedByUserEmail: row.changedByUserEmail || null,
+    changedByUserRole: row.changedByUserRole || null,
+    changedByUserAvatarUrl: row.changedByUserAvatarUrl || null,
+  }));
+}
+
+type PersistYagRollupRunHistoryInput = YagRollupRunTriggerValues & {
+  jobKey?: string;
+  runType: 'sync' | 'wipe';
+  status: 'ok' | 'failed' | 'disabled';
+  dryRun: boolean;
+  fullSync?: boolean | null;
+  wipeMode?: YagRollupWipeMode | null;
+  targetAccountKey?: string | null;
+  sourceAccountKeys?: string[];
+  totals?: Record<string, unknown> | null;
+  errors?: Record<string, unknown> | null;
+  startedAt: Date;
+  finishedAt: Date;
+};
+
+async function persistYagRollupRunHistory(
+  input: PersistYagRollupRunHistoryInput,
+): Promise<void> {
+  const runHistoryModel = (prisma as unknown as {
+    yagRollupRunHistory?: {
+      create: (args: {
+        data: Record<string, unknown>;
+      }) => Promise<unknown>;
+    };
+  }).yagRollupRunHistory;
+  if (!runHistoryModel?.create) return;
+
+  const configSingletonKey = normalizeYagRollupJobKey(input.jobKey);
+  const sourceAccountKeys = uniqueKeys(input.sourceAccountKeys || []);
+  const totals = input.totals && typeof input.totals === 'object'
+    ? JSON.stringify(input.totals)
+    : null;
+  const errors = input.errors && typeof input.errors === 'object'
+    ? JSON.stringify(input.errors)
+    : null;
+
+  try {
+    await runHistoryModel.create({
+      data: {
+        configSingletonKey,
+        runType: input.runType,
+        status: input.status,
+        dryRun: input.dryRun,
+        fullSync: typeof input.fullSync === 'boolean' ? input.fullSync : null,
+        wipeMode: input.wipeMode || null,
+        triggerSource: input.triggerSource,
+        targetAccountKey: input.targetAccountKey || null,
+        sourceAccountKeys: JSON.stringify(sourceAccountKeys),
+        totals,
+        errors,
+        triggeredByUserId: input.triggeredByUserId,
+        triggeredByUserName: input.triggeredByUserName,
+        triggeredByUserEmail: input.triggeredByUserEmail,
+        triggeredByUserRole: input.triggeredByUserRole,
+        triggeredByUserAvatarUrl: input.triggeredByUserAvatarUrl,
+        startedAt: input.startedAt,
+        finishedAt: input.finishedAt,
+      },
+    });
+  } catch (err) {
+    if (isMissingYagRollupRunHistoryTableError(err)) return;
+    throw err;
+  }
+}
+
+export async function listYagRollupRunHistory(
+  limit = 25,
+  jobKey?: string,
+): Promise<YagRollupRunHistoryEntry[]> {
+  const runHistoryModel = (prisma as unknown as {
+    yagRollupRunHistory?: {
+      findMany: (args: {
+        where: Record<string, unknown>;
+        orderBy: Record<string, unknown>;
+        take: number;
+      }) => Promise<Array<{
+        id: string;
+        runType: string;
+        status: string;
+        dryRun: boolean;
+        fullSync: boolean | null;
+        wipeMode: string | null;
+        triggerSource: string | null;
+        targetAccountKey: string | null;
+        sourceAccountKeys: string | null;
+        totals: string | null;
+        errors: string | null;
+        triggeredByUserId: string | null;
+        triggeredByUserName: string | null;
+        triggeredByUserEmail: string | null;
+        triggeredByUserRole: string | null;
+        triggeredByUserAvatarUrl: string | null;
+        startedAt: Date;
+        finishedAt: Date;
+        createdAt: Date;
+      }>>;
+    };
+  }).yagRollupRunHistory;
+  if (!runHistoryModel?.findMany) return [];
+
+  const configSingletonKey = normalizeYagRollupJobKey(jobKey);
+  let rows: Array<{
+    id: string;
+    runType: string;
+    status: string;
+    dryRun: boolean;
+    fullSync: boolean | null;
+    wipeMode: string | null;
+    triggerSource: string | null;
+    targetAccountKey: string | null;
+    sourceAccountKeys: string | null;
+    totals: string | null;
+    errors: string | null;
+    triggeredByUserId: string | null;
+    triggeredByUserName: string | null;
+    triggeredByUserEmail: string | null;
+    triggeredByUserRole: string | null;
+    triggeredByUserAvatarUrl: string | null;
+    startedAt: Date;
+    finishedAt: Date;
+    createdAt: Date;
+  }> = [];
+
+  try {
+    rows = await runHistoryModel.findMany({
+      where: { configSingletonKey },
+      orderBy: { createdAt: 'desc' },
+      take: clampInt(limit, 25, 1, 100),
+    });
+  } catch (err) {
+    if (isMissingYagRollupRunHistoryTableError(err)) return [];
+    throw err;
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    runType: row.runType === 'wipe' ? 'wipe' : 'sync',
+    status: row.status === 'ok' || row.status === 'disabled' ? row.status : 'failed',
+    dryRun: Boolean(row.dryRun),
+    fullSync: typeof row.fullSync === 'boolean' ? row.fullSync : null,
+    wipeMode: row.wipeMode === 'all' ? 'all' : row.wipeMode === 'tagged' ? 'tagged' : null,
+    triggerSource: row.triggerSource || null,
+    targetAccountKey: row.targetAccountKey || null,
+    sourceAccountKeys: parseJsonStringArray(row.sourceAccountKeys),
+    totals: parseJsonObject(row.totals),
+    errors: parseJsonObject(row.errors),
+    triggeredByUserId: row.triggeredByUserId || null,
+    triggeredByUserName: row.triggeredByUserName || null,
+    triggeredByUserEmail: row.triggeredByUserEmail || null,
+    triggeredByUserRole: row.triggeredByUserRole || null,
+    triggeredByUserAvatarUrl: row.triggeredByUserAvatarUrl || null,
+    startedAt: row.startedAt.toISOString(),
+    finishedAt: row.finishedAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
 export async function upsertYagRollupConfig(
   input: SaveYagRollupConfigInput,
+  jobKey?: string,
 ): Promise<YagRollupConfigPayload> {
-  const row = await prisma.yagRollupConfig.upsert({
-    where: { singletonKey: YAG_ROLLUP_SINGLETON_KEY },
-    create: {
-      singletonKey: YAG_ROLLUP_SINGLETON_KEY,
-      targetAccountKey: input.targetAccountKey,
-      sourceAccountKeys: JSON.stringify(uniqueKeys(input.sourceAccountKeys)),
-      enabled: Boolean(input.enabled),
-      scrubInvalidEmails: Boolean(input.scrubInvalidEmails),
-      scrubInvalidPhones: Boolean(input.scrubInvalidPhones),
-      updatedByUserId: input.updatedByUserId || null,
-    },
-    update: {
-      targetAccountKey: input.targetAccountKey,
-      sourceAccountKeys: JSON.stringify(uniqueKeys(input.sourceAccountKeys)),
-      enabled: Boolean(input.enabled),
-      scrubInvalidEmails: Boolean(input.scrubInvalidEmails),
-      scrubInvalidPhones: Boolean(input.scrubInvalidPhones),
-      updatedByUserId: input.updatedByUserId || null,
-    },
-  });
+  const configSingletonKey = normalizeYagRollupJobKey(jobKey);
+  const normalized = normalizeYagRollupConfigWriteInput(input);
 
-  return {
-    targetAccountKey: row.targetAccountKey,
-    sourceAccountKeys: parseJsonStringArray(row.sourceAccountKeys),
-    enabled: row.enabled,
-    scrubInvalidEmails: row.scrubInvalidEmails,
-    scrubInvalidPhones: row.scrubInvalidPhones,
-    updatedByUserId: row.updatedByUserId || null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-    lastSyncedAt: toIsoOrNull(row.lastSyncedAt),
-    lastSyncStatus: row.lastSyncStatus || null,
-    lastSyncSummary: parseJsonObject(row.lastSyncSummary),
-  };
+  try {
+    const row = await prisma.$transaction(async (tx) => {
+      const previous = await tx.yagRollupConfig.findUnique({
+        where: { singletonKey: configSingletonKey },
+      });
+
+      const saved = await tx.yagRollupConfig.upsert({
+        where: { singletonKey: configSingletonKey },
+        create: {
+          singletonKey: configSingletonKey,
+          targetAccountKey: normalized.targetAccountKey,
+          sourceAccountKeys: JSON.stringify(normalized.sourceAccountKeys),
+          enabled: normalized.enabled,
+          scheduleIntervalHours: normalized.scheduleIntervalHours,
+          scheduleMinuteUtc: normalized.scheduleMinuteUtc,
+          fullSyncEnabled: normalized.fullSyncEnabled,
+          fullSyncHourUtc: normalized.fullSyncHourUtc,
+          fullSyncMinuteUtc: normalized.fullSyncMinuteUtc,
+          scrubInvalidEmails: normalized.scrubInvalidEmails,
+          scrubInvalidPhones: normalized.scrubInvalidPhones,
+          updatedByUserId: normalized.updatedByUserId,
+        },
+        update: {
+          targetAccountKey: normalized.targetAccountKey,
+          sourceAccountKeys: JSON.stringify(normalized.sourceAccountKeys),
+          enabled: normalized.enabled,
+          scheduleIntervalHours: normalized.scheduleIntervalHours,
+          scheduleMinuteUtc: normalized.scheduleMinuteUtc,
+          fullSyncEnabled: normalized.fullSyncEnabled,
+          fullSyncHourUtc: normalized.fullSyncHourUtc,
+          fullSyncMinuteUtc: normalized.fullSyncMinuteUtc,
+          scrubInvalidEmails: normalized.scrubInvalidEmails,
+          scrubInvalidPhones: normalized.scrubInvalidPhones,
+          updatedByUserId: normalized.updatedByUserId,
+        },
+      });
+
+      const changedFields = resolveYagRollupChangedFields(previous, normalized);
+      if (changedFields.length > 0) {
+        await tx.yagRollupConfigHistory.create({
+          data: {
+            configSingletonKey,
+            targetAccountKey: saved.targetAccountKey,
+            sourceAccountKeys: saved.sourceAccountKeys,
+            enabled: saved.enabled,
+            scheduleIntervalHours: saved.scheduleIntervalHours,
+            scheduleMinuteUtc: saved.scheduleMinuteUtc,
+            fullSyncEnabled: saved.fullSyncEnabled,
+            fullSyncHourUtc: saved.fullSyncHourUtc,
+            fullSyncMinuteUtc: saved.fullSyncMinuteUtc,
+            scrubInvalidEmails: saved.scrubInvalidEmails,
+            scrubInvalidPhones: saved.scrubInvalidPhones,
+            changedFields: JSON.stringify(changedFields),
+            changedByUserId: normalized.updatedByUserId,
+            changedByUserName: input.updatedByUserName || null,
+            changedByUserEmail: input.updatedByUserEmail || null,
+            changedByUserRole: input.updatedByUserRole || null,
+            changedByUserAvatarUrl: input.updatedByUserAvatarUrl || null,
+          },
+        });
+      }
+
+      return saved;
+    });
+
+    return toYagRollupConfigPayload(row);
+  } catch (err) {
+    if (!isMissingYagRollupHistoryTableError(err)) throw err;
+
+    const row = await prisma.yagRollupConfig.upsert({
+      where: { singletonKey: configSingletonKey },
+      create: {
+        singletonKey: configSingletonKey,
+        targetAccountKey: normalized.targetAccountKey,
+        sourceAccountKeys: JSON.stringify(normalized.sourceAccountKeys),
+        enabled: normalized.enabled,
+        scheduleIntervalHours: normalized.scheduleIntervalHours,
+        scheduleMinuteUtc: normalized.scheduleMinuteUtc,
+        fullSyncEnabled: normalized.fullSyncEnabled,
+        fullSyncHourUtc: normalized.fullSyncHourUtc,
+        fullSyncMinuteUtc: normalized.fullSyncMinuteUtc,
+        scrubInvalidEmails: normalized.scrubInvalidEmails,
+        scrubInvalidPhones: normalized.scrubInvalidPhones,
+        updatedByUserId: normalized.updatedByUserId,
+      },
+      update: {
+        targetAccountKey: normalized.targetAccountKey,
+        sourceAccountKeys: JSON.stringify(normalized.sourceAccountKeys),
+        enabled: normalized.enabled,
+        scheduleIntervalHours: normalized.scheduleIntervalHours,
+        scheduleMinuteUtc: normalized.scheduleMinuteUtc,
+        fullSyncEnabled: normalized.fullSyncEnabled,
+        fullSyncHourUtc: normalized.fullSyncHourUtc,
+        fullSyncMinuteUtc: normalized.fullSyncMinuteUtc,
+        scrubInvalidEmails: normalized.scrubInvalidEmails,
+        scrubInvalidPhones: normalized.scrubInvalidPhones,
+        updatedByUserId: normalized.updatedByUserId,
+      },
+    });
+
+    return toYagRollupConfigPayload(row);
+  }
 }
 
 async function fetchAllGhlContactsForRollup(
@@ -747,14 +1399,21 @@ async function persistSyncMetadata(
   config: YagRollupConfigPayload,
   status: 'ok' | 'disabled' | 'failed',
   summary: Record<string, unknown>,
+  jobKey?: string,
 ): Promise<void> {
+  const configSingletonKey = normalizeYagRollupJobKey(jobKey);
   await prisma.yagRollupConfig.upsert({
-    where: { singletonKey: YAG_ROLLUP_SINGLETON_KEY },
+    where: { singletonKey: configSingletonKey },
     create: {
-      singletonKey: YAG_ROLLUP_SINGLETON_KEY,
+      singletonKey: configSingletonKey,
       targetAccountKey: config.targetAccountKey,
       sourceAccountKeys: JSON.stringify(config.sourceAccountKeys),
       enabled: config.enabled,
+      scheduleIntervalHours: config.scheduleIntervalHours,
+      scheduleMinuteUtc: config.scheduleMinuteUtc,
+      fullSyncEnabled: config.fullSyncEnabled,
+      fullSyncHourUtc: config.fullSyncHourUtc,
+      fullSyncMinuteUtc: config.fullSyncMinuteUtc,
       scrubInvalidEmails: config.scrubInvalidEmails,
       scrubInvalidPhones: config.scrubInvalidPhones,
       updatedByUserId: config.updatedByUserId || null,
@@ -766,6 +1425,11 @@ async function persistSyncMetadata(
       targetAccountKey: config.targetAccountKey,
       sourceAccountKeys: JSON.stringify(config.sourceAccountKeys),
       enabled: config.enabled,
+      scheduleIntervalHours: config.scheduleIntervalHours,
+      scheduleMinuteUtc: config.scheduleMinuteUtc,
+      fullSyncEnabled: config.fullSyncEnabled,
+      fullSyncHourUtc: config.fullSyncHourUtc,
+      fullSyncMinuteUtc: config.fullSyncMinuteUtc,
       scrubInvalidEmails: config.scrubInvalidEmails,
       scrubInvalidPhones: config.scrubInvalidPhones,
       updatedByUserId: config.updatedByUserId || null,
@@ -776,10 +1440,32 @@ async function persistSyncMetadata(
   });
 }
 
+function resolveScheduledSyncMode(
+  config: YagRollupConfigPayload,
+  nowUtc: Date,
+): 'skip' | 'incremental' | 'full' {
+  const minute = nowUtc.getUTCMinutes();
+  const hour = nowUtc.getUTCHours();
+
+  if (
+    config.fullSyncEnabled
+    && hour === config.fullSyncHourUtc
+    && minute === config.fullSyncMinuteUtc
+  ) {
+    return 'full';
+  }
+
+  if (minute !== config.scheduleMinuteUtc) return 'skip';
+  if (hour % config.scheduleIntervalHours !== 0) return 'skip';
+
+  return 'incremental';
+}
+
 export async function runYagRollupWipe(
   options: RunYagRollupWipeOptions = {},
 ): Promise<RunYagRollupWipeResult> {
   const startedAt = new Date();
+  const trigger = normalizeYagRollupRunTrigger(options);
   const dryRun = Boolean(options.dryRun);
   const mode: YagRollupWipeMode = options.mode === 'all' ? 'all' : 'tagged';
   const deleteConcurrency = envInt(
@@ -805,12 +1491,32 @@ export async function runYagRollupWipe(
   );
   const fetchLimit = Math.max(maxDeletes, maxTargetContactsForWipe);
 
-  const snapshot = await getYagRollupConfigSnapshot();
+  const snapshot = await getYagRollupConfigSnapshot(undefined, options.jobKey);
   const targetAccountKey = snapshot.config.targetAccountKey;
+  const sourceAccountKeysForHistory = uniqueKeys(snapshot.config.sourceAccountKeys)
+    .filter((key) => key !== targetAccountKey);
   const errors: Record<string, string> = {};
 
+  const finalize = async (result: RunYagRollupWipeResult): Promise<RunYagRollupWipeResult> => {
+    await persistYagRollupRunHistory({
+      ...trigger,
+      jobKey: options.jobKey,
+      runType: 'wipe',
+      status: result.status,
+      dryRun: result.dryRun,
+      wipeMode: result.mode,
+      targetAccountKey: result.targetAccountKey || null,
+      sourceAccountKeys: sourceAccountKeysForHistory,
+      totals: result.totals,
+      errors: result.errors,
+      startedAt,
+      finishedAt: new Date(result.finishedAt),
+    });
+    return result;
+  };
+
   if (!targetAccountKey) {
-    return {
+    return finalize({
       status: 'failed',
       dryRun,
       mode,
@@ -829,14 +1535,14 @@ export async function runYagRollupWipe(
       errors: {
         config: 'No YAG rollup target account is configured',
       },
-    };
+    });
   }
 
   const target = await resolveAdapterAndCredentials(targetAccountKey, {
     requireCapability: 'contacts',
   });
   if (isResolveError(target)) {
-    return {
+    return finalize({
       status: 'failed',
       dryRun,
       mode,
@@ -855,11 +1561,11 @@ export async function runYagRollupWipe(
       errors: {
         target: target.error,
       },
-    };
+    });
   }
 
   if (target.adapter.provider !== 'ghl') {
-    return {
+    return finalize({
       status: 'failed',
       dryRun,
       mode,
@@ -878,7 +1584,7 @@ export async function runYagRollupWipe(
       errors: {
         target: `Target provider "${target.adapter.provider}" is not supported for wipe`,
       },
-    };
+    });
   }
 
   const rawContacts = await fetchAllGhlContactsForRollup(
@@ -931,7 +1637,7 @@ export async function runYagRollupWipe(
     }
   }
 
-  return {
+  return finalize({
     status,
     dryRun,
     mode,
@@ -948,15 +1654,17 @@ export async function runYagRollupWipe(
       deletesFailed,
     },
     errors,
-  };
+  });
 }
 
 export async function runYagRollupSync(
   options: RunYagRollupSyncOptions = {},
 ): Promise<RunYagRollupSyncResult> {
   const startedAt = new Date();
+  const trigger = normalizeYagRollupRunTrigger(options);
   const dryRun = Boolean(options.dryRun);
-  const fullSync = Boolean(options.fullSync);
+  const enforceSchedule = Boolean(options.enforceSchedule);
+  let fullSync = Boolean(options.fullSync);
   const sourceConcurrency = envInt(
     'YAG_ROLLUP_SOURCE_ACCOUNT_CONCURRENCY',
     DEFAULT_SOURCE_ACCOUNT_CONCURRENCY,
@@ -992,7 +1700,7 @@ export async function runYagRollupSync(
   );
   const incrementalCutoffMs = Date.now() - incrementalLookbackHours * 60 * 60 * 1000;
 
-  const snapshot = await getYagRollupConfigSnapshot();
+  const snapshot = await getYagRollupConfigSnapshot(undefined, options.jobKey);
   const config = snapshot.config;
   const errors: Record<string, string> = {};
   const perSource: Record<string, SourceSyncStats> = {};
@@ -1003,19 +1711,36 @@ export async function runYagRollupSync(
     ? sourceKeys.slice(0, Math.max(1, Math.floor(Number(options.sourceAccountLimit))))
     : sourceKeys;
 
-  const emptyResultBase = {
+  const makeEmptyResultBase = () => ({
     dryRun,
     fullSync,
     targetAccountKey: config.targetAccountKey,
     sourceAccountKeys: limitedSourceKeys,
     startedAt: startedAt.toISOString(),
+  });
+
+  const persistRunHistory = async (result: RunYagRollupSyncResult): Promise<void> => {
+    await persistYagRollupRunHistory({
+      ...trigger,
+      jobKey: options.jobKey,
+      runType: 'sync',
+      status: result.status,
+      dryRun: result.dryRun,
+      fullSync: result.fullSync,
+      targetAccountKey: result.targetAccountKey || null,
+      sourceAccountKeys: result.sourceAccountKeys,
+      totals: result.totals,
+      errors: result.errors,
+      startedAt,
+      finishedAt: new Date(result.finishedAt),
+    });
   };
 
   if (!config.enabled) {
     const finishedAt = new Date();
     const result: RunYagRollupSyncResult = {
       status: 'disabled',
-      ...emptyResultBase,
+      ...makeEmptyResultBase(),
       finishedAt: finishedAt.toISOString(),
       totals: {
         sourceAccountsRequested: limitedSourceKeys.length,
@@ -1040,15 +1765,49 @@ export async function runYagRollupSync(
       sourceAccountsRequested: limitedSourceKeys.length,
       dryRun,
       fullSync,
-    });
+    }, options.jobKey);
+    if (!enforceSchedule) {
+      await persistRunHistory(result);
+    }
     return result;
+  }
+
+  if (enforceSchedule) {
+    const scheduledMode = resolveScheduledSyncMode(config, startedAt);
+    if (scheduledMode === 'skip') {
+      return {
+        status: 'disabled',
+        ...makeEmptyResultBase(),
+        finishedAt: new Date().toISOString(),
+        totals: {
+          sourceAccountsRequested: limitedSourceKeys.length,
+          sourceAccountsProcessed: 0,
+          fetchedContacts: 0,
+          consideredContacts: 0,
+          acceptedContacts: 0,
+          skippedInvalid: 0,
+          localDuplicatesCollapsed: 0,
+          globalDuplicatesCollapsed: 0,
+          queuedForTarget: 0,
+          truncatedByMaxUpserts: 0,
+          upsertsAttempted: 0,
+          upsertsSucceeded: 0,
+          upsertsFailed: 0,
+        },
+        perSource,
+        errors: {
+          schedule: `No rollup scheduled for this UTC slot (${startedAt.toISOString()})`,
+        },
+      };
+    }
+    fullSync = scheduledMode === 'full';
   }
 
   if (!config.targetAccountKey) {
     const finishedAt = new Date();
     const result: RunYagRollupSyncResult = {
       status: 'failed',
-      ...emptyResultBase,
+      ...makeEmptyResultBase(),
       finishedAt: finishedAt.toISOString(),
       totals: {
         sourceAccountsRequested: limitedSourceKeys.length,
@@ -1073,7 +1832,8 @@ export async function runYagRollupSync(
       sourceAccountsRequested: limitedSourceKeys.length,
       dryRun,
       fullSync,
-    });
+    }, options.jobKey);
+    await persistRunHistory(result);
     return result;
   }
 
@@ -1181,7 +1941,7 @@ export async function runYagRollupSync(
   const finishedAt = new Date();
   const output: RunYagRollupSyncResult = {
     status,
-    ...emptyResultBase,
+    ...makeEmptyResultBase(),
     finishedAt: finishedAt.toISOString(),
     totals: {
       sourceAccountsRequested: limitedSourceKeys.length,
@@ -1208,7 +1968,8 @@ export async function runYagRollupSync(
     totals: output.totals,
     sourceAccounts: limitedSourceKeys,
     errors,
-  });
+  }, options.jobKey);
+  await persistRunHistory(output);
 
   return output;
 }

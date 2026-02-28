@@ -112,6 +112,11 @@ model YagRollupConfig {
   targetAccountKey   String
   sourceAccountKeys  String   @default("[]") // JSON array of account keys to roll up into target
   enabled            Boolean  @default(true)
+  scheduleIntervalHours Int    @default(1)  // incremental sync cadence in UTC hours
+  scheduleMinuteUtc     Int    @default(15) // minute past the hour for incremental sync
+  fullSyncEnabled       Boolean @default(true)
+  fullSyncHourUtc       Int     @default(3)  // UTC hour for daily full reconcile
+  fullSyncMinuteUtc     Int     @default(45) // UTC minute for daily full reconcile
   scrubInvalidEmails Boolean  @default(true)
   scrubInvalidPhones Boolean  @default(true)
   updatedByUserId    String?
@@ -120,6 +125,58 @@ model YagRollupConfig {
   lastSyncSummary    String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+}
+
+model YagRollupConfigHistory {
+  id                    String   @id @default(cuid())
+  configSingletonKey    String   @default("primary")
+  targetAccountKey      String
+  sourceAccountKeys     String // JSON array
+  enabled               Boolean
+  scheduleIntervalHours Int
+  scheduleMinuteUtc     Int
+  fullSyncEnabled       Boolean
+  fullSyncHourUtc       Int
+  fullSyncMinuteUtc     Int
+  scrubInvalidEmails    Boolean
+  scrubInvalidPhones    Boolean
+  changedFields         String   @default("[]") // JSON array of changed field keys
+  changedByUserId       String?
+  changedByUserName     String?
+  changedByUserEmail    String?
+  changedByUserRole     String?
+  changedByUserAvatarUrl String?
+  createdAt             DateTime @default(now())
+
+  @@index([configSingletonKey, createdAt])
+  @@index([changedByUserId, createdAt])
+}
+
+model YagRollupRunHistory {
+  id                     String   @id @default(cuid())
+  configSingletonKey     String   @default("primary")
+  runType                String // sync | wipe
+  status                 String // ok | failed | disabled
+  dryRun                 Boolean  @default(false)
+  fullSync               Boolean?
+  wipeMode               String? // tagged | all
+  triggerSource          String?
+  targetAccountKey       String?
+  sourceAccountKeys      String? // JSON array
+  totals                 String? // JSON object
+  errors                 String? // JSON object
+  triggeredByUserId      String?
+  triggeredByUserName    String?
+  triggeredByUserEmail   String?
+  triggeredByUserRole    String?
+  triggeredByUserAvatarUrl String?
+  startedAt              DateTime
+  finishedAt             DateTime
+  createdAt              DateTime @default(now())
+
+  @@index([configSingletonKey, createdAt])
+  @@index([runType, createdAt])
+  @@index([triggeredByUserId, createdAt])
 }
 
 model CampaignEmailStats {

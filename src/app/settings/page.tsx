@@ -1,16 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { useTheme } from '@/contexts/theme-context';
 import {
   PlusIcon, SunIcon, MoonIcon, BuildingStorefrontIcon,
-  UsersIcon, SwatchIcon, BookOpenIcon, SparklesIcon,
+  UsersIcon, SwatchIcon, SparklesIcon,
   XMarkIcon, ArrowPathIcon, MagnifyingGlassIcon,
   CheckCircleIcon, AdjustmentsHorizontalIcon, LinkIcon,
-  TrashIcon, ExclamationTriangleIcon,
+  TrashIcon, ExclamationTriangleIcon, ClockIcon,
+  EnvelopeIcon, PhoneIcon, PencilSquareIcon,
+  PlayCircleIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from 'sonner';
 import { CodeEditor } from '@/components/code-editor';
@@ -44,8 +47,10 @@ type Tab =
   | 'integrations'
   | 'custom-values'
   | 'knowledge'
-  | 'yag-rollup'
+  | 'jobs'
   | 'appearance';
+
+const DEFAULT_JOB_KEY = 'yag-rollup';
 
 // ─── User list types ───
 interface User {
@@ -112,6 +117,25 @@ function resolveAccountSummary(accountKey: string, account: AccountData | null |
   return { dealer, cityState, industry };
 }
 
+function JobsScheduleTabIcon({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={`inline-block shrink-0 bg-current ${className || ''}`}
+      style={{
+        WebkitMaskImage: "url('/icons/jobs-tab-schedule.svg')",
+        maskImage: "url('/icons/jobs-tab-schedule.svg')",
+        WebkitMaskRepeat: 'no-repeat',
+        maskRepeat: 'no-repeat',
+        WebkitMaskPosition: 'center',
+        maskPosition: 'center',
+        WebkitMaskSize: 'contain',
+        maskSize: 'contain',
+      }}
+    />
+  );
+}
+
 export default function SettingsPage() {
   const { isAdmin, isAccount, userRole } = useAccount();
   const { confirmNavigation } = useUnsavedChanges();
@@ -120,21 +144,27 @@ export default function SettingsPage() {
   const searchParams = useSearchParams();
 
   // Determine available tabs based on role/mode
-  const tabs: { key: Tab; label: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }[] = [];
+  const tabs: { key: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [];
   const hasAdminAccess = userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
+  const hasRollupAccess = userRole === 'developer' || userRole === 'super_admin';
   if (hasAdminAccess && isAdmin) tabs.push({ key: 'accounts', label: 'Sub-Accounts', icon: BuildingStorefrontIcon });
   if (isAccount) tabs.push({ key: 'account', label: 'Sub-Account', icon: BuildingStorefrontIcon });
   if (hasAdminAccess) tabs.push({ key: 'users', label: 'Users', icon: UsersIcon });
   if (isAccount && hasAdminAccess) tabs.push({ key: 'integrations', label: 'Integrations', icon: LinkIcon });
   if (userRole === 'developer' || userRole === 'super_admin') tabs.push({ key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon });
-  if (hasAdminAccess && isAdmin) tabs.push({ key: 'knowledge', label: 'Knowledge Base', icon: BookOpenIcon });
-  if (hasAdminAccess && isAdmin) tabs.push({ key: 'yag-rollup', label: 'YAG Rollup', icon: ArrowPathIcon });
+  if (hasAdminAccess && isAdmin) tabs.push({ key: 'knowledge', label: 'Knowledge Base', icon: SparklesIcon });
+  if (hasRollupAccess && isAdmin) tabs.push({ key: 'jobs', label: 'Jobs', icon: JobsScheduleTabIcon });
   tabs.push({ key: 'appearance', label: 'Appearance', icon: SwatchIcon });
 
-  const routeTab = pathname.startsWith('/settings/')
-    ? pathname.split('/')[2]
+  const pathSegments = pathname.split('/').filter(Boolean);
+  const routeTab = pathSegments[0] === 'settings'
+    ? pathSegments[1]
     : undefined;
+  const routeJobKey = routeTab === 'jobs' ? pathSegments[2] : undefined;
   const defaultTab = tabs[0]?.key || 'appearance';
+  const defaultTabPath = defaultTab === 'jobs'
+    ? `/settings/jobs/${DEFAULT_JOB_KEY}`
+    : `/settings/${defaultTab}`;
   const activeTab = tabs.some(t => t.key === routeTab)
     ? (routeTab as Tab)
     : defaultTab;
@@ -154,16 +184,20 @@ export default function SettingsPage() {
       toast.error(`${label} connection failed: ${errorMessage}`);
     }
 
-    router.replace(`/settings/${defaultTab}`, { scroll: false });
-  }, [searchParams, defaultTab, router]);
+    router.replace(defaultTabPath, { scroll: false });
+  }, [searchParams, defaultTabPath, router]);
 
   // Enforce canonical route per tab so browser history/back works correctly.
   useEffect(() => {
     if (tabs.length === 0) return;
     if (!routeTab || !tabs.some(t => t.key === routeTab)) {
-      router.replace(`/settings/${defaultTab}`, { scroll: false });
+      router.replace(defaultTabPath, { scroll: false });
+      return;
     }
-  }, [routeTab, defaultTab, router, tabs.length, isAdmin, isAccount, userRole]);
+    if (routeTab === 'jobs' && !routeJobKey) {
+      router.replace(`/settings/jobs/${DEFAULT_JOB_KEY}`, { scroll: false });
+    }
+  }, [routeTab, routeJobKey, defaultTabPath, router, tabs.length, isAdmin, isAccount, userRole]);
 
   return (
     <div className="animate-fade-in-up">
@@ -180,7 +214,10 @@ export default function SettingsPage() {
           <button
             key={tab.key}
             onClick={() => {
-              confirmNavigation(() => router.push(`/settings/${tab.key}`), `/settings/${tab.key}`);
+              const destination = tab.key === 'jobs'
+                ? `/settings/jobs/${routeJobKey || DEFAULT_JOB_KEY}`
+                : `/settings/${tab.key}`;
+              confirmNavigation(() => router.push(destination), destination);
             }}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors relative ${
               activeTab === tab.key
@@ -208,7 +245,7 @@ export default function SettingsPage() {
           : <CustomValuesTab />
       )}
       {activeTab === 'knowledge' && hasAdminAccess && isAdmin && <KnowledgeBaseTab />}
-      {activeTab === 'yag-rollup' && hasAdminAccess && isAdmin && <YagRollupTab />}
+      {activeTab === 'jobs' && hasRollupAccess && isAdmin && <JobsTab activeJobKey={routeJobKey || DEFAULT_JOB_KEY} />}
       {activeTab === 'appearance' && <AppearanceTab />}
     </div>
   );
@@ -2324,11 +2361,50 @@ function CustomValuesTab() {
   );
 }
 
+interface YagRollupHistoryEntry {
+  id: string;
+  changedAt: string;
+  changedFields: string[];
+  changedByUserId: string | null;
+  changedByUserName: string | null;
+  changedByUserEmail: string | null;
+  changedByUserRole: string | null;
+  changedByUserAvatarUrl: string | null;
+}
+
+interface YagRollupRunHistoryEntry {
+  id: string;
+  runType: 'sync' | 'wipe';
+  status: 'ok' | 'failed' | 'disabled';
+  dryRun: boolean;
+  fullSync: boolean | null;
+  wipeMode: 'all' | 'tagged' | null;
+  triggerSource: string | null;
+  targetAccountKey: string | null;
+  sourceAccountKeys: string[];
+  totals: Record<string, unknown> | null;
+  errors: Record<string, unknown> | null;
+  triggeredByUserId: string | null;
+  triggeredByUserName: string | null;
+  triggeredByUserEmail: string | null;
+  triggeredByUserRole: string | null;
+  triggeredByUserAvatarUrl: string | null;
+  startedAt: string;
+  finishedAt: string;
+  createdAt: string;
+}
+
 interface YagRollupSnapshotResponse {
+  activeJobKey: string;
   config: {
     targetAccountKey: string;
     sourceAccountKeys: string[];
     enabled: boolean;
+    scheduleIntervalHours: number;
+    scheduleMinuteUtc: number;
+    fullSyncEnabled: boolean;
+    fullSyncHourUtc: number;
+    fullSyncMinuteUtc: number;
     scrubInvalidEmails: boolean;
     scrubInvalidPhones: boolean;
     updatedByUserId: string | null;
@@ -2342,6 +2418,9 @@ interface YagRollupSnapshotResponse {
   sourceOptions: Array<{ key: string; dealer: string }>;
   accountOptions: Array<{ key: string; dealer: string }>;
   isDefaultConfig: boolean;
+  jobs: Array<{ key: string; label: string }>;
+  history: YagRollupHistoryEntry[];
+  runHistory: YagRollupRunHistoryEntry[];
 }
 
 interface YagRollupSyncRunResponse {
@@ -2411,7 +2490,624 @@ function formatRollupDate(value: string | null): string {
   return parsed.toLocaleString();
 }
 
-function YagRollupTab() {
+function formatRollupChangedField(field: string): string {
+  const labels: Record<string, string> = {
+    targetAccountKey: 'Target account',
+    sourceAccountKeys: 'Source accounts',
+    enabled: 'Auto sync',
+    scheduleIntervalHours: 'Incremental interval',
+    scheduleMinuteUtc: 'Incremental minute',
+    fullSyncEnabled: 'Daily full sync',
+    fullSyncHourUtc: 'Full sync hour',
+    fullSyncMinuteUtc: 'Full sync minute',
+    scrubInvalidEmails: 'Email filtering',
+    scrubInvalidPhones: 'Phone filtering',
+  };
+  return labels[field] || field;
+}
+
+function formatRollupRunType(entry: YagRollupRunHistoryEntry): string {
+  if (entry.runType === 'wipe') return 'Contact wipe';
+  if (entry.fullSync) return 'Full sync';
+  return 'Incremental sync';
+}
+
+function formatRollupTriggerSource(value: string | null): string | null {
+  if (!value) return null;
+  if (value === 'settings-ui') return 'Manual run';
+  if (value === 'internal-job') return 'Background job';
+  return value
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function readRollupMetric(
+  totals: Record<string, unknown> | null,
+  key: string,
+): number | null {
+  if (!totals) return null;
+  const numeric = Number(totals[key]);
+  if (!Number.isFinite(numeric)) return null;
+  return numeric;
+}
+
+function formatRollupRunSummary(entry: YagRollupRunHistoryEntry): string {
+  const totals = entry.totals;
+  if (!totals) return 'No metrics recorded.';
+
+  if (entry.runType === 'wipe') {
+    const queued = readRollupMetric(totals, 'queuedForDelete');
+    const succeeded = readRollupMetric(totals, 'deletesSucceeded');
+    const failed = readRollupMetric(totals, 'deletesFailed');
+    const parts = [
+      queued !== null ? `Queued ${queued.toLocaleString()}` : null,
+      succeeded !== null ? `Deleted ${succeeded.toLocaleString()}` : null,
+      failed !== null ? `Failed ${failed.toLocaleString()}` : null,
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(' · ') : 'No metrics recorded.';
+  }
+
+  const processed = readRollupMetric(totals, 'sourceAccountsProcessed');
+  const requested = readRollupMetric(totals, 'sourceAccountsRequested');
+  const upsertsSucceeded = readRollupMetric(totals, 'upsertsSucceeded');
+  const upsertsAttempted = readRollupMetric(totals, 'upsertsAttempted');
+  const upsertsFailed = readRollupMetric(totals, 'upsertsFailed');
+  const parts = [
+    processed !== null && requested !== null
+      ? `Sources ${processed.toLocaleString()}/${requested.toLocaleString()}`
+      : null,
+    upsertsSucceeded !== null && upsertsAttempted !== null
+      ? `Upserts ${upsertsSucceeded.toLocaleString()}/${upsertsAttempted.toLocaleString()}`
+      : null,
+    upsertsFailed !== null ? `Failed ${upsertsFailed.toLocaleString()}` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : 'No metrics recorded.';
+}
+
+function formatRollupDuration(startedAt: string, finishedAt: string): string | null {
+  const startedMs = new Date(startedAt).getTime();
+  const finishedMs = new Date(finishedAt).getTime();
+  if (!Number.isFinite(startedMs) || !Number.isFinite(finishedMs)) return null;
+  if (finishedMs < startedMs) return null;
+  const totalSeconds = Math.round((finishedMs - startedMs) / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const minuteRemainder = minutes % 60;
+  return minuteRemainder === 0 ? `${hours}h` : `${hours}h ${minuteRemainder}m`;
+}
+
+function formatUtcScheduleToLocal(hourUtc: number, minuteUtc: number): string {
+  const safeHour = Math.max(0, Math.min(23, Math.floor(hourUtc)));
+  const safeMinute = Math.max(0, Math.min(59, Math.floor(minuteUtc)));
+  const stamp = new Date(Date.UTC(2026, 0, 1, safeHour, safeMinute, 0, 0));
+  return stamp.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+}
+
+function LoomiToggle({
+  checked,
+  label,
+  description,
+  icon: Icon,
+  disabled = false,
+  onToggle,
+}: {
+  checked: boolean;
+  label: string;
+  description?: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={onToggle}
+      className={`w-full text-left flex items-center justify-between gap-3 p-2.5 rounded-lg transition-colors ${
+        checked
+          ? 'bg-[var(--primary)]/10 border border-[var(--primary)]/40'
+          : 'border border-[var(--border)] hover:bg-[var(--muted)]'
+      } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+    >
+      <span className="min-w-0 flex items-start gap-2.5">
+        <span
+          className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${
+            checked
+              ? 'border-[var(--primary)]/40 bg-[var(--primary)]/15 text-[var(--primary)]'
+              : 'border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]'
+          }`}
+        >
+          <Icon className="h-4 w-4" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm text-[var(--foreground)]">{label}</span>
+          {description && (
+            <span className="block text-xs text-[var(--muted-foreground)] mt-0.5">
+              {description}
+            </span>
+          )}
+        </span>
+      </span>
+      <span
+        className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+          checked
+            ? 'bg-[var(--primary)] border-[var(--primary)]'
+            : 'bg-[var(--muted)] border-[var(--border)]'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+            checked ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
+function JobsTab({ activeJobKey }: { activeJobKey: string }) {
+  const router = useRouter();
+  const { confirmNavigation } = useUnsavedChanges();
+  const [jobs, setJobs] = useState<Array<{ key: string; label: string }>>([]);
+  const [loadingJobs, setLoadingJobs] = useState(true);
+  const [creatingJob, setCreatingJob] = useState(false);
+  const [showCreateJobModal, setShowCreateJobModal] = useState(false);
+  const [newJobKey, setNewJobKey] = useState('');
+  const [createJobError, setCreateJobError] = useState<string | null>(null);
+  const [showHistorySidebar, setShowHistorySidebar] = useState(false);
+  const [activeHistoryView, setActiveHistoryView] = useState<'config' | 'runs'>('config');
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [configHistoryEntries, setConfigHistoryEntries] = useState<YagRollupHistoryEntry[]>([]);
+  const [runHistoryEntries, setRunHistoryEntries] = useState<YagRollupRunHistoryEntry[]>([]);
+
+  const loadJobs = useCallback(async () => {
+    setLoadingJobs(true);
+    try {
+      const res = await fetch(`/api/yag-rollup/config?jobKey=${encodeURIComponent(activeJobKey)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to load jobs');
+      }
+      const nextJobs = Array.isArray(data.jobs) ? data.jobs as Array<{ key: string; label: string }> : [];
+      setJobs(nextJobs.length > 0 ? nextJobs : [{ key: DEFAULT_JOB_KEY, label: 'YAG Rollup' }]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load jobs';
+      toast.error(message);
+      setJobs([{ key: DEFAULT_JOB_KEY, label: 'YAG Rollup' }]);
+    }
+    setLoadingJobs(false);
+  }, [activeJobKey]);
+
+  useEffect(() => {
+    loadJobs();
+  }, [loadJobs]);
+
+  useEffect(() => {
+    if (loadingJobs) return;
+    if (jobs.length === 0) return;
+    if (jobs.some((job) => job.key === activeJobKey)) return;
+    router.replace(`/settings/jobs/${jobs[0].key}`, { scroll: false });
+  }, [loadingJobs, jobs, activeJobKey, router]);
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const res = await fetch(`/api/yag-rollup/config?jobKey=${encodeURIComponent(activeJobKey)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to load history');
+      }
+      setConfigHistoryEntries(Array.isArray(data.history) ? data.history as YagRollupHistoryEntry[] : []);
+      setRunHistoryEntries(Array.isArray(data.runHistory) ? data.runHistory as YagRollupRunHistoryEntry[] : []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load history';
+      setHistoryError(message);
+      setConfigHistoryEntries([]);
+      setRunHistoryEntries([]);
+    }
+    setHistoryLoading(false);
+  }, [activeJobKey]);
+
+  function openHistorySidebar() {
+    setActiveHistoryView('config');
+    setShowHistorySidebar(true);
+  }
+
+  useEffect(() => {
+    if (!showHistorySidebar) return;
+    void loadHistory();
+  }, [showHistorySidebar, loadHistory]);
+
+  function openCreateJobModal() {
+    setNewJobKey('');
+    setCreateJobError(null);
+    setShowCreateJobModal(true);
+  }
+
+  function closeCreateJobModal() {
+    if (creatingJob) return;
+    setShowCreateJobModal(false);
+  }
+
+  async function handleCreateJob() {
+    const jobKey = newJobKey.trim().toLowerCase();
+    if (!jobKey) return;
+
+    if (!/^[a-z0-9][a-z0-9-]{1,47}$/.test(jobKey)) {
+      setCreateJobError('Job key must be 2-48 chars and use lowercase letters, numbers, and hyphens.');
+      return;
+    }
+
+    setCreateJobError(null);
+    setCreatingJob(true);
+    try {
+      const res = await fetch('/api/yag-rollup/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobKey }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to create job');
+      }
+
+      const nextJobs = Array.isArray(data.jobs) ? data.jobs as Array<{ key: string; label: string }> : [];
+      setJobs(nextJobs.length > 0 ? nextJobs : [{ key: jobKey, label: jobKey }]);
+      const destination = `/settings/jobs/${jobKey}`;
+      setShowCreateJobModal(false);
+      confirmNavigation(() => router.push(destination), destination);
+      toast.success('Job created');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create job';
+      setCreateJobError(message);
+    }
+    setCreatingJob(false);
+  }
+
+  const safeJobs = jobs.length > 0 ? jobs : [{ key: DEFAULT_JOB_KEY, label: 'YAG Rollup' }];
+  const activeJob = safeJobs.find((job) => job.key === activeJobKey) || safeJobs[0];
+
+  return (
+    <div className="space-y-6">
+      <section className="glass-section-card rounded-xl p-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">Automation Jobs</h3>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">
+              Each job has its own schedule, source accounts, and sync rules.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openHistorySidebar}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+            >
+              <ClockIcon className="w-4 h-4" />
+              History
+            </button>
+            <button
+              type="button"
+              onClick={openCreateJobModal}
+              disabled={creatingJob}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
+            >
+              <PlusIcon className="w-4 h-4" />
+              New Job
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {loadingJobs && safeJobs.length === 0 && (
+            <span className="text-xs text-[var(--muted-foreground)]">Loading jobs...</span>
+          )}
+          {safeJobs.map((job) => {
+            const selected = job.key === activeJob.key;
+            const destination = `/settings/jobs/${job.key}`;
+
+            return (
+              <button
+                key={job.key}
+                type="button"
+                onClick={() => confirmNavigation(() => router.push(destination), destination)}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors ${
+                  selected
+                    ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--foreground)]'
+                    : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
+                }`}
+              >
+                <ArrowPathIcon className="w-4 h-4" />
+                {job.label}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {showCreateJobModal && (
+        <div
+          className="fixed inset-0 z-[90] bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4 animate-overlay-in"
+          onClick={closeCreateJobModal}
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleCreateJob();
+            }}
+            className="glass-modal w-full max-w-md"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Create New Job"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-[var(--border)]">
+              <h4 className="text-base font-semibold text-[var(--foreground)]">Create New Job</h4>
+              <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                Create another YAG rollup job with its own schedule and source accounts.
+              </p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <label className="block">
+                <span className="text-xs text-[var(--muted-foreground)]">Job Key</span>
+                <input
+                  autoFocus
+                  value={newJobKey}
+                  onChange={(event) => {
+                    const normalized = event.target.value
+                      .toLowerCase()
+                      .replace(/\s+/g, '-')
+                      .replace(/[^a-z0-9-]/g, '');
+                    setNewJobKey(normalized);
+                  }}
+                  placeholder="yag-rollup-west"
+                  className="mt-1 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm"
+                />
+              </label>
+              <p className="text-[11px] text-[var(--muted-foreground)]">
+                Allowed: lowercase letters, numbers, hyphens. 2-48 characters.
+              </p>
+              {createJobError && (
+                <p className="text-xs text-red-400">{createJobError}</p>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-[var(--border)] flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeCreateJobModal}
+                disabled={creatingJob}
+                className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={creatingJob || !newJobKey.trim()}
+                className="px-3 py-2 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
+              >
+                {creatingJob ? 'Creating...' : 'Create Job'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showHistorySidebar && typeof document !== 'undefined' && createPortal((
+        <div className="fixed inset-0 z-[88] animate-overlay-in">
+          <div
+            className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"
+            onClick={() => setShowHistorySidebar(false)}
+          />
+          <aside
+            className="glass-panel glass-panel-strong fixed right-3 top-3 bottom-3 w-full max-w-[430px] rounded-2xl flex flex-col animate-slide-in-right overflow-hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Job History"
+          >
+            <div className="px-5 py-4 border-b border-[var(--sidebar-border-soft)] flex items-center justify-between gap-3">
+              <div>
+                <h4 className="text-base font-semibold text-[var(--sidebar-foreground)]">Job History</h4>
+                <p className="text-xs text-[var(--sidebar-muted-foreground)] mt-1">
+                  {activeJob.label} ({activeJob.key})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHistorySidebar(false)}
+                className="p-1.5 rounded-xl text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)] transition-colors"
+                aria-label="Close history"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="px-4 py-3 border-b border-[var(--sidebar-border-soft)] flex items-center justify-between gap-2">
+              <div className="inline-flex items-center rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/40 p-1 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveHistoryView('config')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                    activeHistoryView === 'config'
+                      ? 'border-[var(--primary)]/45 bg-[var(--primary)]/14 text-[var(--sidebar-foreground)]'
+                      : 'border-transparent text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
+                  }`}
+                >
+                  <PencilSquareIcon className="w-3.5 h-3.5" />
+                  Config Changes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveHistoryView('runs')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                    activeHistoryView === 'runs'
+                      ? 'border-[var(--primary)]/45 bg-[var(--primary)]/14 text-[var(--sidebar-foreground)]'
+                      : 'border-transparent text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
+                  }`}
+                >
+                  <PlayCircleIcon className="w-3.5 h-3.5" />
+                  Run History
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadHistory()}
+                disabled={historyLoading}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)] transition-colors disabled:opacity-40"
+              >
+                <ArrowPathIcon className={`w-3.5 h-3.5 ${historyLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
+            <div className="themed-scrollbar flex-1 overflow-y-auto p-4 space-y-3">
+              {historyLoading && (
+                <div className="px-1 py-6 text-sm text-[var(--sidebar-muted-foreground)]">Loading history...</div>
+              )}
+              {!historyLoading && historyError && (
+                <div className="px-1 py-6 text-sm text-red-400">{historyError}</div>
+              )}
+              {!historyLoading && !historyError && activeHistoryView === 'config' && configHistoryEntries.length === 0 && (
+                <div className="px-1 py-6 text-sm text-[var(--sidebar-muted-foreground)]">No configuration edits recorded yet.</div>
+              )}
+              {!historyLoading && !historyError && activeHistoryView === 'config' && configHistoryEntries.map((entry) => {
+                const actorName = entry.changedByUserName
+                  || entry.changedByUserEmail
+                  || entry.changedByUserId
+                  || 'Unknown user';
+                const actorRole = entry.changedByUserRole ? roleDisplayName(entry.changedByUserRole) : null;
+                const actorMeta = [actorRole, entry.changedByUserEmail].filter(Boolean).join(' · ');
+                const changedSummary = entry.changedFields.length > 0
+                  ? entry.changedFields.map((field) => formatRollupChangedField(field)).join(', ')
+                  : 'Configuration updated';
+
+                return (
+                  <div
+                    key={entry.id}
+                    className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-3 flex items-start justify-between gap-3"
+                  >
+                    <div className="min-w-0 flex items-start gap-3">
+                      <UserAvatar
+                        name={entry.changedByUserName || actorName}
+                        email={entry.changedByUserEmail}
+                        avatarUrl={entry.changedByUserAvatarUrl}
+                        size={28}
+                        className="w-7 h-7 rounded-full border border-[var(--sidebar-border-soft)]"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-[var(--sidebar-foreground)] truncate">{actorName}</p>
+                        {actorMeta && (
+                          <p className="text-xs text-[var(--sidebar-muted-foreground)] truncate">{actorMeta}</p>
+                        )}
+                        <p className="text-xs text-[var(--sidebar-muted-foreground)] mt-1">{changedSummary}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-[var(--sidebar-muted-foreground)] shrink-0">
+                      {formatRollupDate(entry.changedAt)}
+                    </p>
+                  </div>
+                );
+              })}
+              {!historyLoading && !historyError && activeHistoryView === 'runs' && runHistoryEntries.length === 0 && (
+                <div className="px-1 py-6 text-sm text-[var(--sidebar-muted-foreground)]">No run history recorded yet.</div>
+              )}
+              {!historyLoading && !historyError && activeHistoryView === 'runs' && runHistoryEntries.map((entry) => {
+                const actorName = entry.triggeredByUserName
+                  || entry.triggeredByUserEmail
+                  || entry.triggeredByUserId
+                  || formatRollupTriggerSource(entry.triggerSource)
+                  || 'System';
+                const triggerLabel = formatRollupTriggerSource(entry.triggerSource);
+                const actorMeta = [
+                  entry.triggeredByUserRole ? roleDisplayName(entry.triggeredByUserRole) : null,
+                  entry.triggeredByUserEmail,
+                  triggerLabel,
+                ].filter(Boolean).join(' · ');
+                const statusTone = entry.status === 'ok'
+                  ? 'border-emerald-400/35 bg-emerald-500/14 text-emerald-200'
+                  : entry.status === 'disabled'
+                    ? 'border-amber-400/35 bg-amber-500/14 text-amber-200'
+                    : 'border-red-400/35 bg-red-500/14 text-red-200';
+                const runMode = entry.runType === 'wipe'
+                  ? `${entry.dryRun ? 'Dry run' : 'Live run'}${entry.wipeMode ? ` · ${entry.wipeMode}` : ''}`
+                  : `${entry.dryRun ? 'Dry run' : 'Live run'} · ${entry.fullSync ? 'full' : 'incremental'}`;
+                const duration = formatRollupDuration(entry.startedAt, entry.finishedAt);
+
+                return (
+                  <div
+                    key={entry.id}
+                    className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex items-start gap-3">
+                        <UserAvatar
+                          name={entry.triggeredByUserName || actorName}
+                          email={entry.triggeredByUserEmail}
+                          avatarUrl={entry.triggeredByUserAvatarUrl}
+                          size={28}
+                          className="w-7 h-7 rounded-full border border-[var(--sidebar-border-soft)]"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-medium text-[var(--sidebar-foreground)] truncate">
+                              {formatRollupRunType(entry)}
+                            </p>
+                            <span className={`px-1.5 py-0.5 rounded-full border text-[10px] uppercase tracking-wide ${statusTone}`}>
+                              {entry.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-[var(--sidebar-muted-foreground)] mt-0.5 truncate">
+                            {actorName}
+                            {actorMeta ? ` · ${actorMeta}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-[var(--sidebar-muted-foreground)] shrink-0">
+                        {formatRollupDate(entry.finishedAt)}
+                      </p>
+                    </div>
+                    <p className="text-xs text-[var(--sidebar-muted-foreground)] mt-2">{runMode}</p>
+                    <p className="text-xs text-[var(--sidebar-muted-foreground)] mt-1">{formatRollupRunSummary(entry)}</p>
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      {entry.targetAccountKey && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full border border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)]">
+                          Target: {entry.targetAccountKey}
+                        </span>
+                      )}
+                      {duration && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full border border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)]">
+                          Duration: {duration}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+        </div>
+      ), document.body)}
+
+      <YagRollupTab jobKey={activeJob.key} />
+    </div>
+  );
+}
+
+function YagRollupTab({ jobKey }: { jobKey: string }) {
+  const { accounts } = useAccount();
   const [snapshot, setSnapshot] = useState<YagRollupSnapshotResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -2424,13 +3120,18 @@ function YagRollupTab() {
   const [targetAccountKey, setTargetAccountKey] = useState('');
   const [sourceAccountKeys, setSourceAccountKeys] = useState<string[]>([]);
   const [enabled, setEnabled] = useState(true);
+  const [scheduleIntervalHours, setScheduleIntervalHours] = useState(1);
+  const [scheduleMinuteUtc, setScheduleMinuteUtc] = useState(15);
+  const [fullSyncEnabled, setFullSyncEnabled] = useState(true);
+  const [fullSyncHourUtc, setFullSyncHourUtc] = useState(3);
+  const [fullSyncMinuteUtc, setFullSyncMinuteUtc] = useState(45);
   const [scrubInvalidEmails, setScrubInvalidEmails] = useState(true);
   const [scrubInvalidPhones, setScrubInvalidPhones] = useState(true);
 
   const loadSnapshot = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/yag-rollup/config');
+      const res = await fetch(`/api/yag-rollup/config?jobKey=${encodeURIComponent(jobKey)}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(typeof data.error === 'string' ? data.error : 'Failed to load YAG rollup config');
@@ -2441,6 +3142,11 @@ function YagRollupTab() {
       setTargetAccountKey(next.config.targetAccountKey || '');
       setSourceAccountKeys(next.config.sourceAccountKeys || []);
       setEnabled(Boolean(next.config.enabled));
+      setScheduleIntervalHours(Math.max(1, Math.min(24, Number(next.config.scheduleIntervalHours) || 1)));
+      setScheduleMinuteUtc(Math.max(0, Math.min(55, Number(next.config.scheduleMinuteUtc) || 0)));
+      setFullSyncEnabled(Boolean(next.config.fullSyncEnabled));
+      setFullSyncHourUtc(Math.max(0, Math.min(23, Number(next.config.fullSyncHourUtc) || 0)));
+      setFullSyncMinuteUtc(Math.max(0, Math.min(55, Number(next.config.fullSyncMinuteUtc) || 0)));
       setScrubInvalidEmails(Boolean(next.config.scrubInvalidEmails));
       setScrubInvalidPhones(Boolean(next.config.scrubInvalidPhones));
     } catch (err) {
@@ -2449,7 +3155,7 @@ function YagRollupTab() {
       setSnapshot(null);
     }
     setLoading(false);
-  }, []);
+  }, [jobKey]);
 
   useEffect(() => {
     loadSnapshot();
@@ -2470,6 +3176,11 @@ function YagRollupTab() {
       targetAccountKey !== snapshot.config.targetAccountKey
       || !sameStringSet(sourceAccountKeys, snapshot.config.sourceAccountKeys)
       || enabled !== snapshot.config.enabled
+      || scheduleIntervalHours !== snapshot.config.scheduleIntervalHours
+      || scheduleMinuteUtc !== snapshot.config.scheduleMinuteUtc
+      || fullSyncEnabled !== snapshot.config.fullSyncEnabled
+      || fullSyncHourUtc !== snapshot.config.fullSyncHourUtc
+      || fullSyncMinuteUtc !== snapshot.config.fullSyncMinuteUtc
       || scrubInvalidEmails !== snapshot.config.scrubInvalidEmails
       || scrubInvalidPhones !== snapshot.config.scrubInvalidPhones
     );
@@ -2478,6 +3189,11 @@ function YagRollupTab() {
     targetAccountKey,
     sourceAccountKeys,
     enabled,
+    scheduleIntervalHours,
+    scheduleMinuteUtc,
+    fullSyncEnabled,
+    fullSyncHourUtc,
+    fullSyncMinuteUtc,
     scrubInvalidEmails,
     scrubInvalidPhones,
   ]);
@@ -2486,6 +3202,10 @@ function YagRollupTab() {
     () => new Set(sourceAccountKeys),
     [sourceAccountKeys],
   );
+
+  const selectedSourceCount = sourceAccountKeys.length;
+  const totalSourceCount = snapshot?.sourceOptions.length || 0;
+  const selectedTargetAccount = targetAccountKey ? snapshot?.targetOptions.find((account) => account.key === targetAccountKey) : null;
 
   function toggleSourceKey(key: string) {
     setSourceAccountKeys((current) => {
@@ -2502,9 +3222,15 @@ function YagRollupTab() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          jobKey,
           targetAccountKey,
           sourceAccountKeys,
           enabled,
+          scheduleIntervalHours,
+          scheduleMinuteUtc,
+          fullSyncEnabled,
+          fullSyncHourUtc,
+          fullSyncMinuteUtc,
           scrubInvalidEmails,
           scrubInvalidPhones,
         }),
@@ -2519,6 +3245,11 @@ function YagRollupTab() {
       setTargetAccountKey(next.config.targetAccountKey || '');
       setSourceAccountKeys(next.config.sourceAccountKeys || []);
       setEnabled(Boolean(next.config.enabled));
+      setScheduleIntervalHours(Math.max(1, Math.min(24, Number(next.config.scheduleIntervalHours) || 1)));
+      setScheduleMinuteUtc(Math.max(0, Math.min(55, Number(next.config.scheduleMinuteUtc) || 0)));
+      setFullSyncEnabled(Boolean(next.config.fullSyncEnabled));
+      setFullSyncHourUtc(Math.max(0, Math.min(23, Number(next.config.fullSyncHourUtc) || 0)));
+      setFullSyncMinuteUtc(Math.max(0, Math.min(55, Number(next.config.fullSyncMinuteUtc) || 0)));
       setScrubInvalidEmails(Boolean(next.config.scrubInvalidEmails));
       setScrubInvalidPhones(Boolean(next.config.scrubInvalidPhones));
       toast.success('YAG rollup config saved');
@@ -2533,6 +3264,7 @@ function YagRollupTab() {
     setRunningMode(mode);
     try {
       const body = {
+        jobKey,
         dryRun: mode === 'dry',
         fullSync: mode === 'full',
       };
@@ -2578,6 +3310,7 @@ function YagRollupTab() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          jobKey,
           dryRun,
           mode,
           confirmAll: !dryRun && mode === 'all',
@@ -2625,7 +3358,12 @@ function YagRollupTab() {
       <section className="glass-section-card rounded-xl p-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h3 className="text-base font-semibold">YAG Contact Rollup</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-semibold">YAG Contact Rollup</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] border border-[var(--border)] text-[var(--muted-foreground)]">
+                {jobKey}
+              </span>
+            </div>
             <p className="text-sm text-[var(--muted-foreground)] mt-1">
               Choose source sub-accounts to roll into Young Automotive Group.
             </p>
@@ -2664,33 +3402,135 @@ function YagRollupTab() {
           </div>
 
           <div className="space-y-2">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(event) => setEnabled(event.target.checked)}
-                className="rounded border-[var(--border)] bg-[var(--card)]"
-              />
-              Enable scheduled rollup sync
-            </label>
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={scrubInvalidEmails}
-                onChange={(event) => setScrubInvalidEmails(event.target.checked)}
-                className="rounded border-[var(--border)] bg-[var(--card)]"
-              />
-              Scrub invalid emails before import
-            </label>
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={scrubInvalidPhones}
-                onChange={(event) => setScrubInvalidPhones(event.target.checked)}
-                className="rounded border-[var(--border)] bg-[var(--card)]"
-              />
-              Scrub invalid phones before import
-            </label>
+            <LoomiToggle
+              checked={enabled}
+              onToggle={() => setEnabled((current) => !current)}
+              icon={ClockIcon}
+              label="Turn on automatic rollup sync"
+              description="If off, the background scheduler will skip automatic rollup runs."
+            />
+            <LoomiToggle
+              checked={scrubInvalidEmails}
+              onToggle={() => setScrubInvalidEmails((current) => !current)}
+              icon={EnvelopeIcon}
+              label="Filter out invalid emails"
+              description="Skips contacts with malformed or likely undeliverable email addresses."
+            />
+            <LoomiToggle
+              checked={scrubInvalidPhones}
+              onToggle={() => setScrubInvalidPhones((current) => !current)}
+              icon={PhoneIcon}
+              label="Filter out invalid phone numbers"
+              description="Skips contacts with malformed or non-dialable phone numbers."
+            />
+          </div>
+        </div>
+
+        {selectedTargetAccount && (
+          <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--card)]/60 p-3 flex items-center gap-3">
+            <AccountAvatar
+              name={selectedTargetAccount.dealer}
+              accountKey={selectedTargetAccount.key}
+              storefrontImage={accounts[selectedTargetAccount.key]?.storefrontImage}
+              logos={accounts[selectedTargetAccount.key]?.logos}
+              size={36}
+              className="w-9 h-9 rounded-lg border border-[var(--border)]"
+              alt={`${selectedTargetAccount.dealer} (${selectedTargetAccount.key})`}
+            />
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">{selectedTargetAccount.dealer}</p>
+              <p className="text-xs text-[var(--muted-foreground)] truncate">{selectedTargetAccount.key}</p>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+          <div className="rounded-lg border border-[var(--border)] p-4 space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              Incremental Schedule (UTC)
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs text-[var(--muted-foreground)]">
+                Every (hours)
+                <input
+                  type="number"
+                  min={1}
+                  max={24}
+                  value={scheduleIntervalHours}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (!Number.isFinite(next)) return;
+                    setScheduleIntervalHours(Math.max(1, Math.min(24, Math.floor(next))));
+                  }}
+                  className="mt-1 w-full h-9 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2 text-sm"
+                />
+              </label>
+              <label className="text-xs text-[var(--muted-foreground)]">
+                Minute (UTC, step 5)
+                <input
+                  type="number"
+                  min={0}
+                  max={55}
+                  step={5}
+                  value={scheduleMinuteUtc}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (!Number.isFinite(next)) return;
+                    setScheduleMinuteUtc(Math.max(0, Math.min(55, Math.floor(next / 5) * 5)));
+                  }}
+                  className="mt-1 w-full h-9 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2 text-sm"
+                />
+              </label>
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              The scheduler checks often and runs when UTC hour/minute match this setting.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] p-4 space-y-3">
+            <LoomiToggle
+              checked={fullSyncEnabled}
+              onToggle={() => setFullSyncEnabled((current) => !current)}
+              icon={ArrowPathIcon}
+              label="Run a daily full sync"
+              description="Performs a full contact reconciliation once per day at the time below."
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs text-[var(--muted-foreground)]">
+                Hour (UTC)
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={fullSyncHourUtc}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (!Number.isFinite(next)) return;
+                    setFullSyncHourUtc(Math.max(0, Math.min(23, Math.floor(next))));
+                  }}
+                  className="mt-1 w-full h-9 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2 text-sm"
+                />
+              </label>
+              <label className="text-xs text-[var(--muted-foreground)]">
+                Minute (UTC, step 5)
+                <input
+                  type="number"
+                  min={0}
+                  max={55}
+                  step={5}
+                  value={fullSyncMinuteUtc}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (!Number.isFinite(next)) return;
+                    setFullSyncMinuteUtc(Math.max(0, Math.min(55, Math.floor(next / 5) * 5)));
+                  }}
+                  className="mt-1 w-full h-9 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2 text-sm"
+                />
+              </label>
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Local equivalent: {formatUtcScheduleToLocal(fullSyncHourUtc, fullSyncMinuteUtc)}
+            </p>
           </div>
         </div>
 
@@ -2719,13 +3559,30 @@ function YagRollupTab() {
               Selected contacts from these sub-accounts will be deduped and imported into YAG.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="px-2.5 py-1 text-[11px] rounded-full border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+              {selectedSourceCount.toLocaleString()} selected
+            </span>
+            <span className="px-2.5 py-1 text-[11px] rounded-full border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+              {totalSourceCount.toLocaleString()} total
+            </span>
             <input
               value={sourceSearch}
               onChange={(event) => setSourceSearch(event.target.value)}
               placeholder="Search accounts..."
               className="h-9 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm"
             />
+            <button
+              type="button"
+              onClick={() => setSourceAccountKeys((current) => {
+                const merged = new Set(current);
+                for (const account of filteredSourceOptions) merged.add(account.key);
+                return [...merged];
+              })}
+              className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+            >
+              Select Visible
+            </button>
             <button
               type="button"
               onClick={() => setSourceAccountKeys(snapshot.sourceOptions.map((account) => account.key))}
@@ -2743,39 +3600,68 @@ function YagRollupTab() {
           </div>
         </div>
 
-        <div className="mt-4 max-h-[420px] overflow-auto border border-[var(--border)] rounded-lg">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
-                <th className="w-12 px-3 py-2 text-left text-xs uppercase tracking-wider text-[var(--muted-foreground)]">Use</th>
-                <th className="px-3 py-2 text-left text-xs uppercase tracking-wider text-[var(--muted-foreground)]">Dealer</th>
-                <th className="px-3 py-2 text-left text-xs uppercase tracking-wider text-[var(--muted-foreground)]">Key</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredSourceOptions.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="px-3 py-5 text-center text-[var(--muted-foreground)]">
-                    No source accounts match your search.
-                  </td>
-                </tr>
-              )}
-              {filteredSourceOptions.map((account) => (
-                <tr key={account.key} className="border-b border-[var(--border)] last:border-b-0">
-                  <td className="px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedSourceSet.has(account.key)}
-                      onChange={() => toggleSourceKey(account.key)}
-                      className="rounded border-[var(--border)] bg-[var(--card)]"
+        <div className="mt-4 max-h-[460px] overflow-auto border border-[var(--border)] rounded-lg p-2 bg-[var(--card)]/35">
+          <div className="space-y-1">
+            {filteredSourceOptions.length === 0 && (
+              <div className="px-3 py-8 text-center text-[var(--muted-foreground)] text-sm">
+                No source accounts match your search.
+              </div>
+            )}
+            {filteredSourceOptions.map((account) => {
+              const selected = selectedSourceSet.has(account.key);
+              const details = accounts[account.key];
+              const location = [details?.city, details?.state].filter(Boolean).join(', ');
+
+              return (
+                <button
+                  key={account.key}
+                  type="button"
+                  role="switch"
+                  aria-checked={selected}
+                  onClick={() => toggleSourceKey(account.key)}
+                  className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all ${
+                    selected
+                      ? 'border-[var(--primary)] bg-[var(--primary)]/8'
+                      : 'border-transparent hover:border-[var(--border)] hover:bg-[var(--muted)]/70'
+                  }`}
+                >
+                  <span
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full border transition-colors ${
+                      selected
+                        ? 'bg-[var(--primary)] border-[var(--primary)]'
+                        : 'bg-[var(--muted)] border-[var(--border)]'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
+                        selected ? 'translate-x-5' : 'translate-x-0.5'
+                      }`}
                     />
-                  </td>
-                  <td className="px-3 py-2">{account.dealer}</td>
-                  <td className="px-3 py-2 text-[var(--muted-foreground)]">{account.key}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                  <AccountAvatar
+                    name={account.dealer}
+                    accountKey={account.key}
+                    storefrontImage={details?.storefrontImage}
+                    logos={details?.logos}
+                    size={34}
+                    className="w-[34px] h-[34px] rounded-lg border border-[var(--border)]"
+                    alt={`${account.dealer} (${account.key})`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{account.dealer}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)] shrink-0">
+                        {account.key}
+                      </span>
+                    </div>
+                    <div className="text-xs text-[var(--muted-foreground)] truncate mt-0.5">
+                      {location || 'Location unavailable'}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
