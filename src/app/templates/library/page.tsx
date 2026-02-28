@@ -22,6 +22,8 @@ import {
   PencilSquareIcon,
   CheckCircleIcon,
   BuildingOfficeIcon,
+  ArrowDownTrayIcon,
+  ArrowTopRightOnSquareIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
@@ -65,6 +67,63 @@ function formatDesign(d: string) {
   return d
     .replace(/-/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function sanitizeFileName(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  const safe = trimmed
+    .replace(/[^a-z0-9-_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return safe || 'template';
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadLibraryTemplateScreenshot(
+  design: string,
+  fileBaseName: string,
+): Promise<void> {
+  const params = new URLSearchParams({ design });
+  const res = await fetch(`/api/templates/screenshot?${params.toString()}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(
+      typeof data.error === 'string'
+        ? data.error
+        : `Screenshot failed (${res.status})`,
+    );
+  }
+
+  const blob = await res.blob();
+  if (!blob || blob.size === 0) {
+    throw new Error('Screenshot returned empty data');
+  }
+
+  downloadBlob(blob, `${sanitizeFileName(fileBaseName)}.png`);
+}
+
+function openLibraryPreviewInNewTab(design: string): void {
+  const url = `/api/preview?design=${encodeURIComponent(design)}&format=html`;
+  const win = window.open(url, '_blank');
+  if (!win) {
+    toast.error('Unable to open a new tab. Please allow pop-ups.');
+    return;
+  }
+  try {
+    win.opener = null;
+  } catch {
+    // Ignore browser restrictions around opener.
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -157,6 +216,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedDesigns, setSelectedDesigns] = useState<Set<string>>(new Set());
   const [cloneToAccountDesign, setCloneToAccountDesign] = useState<string | null>(null);
+  const [downloadingDesign, setDownloadingDesign] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const loadTemplates = async () => {
@@ -309,6 +369,22 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
       setShowTagModal(false);
       toast.success('Tags saved');
     } catch { toast.error('Failed to save tags'); }
+  };
+
+  const handleDownloadScreenshot = async (template: TemplateEntry) => {
+    setDownloadingDesign(template.design);
+    try {
+      await downloadLibraryTemplateScreenshot(
+        template.design,
+        template.name || formatDesign(template.design),
+      );
+      toast.success('Template screenshot downloaded');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to download screenshot';
+      toast.error(message);
+    } finally {
+      setDownloadingDesign((prev) => (prev === template.design ? null : prev));
+    }
   };
 
   if (!loaded) {
@@ -524,6 +600,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
             const tags = tagData.assignments[t.design] || [];
             const isOpen = menuOpen === t.design;
             const isSelected = selectedDesigns.has(t.design);
+            const isDownloading = downloadingDesign === t.design;
             return (
               <div
                 key={t.design}
@@ -574,7 +651,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                           <EllipsisVerticalIcon className="w-4 h-4" />
                         </button>
                         {isOpen && (
-                          <div className="absolute right-0 top-full mt-1 z-50 w-48 glass-dropdown">
+                          <div className="absolute right-0 top-full mt-1 z-50 w-56 glass-dropdown">
                             <button
                               onClick={() => { setMenuOpen(null); setPreviewDesign(t.design); }}
                               className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
@@ -588,6 +665,18 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                             >
                               <PencilIcon className="w-4 h-4" />
                               Edit
+                            </button>
+                            <button
+                              onClick={() => { setMenuOpen(null); handleDownloadScreenshot(t); }}
+                              disabled={isDownloading}
+                              className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2 disabled:opacity-60"
+                            >
+                              {isDownloading ? (
+                                <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <ArrowDownTrayIcon className="w-4 h-4" />
+                              )}
+                              {isDownloading ? 'Downloading...' : 'Download PNG'}
                             </button>
                             <button
                               onClick={() => { cloneTemplate(t.design); setMenuOpen(null); }}
@@ -688,6 +777,12 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                 </h3>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => openLibraryPreviewInNewTab(previewDesign)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--foreground)] border border-[var(--border)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                >
+                  <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Preview in New Tab
+                </button>
                 <button
                   onClick={() => { setPreviewDesign(null); router.push(editorHref(previewDesign)); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--primary)] border border-[var(--primary)]/30 rounded-lg hover:bg-[var(--primary)]/5 transition-colors"
@@ -902,6 +997,12 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                   </h3>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => openLibraryPreviewInNewTab(previewDesign)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--foreground)] border border-[var(--border)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Preview in New Tab
+                  </button>
                   <button
                     onClick={() => { setPreviewDesign(null); router.push(editorHref(previewDesign)); }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--primary)] border border-[var(--primary)]/30 rounded-lg hover:bg-[var(--primary)]/5 transition-colors"

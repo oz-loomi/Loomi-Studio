@@ -179,6 +179,7 @@ export async function GET(req: NextRequest) {
   try {
     const design = req.nextUrl.searchParams.get('design');
     const emailId = req.nextUrl.searchParams.get('emailId');
+    const wantsHtml = req.nextUrl.searchParams.get('format') === 'html';
 
     let html: string | null = null;
     let previewValues: Record<string, string> = {};
@@ -228,6 +229,15 @@ export async function GET(req: NextRequest) {
     const cacheKey = getCacheKey(resolvedHtml, engineSig);
     const cached = getCachedPreview(cacheKey);
     if (cached) {
+      if (wantsHtml) {
+        return new NextResponse(cached, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+          },
+        });
+      }
       return NextResponse.json({ html: cached });
     }
 
@@ -238,6 +248,15 @@ export async function GET(req: NextRequest) {
     });
 
     setCachedPreview(cacheKey, result);
+    if (wantsHtml) {
+      return new NextResponse(result, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
     return NextResponse.json({ html: result });
   } catch (err: any) {
     console.error('Preview GET error:', err);

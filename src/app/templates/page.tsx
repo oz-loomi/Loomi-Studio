@@ -25,6 +25,8 @@ import {
   CursorArrowRaysIcon,
   BookOpenIcon,
   EyeIcon,
+  ArrowDownTrayIcon,
+  ArrowTopRightOnSquareIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount, type AccountData } from '@/contexts/account-context';
@@ -95,6 +97,76 @@ function timeAgo(dateStr: string | null): string {
   const days = Math.floor(hrs / 24);
   if (days < 30) return `${days}d ago`;
   return d.toLocaleDateString();
+}
+
+function hasRenderablePreview(html: string | null | undefined): boolean {
+  const trimmed = html?.trim() ?? '';
+  return (
+    trimmed.length > 0 &&
+    (trimmed.startsWith('<!') || trimmed.startsWith('<html') || trimmed.startsWith('<HTML'))
+  );
+}
+
+function sanitizeFileName(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  const safe = trimmed
+    .replace(/[^a-z0-9-_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return safe || 'template';
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadTemplateScreenshot(
+  accountKey: string,
+  templateId: string,
+  fileBaseName: string,
+): Promise<void> {
+  const params = new URLSearchParams({ accountKey, templateId });
+  const res = await fetch(`/api/esp/templates/screenshot?${params.toString()}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(
+      typeof data.error === 'string'
+        ? data.error
+        : `Screenshot failed (${res.status})`,
+    );
+  }
+
+  const blob = await res.blob();
+  if (!blob || blob.size === 0) {
+    throw new Error('Screenshot returned empty data');
+  }
+
+  downloadBlob(blob, `${sanitizeFileName(fileBaseName)}.png`);
+}
+
+function openHtmlInNewTab(html: string, title: string): void {
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if (!win) {
+    URL.revokeObjectURL(url);
+    toast.error('Unable to open a new tab. Please allow pop-ups.');
+    return;
+  }
+  try {
+    win.opener = null;
+  } catch {
+    // Ignore browser restrictions around opener.
+  }
+  win.document.title = title;
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 // Known providers — used for pills and filter
@@ -216,11 +288,7 @@ function EspHtmlPreview({ html, height = 160 }: EspHtmlPreviewProps) {
 
   // Only render if we have properly compiled HTML (starts with <!DOCTYPE or <html)
   // Raw Maizzle source (frontmatter, <x- tags) should not be rendered in an iframe
-  const trimmed = html?.trim() ?? '';
-  const isCompiledHtml = trimmed.length > 0 && (
-    trimmed.startsWith('<!') || trimmed.startsWith('<html') || trimmed.startsWith('<HTML')
-  );
-  const hasPreview = isCompiledHtml;
+  const hasPreview = hasRenderablePreview(html);
 
   return (
     <div ref={containerRef} className="relative overflow-hidden bg-[var(--muted)]" style={{ height }}>
@@ -255,10 +323,12 @@ interface TemplateCardProps {
   isMenuOpen: boolean;
   isSelected: boolean;
   selectMode: boolean;
+  downloading: boolean;
   accounts: Record<string, AccountData>;
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
+  onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
   onSelect: (id: string) => void;
 }
@@ -269,10 +339,12 @@ function TemplateCard({
   isMenuOpen,
   isSelected,
   selectMode,
+  downloading,
   accounts,
   onMenuToggle,
   onPreview,
   onEdit,
+  onDownloadScreenshot,
   onDelete,
   onSelect,
 }: TemplateCardProps) {
@@ -332,7 +404,7 @@ function TemplateCard({
                 <EllipsisVerticalIcon className="w-4 h-4" />
               </button>
               {isMenuOpen && (
-                <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onClick={(e) => e.stopPropagation()}>
+                <div className="absolute right-0 top-full mt-1 z-50 w-52 glass-dropdown" onClick={(e) => e.stopPropagation()}>
                   <button
                     onClick={() => { onMenuToggle(null); onPreview(t); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
@@ -344,6 +416,18 @@ function TemplateCard({
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                   >
                     <PencilSquareIcon className="w-4 h-4" /> Edit
+                  </button>
+                  <button
+                    onClick={() => { onMenuToggle(null); onDownloadScreenshot(t); }}
+                    disabled={downloading}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-60"
+                  >
+                    {downloading ? (
+                      <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ArrowDownTrayIcon className="w-4 h-4" />
+                    )}
+                    {downloading ? 'Downloading...' : 'Download PNG'}
                   </button>
                   <button
                     onClick={() => { onMenuToggle(null); onDelete(t); }}
@@ -385,10 +469,12 @@ interface TemplateRowProps {
   isMenuOpen: boolean;
   isSelected: boolean;
   selectMode: boolean;
+  downloading: boolean;
   accounts: Record<string, AccountData>;
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
+  onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
   onSelect: (id: string) => void;
 }
@@ -399,10 +485,12 @@ function TemplateRow({
   isMenuOpen,
   isSelected,
   selectMode,
+  downloading,
   accounts,
   onMenuToggle,
   onPreview,
   onEdit,
+  onDownloadScreenshot,
   onDelete,
   onSelect,
 }: TemplateRowProps) {
@@ -471,7 +559,7 @@ function TemplateRow({
             <EllipsisVerticalIcon className="w-4 h-4" />
           </button>
           {isMenuOpen && (
-            <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onClick={(e) => e.stopPropagation()}>
+            <div className="absolute right-0 top-full mt-1 z-50 w-52 glass-dropdown" onClick={(e) => e.stopPropagation()}>
               <button
                 onClick={() => { onMenuToggle(null); onPreview(t); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
@@ -483,6 +571,18 @@ function TemplateRow({
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
               >
                 <PencilSquareIcon className="w-4 h-4" /> Edit
+              </button>
+              <button
+                onClick={() => { onMenuToggle(null); onDownloadScreenshot(t); }}
+                disabled={downloading}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-60"
+              >
+                {downloading ? (
+                  <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ArrowDownTrayIcon className="w-4 h-4" />
+                )}
+                {downloading ? 'Downloading...' : 'Download PNG'}
               </button>
               <button
                 onClick={() => { onMenuToggle(null); onDelete(t); }}
@@ -807,9 +907,11 @@ interface TemplateListViewProps {
   selectMode: boolean;
   selectedIds: Set<string>;
   accounts: Record<string, AccountData>;
+  downloadingId: string | null;
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
+  onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
   onSelect: (id: string) => void;
 }
@@ -826,9 +928,11 @@ function TemplateListView({
   selectMode,
   selectedIds,
   accounts,
+  downloadingId,
   onMenuToggle,
   onPreview,
   onEdit,
+  onDownloadScreenshot,
   onDelete,
   onSelect,
 }: TemplateListViewProps) {
@@ -880,10 +984,12 @@ function TemplateListView({
                 isMenuOpen={openMenu === t.id}
                 isSelected={selectedIds.has(t.id)}
                 selectMode={selectMode}
+                downloading={downloadingId === t.id}
                 accounts={accounts}
                 onMenuToggle={onMenuToggle}
                 onPreview={onPreview}
                 onEdit={onEdit}
+                onDownloadScreenshot={onDownloadScreenshot}
                 onDelete={onDelete}
                 onSelect={onSelect}
               />
@@ -899,10 +1005,12 @@ function TemplateListView({
                 isMenuOpen={openMenu === t.id}
                 isSelected={selectedIds.has(t.id)}
                 selectMode={selectMode}
+                downloading={downloadingId === t.id}
                 accounts={accounts}
                 onMenuToggle={onMenuToggle}
                 onPreview={onPreview}
                 onEdit={onEdit}
+                onDownloadScreenshot={onDownloadScreenshot}
                 onDelete={onDelete}
                 onSelect={onSelect}
               />
@@ -935,6 +1043,7 @@ export default function TemplatesPage() {
   const [deleteTemplate, setDeleteTemplate] = useState<EspTemplateRecord | null>(null);
   const [previewTemplate, setPreviewTemplate] = useState<EspTemplateRecord | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   // Library picker (inside create modal)
   const [libraryPickerMode, setLibraryPickerMode] = useState(false);
@@ -1207,6 +1316,23 @@ export default function TemplatesPage() {
     await loadTemplates();
   };
 
+  const handleDownloadScreenshot = async (template: EspTemplateRecord) => {
+    setDownloadingId(template.id);
+    try {
+      await downloadTemplateScreenshot(
+        template.accountKey,
+        template.id,
+        template.name || 'template',
+      );
+      toast.success('Template screenshot downloaded');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to download screenshot';
+      toast.error(message);
+    } finally {
+      setDownloadingId((prev) => (prev === template.id ? null : prev));
+    }
+  };
+
   // ── No connection state (account-level) ──
   const connectedProviders = accountData?.connectedProviders;
   const hasConnection = effectiveAccountKey && connectedProviders && connectedProviders.length > 0;
@@ -1255,9 +1381,11 @@ export default function TemplatesPage() {
     selectMode,
     selectedIds,
     accounts,
+    downloadingId,
     onMenuToggle: (id: string | null) => { if (id !== null) menuClickRef.current = true; setOpenMenu(id); },
     onPreview: setPreviewTemplate,
     onEdit: navigateToEditor,
+    onDownloadScreenshot: handleDownloadScreenshot,
     onDelete: setDeleteTemplate,
     onSelect: handleToggleSelect,
   };
@@ -1617,6 +1745,13 @@ export default function TemplatesPage() {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
+                  onClick={() => openHtmlInNewTab(previewTemplate.html, previewTemplate.name)}
+                  disabled={!hasRenderablePreview(previewTemplate.html)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--foreground)] border border-[var(--border)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Preview in New Tab
+                </button>
+                <button
                   onClick={() => { setPreviewTemplate(null); navigateToEditor(previewTemplate.id); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--primary)] border border-[var(--primary)]/30 rounded-lg hover:bg-[var(--primary)]/5 transition-colors"
                 >
@@ -1628,7 +1763,7 @@ export default function TemplatesPage() {
               </div>
             </div>
             <div className="flex-1 min-h-0 bg-[var(--muted)]">
-              {previewTemplate.html && (previewTemplate.html.trim().startsWith('<!') || previewTemplate.html.trim().startsWith('<html')) ? (
+              {hasRenderablePreview(previewTemplate.html) ? (
                 <iframe
                   srcDoc={previewTemplate.html}
                   className="w-full h-full border-0"
