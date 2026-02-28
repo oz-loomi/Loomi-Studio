@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: ['yaml', 'puppeteer', 'puppeteer-core', 'sharp'],
-  },
+  serverExternalPackages: ['yaml', 'puppeteer', 'puppeteer-core', 'sharp'],
   async rewrites() {
     return [
       {

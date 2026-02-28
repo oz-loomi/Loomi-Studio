@@ -1,9 +1,10 @@
 import { redirect } from 'next/navigation';
 
-export default function EmailsFolderRedirect({
+export default async function EmailsFolderRedirect({
   params,
 }: {
-  params: { name: string };
+  params: Promise<{ name: string }>;
 }) {
-  redirect(`/templates/folder/${encodeURIComponent(params.name)}`);
+  const { name } = await params;
+  redirect(`/templates/folder/${encodeURIComponent(name)}`);
 }
