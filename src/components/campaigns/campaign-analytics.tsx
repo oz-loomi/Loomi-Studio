@@ -9,6 +9,7 @@ import {
   ClockIcon,
 } from '@heroicons/react/24/outline';
 import { FlowIcon } from '@/components/icon-map';
+import { iconColorHex } from '@/lib/icon-colors';
 import type { ApexOptions } from 'apexcharts';
 
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -43,26 +44,21 @@ interface CampaignAnalyticsProps {
 
 // ── Helpers ──
 
-const CHART_COLORS = [
-  '#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b',
-  '#ef4444', '#ec4899', '#6366f1', '#14b8a6', '#f97316',
-];
-
 const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
-  sent:        '#10b981',
-  completed:   '#10b981',
-  delivered:   '#10b981',
+  sent:        '#60a5fa',
+  completed:   '#60a5fa',
+  delivered:   '#60a5fa',
   scheduled:   '#3b82f6',
-  in_progress: '#06b6d4',
-  draft:       '#f59e0b',
-  paused:      '#f97316',
-  archived:    '#71717a',
+  in_progress: '#93c5fd',
+  draft:       '#bfdbfe',
+  paused:      '#1d4ed8',
+  archived:    '#94a3b8',
 };
 
 const WORKFLOW_STATUS_COLORS: Record<string, string> = {
-  active:   '#10b981',
-  inactive: '#71717a',
-  draft:    '#f59e0b',
+  active:   '#fb923c',
+  inactive: '#fdba74',
+  draft:    '#fed7aa',
 };
 
 function getCampaignStatusColor(status: string): string {
@@ -265,7 +261,7 @@ export function CampaignAnalytics({
     return {
       chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, animations: { enabled: true, speed: 600 } },
       plotOptions: { bar: { horizontal: true, distributed: true, borderRadius: 4, barHeight: '65%' } },
-      colors: analytics.campaignsByAccount.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+      colors: analytics.campaignsByAccount.map(() => iconColorHex('campaigns')),
       xaxis: {
         categories: analytics.campaignsByAccount.map(([name]) => name),
         labels: { style: { colors: chartTextColor, fontSize: '10px' } },
@@ -289,7 +285,7 @@ export function CampaignAnalytics({
     return {
       chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, animations: { enabled: true, speed: 600 } },
       plotOptions: { bar: { horizontal: true, distributed: true, borderRadius: 4, barHeight: '65%' } },
-      colors: analytics.workflowsByAccount.map((_, i) => CHART_COLORS[(i + 4) % CHART_COLORS.length]),
+      colors: analytics.workflowsByAccount.map(() => iconColorHex('flows')),
       xaxis: {
         categories: analytics.workflowsByAccount.map(([name]) => name),
         labels: { style: { colors: chartTextColor, fontSize: '10px' } },
@@ -354,8 +350,8 @@ export function CampaignAnalytics({
           icon={PaperAirplaneIcon}
           value={analytics.sentCount}
           label="Sent / Completed"
-          color="text-green-400"
-          bgColor="bg-green-500/10"
+          color="text-blue-400"
+          bgColor="bg-blue-500/10"
           delay={1}
           animated={animated}
         />
@@ -373,8 +369,8 @@ export function CampaignAnalytics({
           value={workflows.length}
           label="Total Workflows"
           sub={`${analytics.activeWorkflows} active`}
-          color="text-purple-400"
-          bgColor="bg-purple-500/10"
+          color="text-orange-400"
+          bgColor="bg-orange-500/10"
           delay={3}
           animated={animated}
         />
@@ -397,7 +393,7 @@ export function CampaignAnalytics({
         {analytics.workflowStatusEntries.length > 0 && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-2">
             <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-purple-400" />
+              <span className="w-2 h-2 rounded-full bg-orange-400" />
               Workflow Status
             </h4>
             <ReactApexChart type="donut" height={180} options={workflowDonutOptions} series={workflowDonutSeries} />
@@ -408,7 +404,7 @@ export function CampaignAnalytics({
         {showAccountBreakdown && analytics.campaignsByAccount.length > 0 && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-3">
             <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-green-400" />
+              <span className="w-2 h-2 rounded-full bg-blue-400" />
               Campaigns by Account
             </h4>
             <ReactApexChart type="bar" height={Math.max(analytics.campaignsByAccount.length * 36, 120)} options={campaignBarOptions} series={campaignBarSeries} />
@@ -419,7 +415,7 @@ export function CampaignAnalytics({
         {showAccountBreakdown && analytics.workflowsByAccount.length > 0 && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-4">
             <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-cyan-400" />
+              <span className="w-2 h-2 rounded-full bg-orange-400" />
               Workflows by Account
             </h4>
             <ReactApexChart type="bar" height={Math.max(analytics.workflowsByAccount.length * 36, 120)} options={workflowBarOptions} series={workflowBarSeries} />

@@ -9,6 +9,7 @@ import {
   DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import { FlowIcon } from '@/components/icon-map';
+import { iconColorHex } from '@/lib/icon-colors';
 import type { ApexOptions } from 'apexcharts';
 
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -30,24 +31,21 @@ interface FlowAnalyticsProps {
   loading?: boolean;
   showAccountBreakdown?: boolean;
   accountNames?: Record<string, string>;
+  emptyTitle?: string;
+  emptySubtitle?: string;
 }
 
 // ── Helpers ──
 
-const CHART_COLORS = [
-  '#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b',
-  '#ef4444', '#ec4899', '#6366f1', '#14b8a6', '#f97316',
-];
-
 const STATUS_COLORS: Record<string, string> = {
-  active: '#10b981',
-  published: '#10b981',
-  inactive: '#71717a',
-  draft: '#f59e0b',
+  active: '#fb923c',
+  published: '#fb923c',
+  inactive: '#fdba74',
+  draft: '#fed7aa',
 };
 
 function getStatusColor(status: string): string {
-  return STATUS_COLORS[status.toLowerCase()] || '#71717a';
+  return STATUS_COLORS[status.toLowerCase()] || '#fdba74';
 }
 
 function workflowAccountKey(workflow: Workflow): string | null {
@@ -61,6 +59,8 @@ export function FlowAnalytics({
   loading,
   showAccountBreakdown,
   accountNames,
+  emptyTitle = 'No workflow data yet',
+  emptySubtitle = 'Accounts may need to reconnect their integration with workflow scopes',
 }: FlowAnalyticsProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -163,7 +163,7 @@ export function FlowAnalytics({
     return {
       chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, animations: { enabled: true, speed: 600 } },
       plotOptions: { bar: { horizontal: true, distributed: true, borderRadius: 4, barHeight: '65%' } },
-      colors: analytics.byAccount.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+      colors: analytics.byAccount.map(() => iconColorHex('flows')),
       xaxis: {
         categories: analytics.byAccount.map(([name]) => name),
         labels: { style: { colors: chartTextColor, fontSize: '10px' } },
@@ -205,9 +205,9 @@ export function FlowAnalytics({
     return (
       <div className="text-center py-8 border border-dashed border-[var(--border)] rounded-xl">
         <FlowIcon className="w-8 h-8 text-[var(--muted-foreground)] mx-auto mb-2" />
-        <p className="text-sm text-[var(--muted-foreground)]">No workflow data yet</p>
+        <p className="text-sm text-[var(--muted-foreground)]">{emptyTitle}</p>
         <p className="text-xs text-[var(--muted-foreground)] mt-1">
-          Accounts may need to reconnect their integration with workflow scopes
+          {emptySubtitle}
         </p>
       </div>
     );
@@ -240,7 +240,7 @@ export function FlowAnalytics({
         {showAccountBreakdown && analytics.byAccount.length > 0 && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-2">
             <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-cyan-400" />
+              <span className="w-2 h-2 rounded-full bg-orange-400" />
               Flows by Account
             </h4>
             <ReactApexChart type="bar" height={Math.max(analytics.byAccount.length * 36, 120)} options={accountBarOptions} series={accountBarSeries} />

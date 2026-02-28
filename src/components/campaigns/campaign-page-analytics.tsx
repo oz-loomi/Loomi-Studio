@@ -10,6 +10,7 @@ import {
   DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import { FlowIcon } from '@/components/icon-map';
+import { iconColorHex } from '@/lib/icon-colors';
 import { formatRatePct, sumCampaignEngagement } from '@/lib/campaign-engagement';
 import {
   type DateRangeKey,
@@ -72,17 +73,12 @@ interface CampaignPageAnalyticsProps {
 
 // ── Helpers ──
 
-const CHART_COLORS = [
-  '#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b',
-  '#ef4444', '#ec4899', '#6366f1', '#14b8a6', '#f97316',
-];
-
 const STATUS_COLORS: Record<string, string> = {
-  sent:      '#10b981',
+  sent:      '#60a5fa',
   scheduled: '#3b82f6',
-  draft:     '#71717a',
-  paused:    '#f97316',
-  cancelled: '#ef4444',
+  draft:     '#bfdbfe',
+  paused:    '#1d4ed8',
+  cancelled: '#93c5fd',
 };
 
 function getStatusColor(status: string): string {
@@ -247,7 +243,7 @@ export function CampaignPageAnalytics({
       background: 'transparent',
       animations: { enabled: true, speed: 600, easing: 'easeinout' },
     },
-    colors: ['#60a5fa', '#8b5cf6'],
+    colors: [iconColorHex('campaigns'), iconColorHex('flows')],
     stroke: { curve: 'smooth', width: 2.5 },
     fill: {
       type: 'gradient',
@@ -336,7 +332,7 @@ export function CampaignPageAnalytics({
     return {
       chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, animations: { enabled: true, speed: 600 } },
       plotOptions: { bar: { horizontal: true, distributed: true, borderRadius: 4, barHeight: '65%' } },
-      colors: visibleAccounts.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+      colors: visibleAccounts.map(() => iconColorHex('campaigns')),
       xaxis: {
         categories: visibleAccounts.map(([name]) => name),
         labels: { style: { colors: chartTextColor, fontSize: '10px' } },
@@ -360,7 +356,7 @@ export function CampaignPageAnalytics({
     return {
       chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, animations: { enabled: true, speed: 600 } },
       plotOptions: { bar: { borderRadius: 3, columnWidth: '70%', distributed: true } },
-      colors: analytics.monthBuckets.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+      colors: analytics.monthBuckets.map(() => iconColorHex('campaigns')),
       xaxis: {
         categories: analytics.monthBuckets.map(b => b.label),
         labels: { style: { colors: chartTextColor, fontSize: '9px' } },
@@ -458,8 +454,8 @@ export function CampaignPageAnalytics({
           icon={FlowIcon}
           value={workflows.length}
           label="Workflows"
-          color="text-violet-400"
-          bgColor="bg-violet-500/10"
+          color="text-orange-400"
+          bgColor="bg-orange-500/10"
           delay={4}
           animated={animated}
         />
@@ -526,7 +522,7 @@ export function CampaignPageAnalytics({
         {showAccountBreakdown && visibleAccounts.length > 0 && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-2">
             <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-cyan-400" />
+              <span className="w-2 h-2 rounded-full bg-blue-400" />
               Campaigns by Account
             </h4>
             <ReactApexChart type="bar" height={Math.max(visibleAccounts.length * 36, 120)} options={accountBarOptions} series={accountBarSeries} />
@@ -546,7 +542,7 @@ export function CampaignPageAnalytics({
         {analytics.monthBuckets.some(b => b.count > 0) && (
           <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-3">
             <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-violet-400" />
+              <span className="w-2 h-2 rounded-full bg-blue-400" />
               Campaigns Over Time
             </h4>
             <ReactApexChart type="bar" height={160} options={columnChartOptions} series={columnChartSeries} />

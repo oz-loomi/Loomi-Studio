@@ -30,6 +30,7 @@ import {
   parseEmailListPayload,
   type EmailListItem,
 } from '@/lib/email-list-payload';
+import { iconColorClass } from '@/lib/icon-colors';
 
 // ── Types ──
 
@@ -247,7 +248,7 @@ export function AdminDashboard() {
       sub: `${crmTotals.connectedAccounts} connected`,
       href: '/accounts',
       icon: BuildingStorefrontIcon,
-      color: 'text-orange-400',
+      color: iconColorClass('general'),
     },
     {
       label: 'Total Contacts',
@@ -255,7 +256,7 @@ export function AdminDashboard() {
       sub: crmLoading ? 'Loading...' : `${crmTotals.connectedAccounts} sources`,
       href: '#contacts',
       icon: UserGroupIcon,
-      color: 'text-cyan-400',
+      color: iconColorClass('contacts'),
     },
     {
       label: 'Emails',
@@ -271,7 +272,7 @@ export function AdminDashboard() {
       sub: `${components.length} sections`,
       href: '/templates',
       icon: BookOpenIcon,
-      color: 'text-purple-400',
+      color: iconColorClass('general'),
     },
   ];
 
@@ -383,7 +384,7 @@ export function AdminDashboard() {
       <div id="campaigns" className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-1.5">
-            <PaperAirplaneIcon className="w-3.5 h-3.5" />
+            <PaperAirplaneIcon className={`w-3.5 h-3.5 ${iconColorClass('campaigns')}`} />
             ESP Campaigns
           </h3>
           <Link href="/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
@@ -403,7 +404,7 @@ export function AdminDashboard() {
       <div id="flows" className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-1.5">
-            <FlowIcon className="w-3.5 h-3.5" />
+            <FlowIcon className={`w-3.5 h-3.5 ${iconColorClass('flows')}`} />
             Flows
           </h3>
           <Link href="/flows" className="text-[10px] text-[var(--primary)] hover:underline">
@@ -422,7 +423,7 @@ export function AdminDashboard() {
       <div id="contacts" className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-1.5">
-            <UserGroupIcon className="w-3.5 h-3.5" />
+            <UserGroupIcon className={`w-3.5 h-3.5 ${iconColorClass('contacts')}`} />
             Contact Analytics{!hasAccountSelection && ' (All Accounts)'}
           </h3>
           <span className="text-[10px] text-[var(--muted-foreground)]">

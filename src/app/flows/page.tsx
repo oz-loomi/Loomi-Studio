@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { AdminOnly } from '@/components/route-guard';
+import { useAccount } from '@/contexts/account-context';
 import { useWorkflowsAggregate } from '@/hooks/use-dashboard-data';
 import { FlowAnalytics } from '@/components/flows/flow-analytics';
 import { FlowList, type AccountMeta } from '@/components/flows/flow-list';
 import type { FlowFilterState, FlowFilterOptions } from '@/components/filters/flow-toolbar';
+import type { RepFilterOption } from '@/components/filters/campaign-toolbar';
 import { FlowFilterSidebar } from '@/components/filters/flow-filter-sidebar';
 import {
   ChartBarIcon,
@@ -43,6 +45,8 @@ interface AccountData {
   city?: string;
   storefrontImage?: string;
   logos?: { light?: string; dark?: string; white?: string; black?: string };
+  accountRepId?: string | null;
+  accountRep?: { id: string; name: string; email: string } | null;
 }
 
 function capitalize(s: string): string {
@@ -100,9 +104,10 @@ function AdminFlowsPage() {
     status: [],
     oem: [],
     industry: [],
+    rep: [],
   });
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const activeFilterCount = [filters.account, filters.status, filters.oem, filters.industry]
+  const activeFilterCount = [filters.account, filters.status, filters.oem, filters.industry, filters.rep]
     .filter((values) => values.length > 0).length;
 
   useEffect(() => {
@@ -146,6 +151,9 @@ function AdminFlowsPage() {
               storefrontImage: a.storefrontImage,
               logos: a.logos,
               locationId: resolveAccountLocationId(a) || undefined,
+              accountRepId: a.accountRepId || a.accountRep?.id || null,
+              accountRepName: a.accountRep?.name || null,
+              accountRepEmail: a.accountRep?.email || null,
             };
             const preferredProvider = resolveAccountProvider(a, '');
             providers[key] = preferredProvider;
@@ -214,11 +222,26 @@ function AdminFlowsPage() {
       if (workflow.status) statuses.add(capitalize(workflow.status));
     });
 
+    // Build rep options from accountMeta
+    const repMap = new Map<string, RepFilterOption>();
+    let unassignedRepCount = 0;
+    for (const key of accessibleAccountKeys) {
+      const m = accountMeta[key];
+      const repId = m?.accountRepId;
+      if (!repId) { unassignedRepCount++; continue; }
+      const label = m.accountRepName?.trim() || m.accountRepEmail || `Rep ${repId.slice(0, 6)}`;
+      const existing = repMap.get(repId);
+      if (existing) { existing.accountCount++; } else { repMap.set(repId, { id: repId, label, accountCount: 1 }); }
+    }
+    const reps = [...repMap.values()].sort((a, b) => a.label.localeCompare(b.label));
+    if (unassignedRepCount > 0) reps.push({ id: '__unassigned__', label: 'Unassigned', accountCount: unassignedRepCount });
+
     return {
       accounts: [...accountsByLabel.values()].sort((a, b) => a.label.localeCompare(b.label)),
       statuses: [...statuses].sort(),
       oems: [...oems].sort(),
       industries: [...industries].sort(),
+      reps,
     };
   }, [workflows, accountNames, accountMeta, accessibleAccountKeys]);
 
@@ -444,10 +467,231 @@ function AdminFlowsPage() {
   );
 }
 
-export default function FlowsPage() {
-  return (
-    <AdminOnly>
-      <AdminFlowsPage />
-    </AdminOnly>
+function AccountFlowsPage() {
+  const { accountKey, accountData } = useAccount();
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<PageTab>('analytics');
+
+  useEffect(() => {
+    if (!accountKey) {
+      setWorkflows([]);
+      setLoading(false);
+      return;
+    }
+
+    const targetAccountKey = accountKey;
+    let cancelled = false;
+    setLoading(true);
+    setApiError(null);
+
+    async function load() {
+      try {
+        const res = await fetch(`/api/esp/workflows?accountKey=${encodeURIComponent(targetAccountKey)}`);
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+
+        if (res.ok && Array.isArray(data.workflows)) {
+          setWorkflows(data.workflows);
+        } else {
+          setApiError(
+            typeof data.error === 'string'
+              ? data.error
+              : `Failed to fetch flows (${res.status})`,
+          );
+        }
+      } catch {
+        if (!cancelled) setApiError('Failed to fetch flows.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [accountKey]);
+
+  const dealerName = accountData?.dealer || 'Your Sub-Account';
+  const accountProvider = resolveAccountProvider(accountData, '');
+  const accountLocationId = resolveAccountLocationId(accountData);
+  const flowBuilderLabel = providerDisplayName(accountProvider);
+  const createFlowHref = getWorkflowHubUrl(accountProvider, accountLocationId);
+  const accountNames = useMemo(
+    () => (accountKey ? { [accountKey]: dealerName } : {}),
+    [accountKey, dealerName],
   );
+  const accountMeta = useMemo<Record<string, AccountMeta>>(() => {
+    if (!accountKey) return {};
+    const accountOems = getAccountOems(accountData);
+    return {
+      [accountKey]: {
+        dealer: dealerName,
+        category: accountData?.category,
+        oem: accountOems[0],
+        oems: accountOems,
+        state: accountData?.state,
+        city: accountData?.city,
+        storefrontImage: accountData?.storefrontImage,
+        logos: accountData?.logos,
+        locationId: accountLocationId || undefined,
+      },
+    };
+  }, [accountData, accountKey, accountLocationId, dealerName]);
+  const accountProviders = useMemo(
+    () => (accountKey && accountProvider ? { [accountKey]: accountProvider } : {}),
+    [accountKey, accountProvider],
+  );
+  const accountNotIntegrated = useMemo(() => {
+    const message = (apiError || '').toLowerCase();
+    const disconnectedConnection = accountData?.activeConnection?.connected === false;
+    const missingConnectionMetadata =
+      Boolean(accountData) &&
+      !accountData?.activeConnection?.connected &&
+      !accountData?.activeConnection?.provider &&
+      !accountData?.activeEspProvider &&
+      !accountData?.espProvider;
+    return (
+      message.includes('esp not connected') ||
+      message.includes('not connected for this account') ||
+      message.includes('not integrated') ||
+      disconnectedConnection ||
+      missingConnectionMetadata
+    );
+  }, [accountData, apiError]);
+  const accountEmptyTitle = accountNotIntegrated
+    ? 'Account not integrated'
+    : 'No flows found for this sub-account';
+  const accountEmptySubtitle = accountNotIntegrated
+    ? 'Connect your ESP integration to view reporting.'
+    : `Create and manage workflows directly in ${flowBuilderLabel}.`;
+  const accountEmptyState = useMemo(
+    () => ({
+      title: accountEmptyTitle,
+      subtitle: accountEmptySubtitle,
+      actionLabel: accountNotIntegrated
+        ? 'Open Integrations'
+        : createFlowHref
+          ? `Open ${flowBuilderLabel} Flows`
+          : undefined,
+      actionHref: accountNotIntegrated
+        ? '/settings/integrations'
+        : createFlowHref || undefined,
+    }),
+    [accountEmptySubtitle, accountEmptyTitle, accountNotIntegrated, createFlowHref, flowBuilderLabel],
+  );
+
+  return (
+    <div>
+      <div className="page-sticky-header mb-8">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <FlowIcon className="w-7 h-7 text-[var(--primary)]" />
+            <div>
+              <h2 className="text-2xl font-bold">Flows</h2>
+              <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
+                Workflows for {dealerName}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center rounded-xl border border-[var(--border)] bg-[var(--card)] p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('analytics')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === 'analytics'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <ChartBarIcon className="w-3.5 h-3.5" />
+              Analytics
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('list')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === 'list'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <ListBulletIcon className="w-3.5 h-3.5" />
+              Flows
+            </button>
+          </div>
+
+          {createFlowHref ? (
+            <a
+              href={createFlowHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 h-10 px-4 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors"
+            >
+              <PlusIcon className="w-4 h-4" />
+              Create Flow in {flowBuilderLabel}
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="inline-flex items-center gap-2 h-10 px-4 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] opacity-60 cursor-not-allowed"
+            >
+              <PlusIcon className="w-4 h-4" />
+              Flow Builder Unavailable
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="min-w-0">
+        {apiError && !accountNotIntegrated && (
+          <div className="px-4 py-3 mb-4 rounded-xl border border-red-500/20 bg-red-500/10 text-sm text-red-300">
+            {apiError}
+          </div>
+        )}
+
+        {activeTab === 'analytics' && (
+          <FlowAnalytics
+            workflows={workflows}
+            loading={loading}
+            showAccountBreakdown={false}
+            accountNames={accountNames}
+            emptyTitle={accountEmptyTitle}
+            emptySubtitle={accountEmptySubtitle}
+          />
+        )}
+
+        {activeTab === 'list' && (
+          <FlowList
+            workflows={workflows}
+            loading={loading}
+            accountNames={accountNames}
+            accountMeta={accountMeta}
+            accountProviders={accountProviders}
+            emptyState={accountEmptyState}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function FlowsPage() {
+  const { isAdmin, isAccount } = useAccount();
+
+  if (isAdmin) {
+    return (
+      <AdminOnly>
+        <AdminFlowsPage />
+      </AdminOnly>
+    );
+  }
+
+  if (isAccount) {
+    return <AccountFlowsPage />;
+  }
+
+  return null;
 }

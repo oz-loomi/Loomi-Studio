@@ -68,6 +68,9 @@ export interface AccountMeta {
   locationId?: string;
   storefrontImage?: string;
   logos?: { light?: string; dark?: string; white?: string; black?: string };
+  accountRepId?: string | null;
+  accountRepName?: string | null;
+  accountRepEmail?: string | null;
 }
 
 interface CampaignPageListProps {

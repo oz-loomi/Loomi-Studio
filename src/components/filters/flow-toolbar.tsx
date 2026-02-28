@@ -9,7 +9,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { AccountAvatar } from '@/components/account-avatar';
-import type { AccountFilterOption } from '@/components/filters/campaign-toolbar';
+import type { AccountFilterOption, RepFilterOption } from '@/components/filters/campaign-toolbar';
 
 // -- Types --
 
@@ -18,6 +18,7 @@ export interface FlowFilterState {
   status: string[];
   oem: string[];
   industry: string[];
+  rep: string[];
 }
 
 export interface FlowFilterOptions {
@@ -25,6 +26,7 @@ export interface FlowFilterOptions {
   statuses: string[];
   oems: string[];
   industries: string[];
+  reps: RepFilterOption[];
 }
 
 interface FlowToolbarProps {
@@ -99,7 +101,7 @@ export function FlowToolbar({
     return () => document.removeEventListener('keydown', handler);
   }, [openPanel]);
 
-  const activeCount = [filters.account, filters.status, filters.industry]
+  const activeCount = [filters.account, filters.status, filters.industry, filters.rep]
     .filter(values => values.length > 0)
     .length;
 
@@ -116,7 +118,7 @@ export function FlowToolbar({
   }
 
   function clearAll() {
-    onFiltersChange({ account: [], status: [], oem: [], industry: [] });
+    onFiltersChange({ account: [], status: [], oem: [], industry: [], rep: [] });
     setOpenPanel(null);
   }
 

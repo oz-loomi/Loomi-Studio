@@ -9,11 +9,14 @@ import {
   ArrowPathIcon,
   BookOpenIcon,
   BuildingStorefrontIcon,
+  CalendarDaysIcon,
   ChartBarIcon,
   CheckCircleIcon,
   CommandLineIcon,
   ExclamationTriangleIcon,
   FunnelIcon,
+  MagnifyingGlassIcon,
+  CheckIcon,
   PaperAirplaneIcon,
   PhotoIcon,
   SquaresPlusIcon,
@@ -32,6 +35,7 @@ import {
   DATE_RANGE_PRESETS,
   DEFAULT_DATE_RANGE,
   filterByDateRange,
+  formatCustomRangeLabel,
   getDateRangeBounds,
   getMonthBuckets,
 } from '@/lib/date-ranges';
@@ -43,6 +47,7 @@ import { AccountHealthGrid } from '@/components/analytics/account-health-grid';
 import { AccountAvatar } from '@/components/account-avatar';
 import { formatRatePct, sumCampaignEngagement } from '@/lib/campaign-engagement';
 import { FlowIcon } from '@/components/icon-map';
+import { iconColorClassForLabel, iconColorHex, iconColorHexForLabel } from '@/lib/icon-colors';
 import {
   DashboardCustomizePanel,
   DashboardWidgetFrame,
@@ -505,7 +510,7 @@ function StatCard({
   const content = (
     <>
       <div className="mb-2 flex items-center justify-between">
-        <Icon className="h-6 w-6 text-[var(--primary)]" />
+        <Icon className={`h-6 w-6 ${iconColorClassForLabel(label)}`} />
       </div>
       <p className="text-2xl font-bold tabular-nums">{value}</p>
       <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{label}</p>
@@ -566,6 +571,14 @@ function ManagementRoleDashboard({
   const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
+  const [accountSearchQuery, setAccountSearchQuery] = useState('');
+  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
+  const [repDropdownOpen, setRepDropdownOpen] = useState(false);
+  const defaultEnd = new Date();
+  const defaultStart = new Date();
+  defaultStart.setMonth(defaultStart.getMonth() - 1);
+  const [dateStartInput, setDateStartInput] = useState(() => (customRange?.start ?? defaultStart).toISOString().split('T')[0]);
+  const [dateEndInput, setDateEndInput] = useState(() => (customRange?.end ?? defaultEnd).toISOString().split('T')[0]);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [selectedRepIds, setSelectedRepIds] = useState<string[]>([]);
   const [superAdminPresetName, setSuperAdminPresetName] = useState('');
@@ -906,12 +919,20 @@ function ManagementRoleDashboard({
     };
   }, [accountKeysSignature, accounts]);
 
-  const accountOptions = useMemo(() => {
+  const accountOptions: AccountOption[] = useMemo(() => {
     if (Object.keys(accounts).length > 0) return normalizeAccountOptions(accounts);
     return Object.entries(contactStats)
-      .map(([key, stat]) => ({ key, label: stat.dealer || key }))
+      .map(([key, stat]): AccountOption => ({ key, label: stat.dealer || key }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [accounts, contactStats]);
+  const filteredAccountOptions = useMemo(() => {
+    const q = accountSearchQuery.trim().toLowerCase();
+    if (!q) return accountOptions;
+    return accountOptions.filter((account) => {
+      const location = [account.city, account.state].filter(Boolean).join(' ');
+      return account.label.toLowerCase().includes(q) || location.toLowerCase().includes(q);
+    });
+  }, [accountOptions, accountSearchQuery]);
   const accountNames = useMemo(
     () =>
       Object.fromEntries(
@@ -1618,7 +1639,7 @@ function ManagementRoleDashboard({
   const developerTimelineOptions = useMemo<ApexOptions>(
     () => ({
       chart: { type: 'area', background: 'transparent', toolbar: { show: false }, foreColor: chartTextColor },
-      colors: ['#60a5fa', '#8b5cf6', '#34d399'],
+      colors: [iconColorHex('campaigns'), iconColorHex('flows'), iconColorHex('contacts')],
       stroke: { curve: 'smooth', width: 3 },
       fill: {
         type: 'gradient',
@@ -1655,7 +1676,7 @@ function ManagementRoleDashboard({
   const developerIndustryOptions = useMemo<ApexOptions>(
     () => ({
       chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, foreColor: chartTextColor },
-      colors: ['#22d3ee'],
+      colors: [iconColorHex('contacts')],
       plotOptions: { bar: { horizontal: false, borderRadius: 6, columnWidth: '52%' } },
       dataLabels: { enabled: false },
       legend: { show: false },
@@ -1672,7 +1693,7 @@ function ManagementRoleDashboard({
     () => ({
       chart: { type: 'donut', background: 'transparent', toolbar: { show: false }, foreColor: chartTextColor },
       labels: developerMixLabels,
-      colors: ['#60a5fa', '#8b5cf6', '#34d399'],
+      colors: developerMixLabels.map((label) => iconColorHexForLabel(label)),
       dataLabels: { enabled: false },
       legend: { show: true, position: 'bottom', labels: { colors: chartTextColor }, fontSize: '11px' },
       stroke: { width: 2, colors: [chartStrokeColor] },
@@ -1729,12 +1750,6 @@ function ManagementRoleDashboard({
   const developerMetricValueClass = theme === 'dark' ? 'text-white' : 'text-slate-900';
   const developerMetricNoteClass = theme === 'dark' ? 'text-violet-100/80' : 'text-slate-600';
   const developerIconTintClass = theme === 'dark' ? 'text-violet-200' : 'text-indigo-600';
-  const developerMetricIconClasses = theme === 'dark'
-    ? ['text-cyan-300', 'text-violet-300', 'text-emerald-300', 'text-amber-300', 'text-fuchsia-300']
-    : ['text-sky-600', 'text-violet-600', 'text-emerald-600', 'text-amber-600', 'text-fuchsia-600'];
-  const developerControlIconClasses = theme === 'dark'
-    ? ['text-sky-300', 'text-violet-300', 'text-emerald-300', 'text-fuchsia-300', 'text-amber-300', 'text-cyan-300']
-    : ['text-sky-600', 'text-violet-600', 'text-emerald-600', 'text-fuchsia-600', 'text-amber-600', 'text-cyan-600'];
   const developerControlCardClass = theme === 'dark'
     ? 'rounded-xl border border-violet-300/20 bg-violet-400/10 p-3 transition-colors hover:bg-violet-300/20'
     : 'rounded-xl border border-white/70 bg-[rgba(255,255,255,0.45)] backdrop-blur-sm p-3 transition-colors hover:bg-[rgba(255,255,255,0.62)]';
@@ -1855,86 +1870,280 @@ function ManagementRoleDashboard({
           </button>
         </div>
         <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
-          Accounts: {selectedAccounts.length === 0 ? 'all' : selectedAccounts.length} · Reps: {selectedRepIds.length === 0 ? 'all' : selectedRepIds.length}
+          Sub-Accounts: {selectedAccounts.length === 0 ? 'all' : selectedAccounts.length} · Reps: {selectedRepIds.length === 0 ? 'all' : selectedRepIds.length}
         </p>
       </div>
 
       <div className="themed-scrollbar flex-1 space-y-5 overflow-y-auto p-4">
-        <section>
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Accounts</h4>
-            <button
-              type="button"
-              onClick={() => setSelectedAccounts([])}
-              className="text-[10px] text-[var(--primary)] hover:underline"
-            >
-              Select all
-            </button>
-          </div>
-          <div className="space-y-1 rounded-xl border border-[var(--border)] p-1.5">
-            {accountOptions.map((account) => {
-              const selected = selectedAccounts.includes(account.key);
-              return (
-                <button
-                  key={account.key}
-                  type="button"
-                  onClick={() => toggleAccountFilter(account.key)}
-                  className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs transition-colors ${
-                    selected
-                      ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
-                      : 'text-[var(--foreground)] hover:bg-[var(--muted)]/30'
-                  }`}
-                >
-                  <span className="truncate text-left">{account.label}</span>
-                  {selected ? <span className="text-[10px] font-semibold">Selected</span> : null}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {isSuperAdmin ? (
-          <section>
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Account Reps</h4>
+        {/* Date Range */}
+        <section className="space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
+              Date Range
+            </p>
+            {dateRange !== '6m' && (
               <button
                 type="button"
-                onClick={() => setSelectedRepIds([])}
-                className="text-[10px] text-[var(--primary)] hover:underline"
+                onClick={() => setDateRange('6m' as DateRangeKey)}
+                className="text-[10px] font-medium text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] transition-colors"
               >
-                Select all
+                Reset
               </button>
-            </div>
-            <div className="flex flex-wrap gap-2 rounded-xl border border-[var(--border)] p-2">
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {DATE_RANGE_PRESETS.filter(p => p.key !== 'custom').map((preset) => (
               <button
+                key={preset.key}
                 type="button"
-                onClick={() => setSelectedRepIds([])}
-                className={`rounded-lg border px-2.5 py-1 text-[10px] transition-colors ${
-                  selectedRepIds.length === 0
-                    ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                    : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                onClick={() => setDateRange(preset.key)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors ${
+                  dateRange === preset.key
+                    ? 'border-[var(--primary)]/60 bg-[var(--primary)]/14 text-[var(--primary)]'
+                    : 'border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:border-[var(--primary)]/35 hover:bg-[var(--sidebar-muted)]/70'
                 }`}
               >
-                All reps
+                <CalendarDaysIcon className="w-3 h-3 flex-shrink-0" />
+                {preset.label}
+                {dateRange === preset.key && <CheckIcon className="w-3 h-3 flex-shrink-0" />}
               </button>
-              {repScopeOptions.map((rep) => {
-                const selected = selectedRepIds.includes(rep.id);
-                return (
-                  <button
-                    key={rep.id}
-                    type="button"
-                    onClick={() => toggleSuperAdminRepFilter(rep.id)}
-                    className={`rounded-lg border px-2.5 py-1 text-[10px] transition-colors ${
-                      selected
-                        ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                        : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                    }`}
-                  >
-                    {rep.label} ({rep.accountCount})
-                  </button>
-                );
-              })}
+            ))}
+            <button
+              type="button"
+              onClick={() => setDateRange('custom' as DateRangeKey)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors ${
+                dateRange === 'custom'
+                  ? 'border-[var(--primary)]/60 bg-[var(--primary)]/14 text-[var(--primary)]'
+                  : 'border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:border-[var(--primary)]/35 hover:bg-[var(--sidebar-muted)]/70'
+              }`}
+            >
+              <CalendarDaysIcon className="w-3 h-3 flex-shrink-0" />
+              Custom
+              {dateRange === 'custom' && <CheckIcon className="w-3 h-3 flex-shrink-0" />}
+            </button>
+          </div>
+
+          {dateRange === 'custom' && (
+            <div className="space-y-2 pt-1">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[9px] text-[var(--sidebar-muted-foreground)] mb-0.5">Start</label>
+                  <input
+                    type="date"
+                    value={dateStartInput}
+                    max={dateEndInput}
+                    onChange={e => setDateStartInput(e.target.value)}
+                    className="w-full px-2 py-1.5 text-[11px] rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 text-[var(--sidebar-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] text-[var(--sidebar-muted-foreground)] mb-0.5">End</label>
+                  <input
+                    type="date"
+                    value={dateEndInput}
+                    min={dateStartInput}
+                    max={new Date().toISOString().split('T')[0]}
+                    onChange={e => setDateEndInput(e.target.value)}
+                    className="w-full px-2 py-1.5 text-[11px] rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 text-[var(--sidebar-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30 transition-colors"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const start = new Date(dateStartInput + 'T00:00:00');
+                  const end = new Date(dateEndInput + 'T23:59:59');
+                  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return;
+                  setCustomRange({ start, end });
+                }}
+                disabled={!dateStartInput || !dateEndInput || dateStartInput > dateEndInput}
+                className="w-full py-1.5 text-[11px] font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Apply Custom Range
+              </button>
+              {customRange && (
+                <p className="text-[10px] text-[var(--primary)] font-medium">
+                  {formatCustomRangeLabel(customRange.start, customRange.end)}
+                </p>
+              )}
             </div>
+          )}
+        </section>
+
+        {/* Sub-Account */}
+        <section className="space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
+              Sub-Account
+            </p>
+            <span className="text-[10px] text-[var(--sidebar-muted-foreground)] tabular-nums">
+              {selectedAccounts.length > 0 ? `${selectedAccounts.length} selected` : `${accountOptions.length} total`}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => { setSelectedAccounts([]); setAccountDropdownOpen(false); }}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors ${
+                selectedAccounts.length === 0
+                  ? 'border-[var(--primary)]/60 bg-[var(--primary)]/14 text-[var(--primary)]'
+                  : 'border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:border-[var(--primary)]/35 hover:bg-[var(--sidebar-muted)]/70'
+              }`}
+            >
+              All Sub-Accounts
+            </button>
+            {accountOptions.filter((a) => selectedAccounts.includes(a.key)).map((account) => (
+              <button
+                key={account.key}
+                type="button"
+                onClick={() => setSelectedAccounts((prev) => prev.filter((k) => k !== account.key))}
+                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors border-[var(--primary)]/60 bg-[var(--primary)]/14 text-[var(--primary)] group"
+              >
+                <AccountAvatar
+                  name={account.label}
+                  accountKey={account.key}
+                  storefrontImage={account.storefrontImage}
+                  logos={account.logos}
+                  size={14}
+                  className="w-3.5 h-3.5 rounded-[3px] object-cover flex-shrink-0"
+                />
+                <span className="truncate max-w-[100px]">{account.label}</span>
+                <XMarkIcon className="w-3 h-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
+              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:border-[var(--primary)]/35 hover:bg-[var(--sidebar-muted)]/70"
+            >
+              {accountDropdownOpen ? 'Close' : '+ Add'}
+            </button>
+          </div>
+
+          {accountDropdownOpen && (
+            <div className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-2 space-y-2">
+              <div className="relative">
+                <MagnifyingGlassIcon className="w-3.5 h-3.5 text-[var(--sidebar-muted-foreground)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={accountSearchQuery}
+                  onChange={(e) => setAccountSearchQuery(e.target.value)}
+                  placeholder="Filter sub-accounts..."
+                  className="w-full h-8 rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 pl-8 pr-2 text-[11px] text-[var(--sidebar-foreground)] placeholder:text-[var(--sidebar-muted-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30"
+                />
+              </div>
+              <div className="themed-scrollbar space-y-1 max-h-64 overflow-y-auto pr-1">
+                {filteredAccountOptions.map((account) => {
+                  const selected = selectedAccounts.includes(account.key);
+                  const location = [account.city, account.state].filter(Boolean).join(', ');
+                  return (
+                    <button
+                      key={account.key}
+                      type="button"
+                      onClick={() => toggleAccountFilter(account.key)}
+                      className={`w-full px-2 py-1.5 rounded-lg border text-[11px] text-left flex items-center gap-2 transition-colors ${
+                        selected
+                          ? 'border-[var(--primary)]/45 bg-[var(--primary)]/12 text-[var(--primary)]'
+                          : 'border-transparent text-[var(--sidebar-foreground)] hover:border-[var(--sidebar-border-soft)] hover:bg-[var(--sidebar-muted)]/70'
+                      }`}
+                    >
+                      <AccountAvatar
+                        name={account.label}
+                        accountKey={account.key}
+                        storefrontImage={account.storefrontImage}
+                        logos={account.logos}
+                        size={22}
+                        className="w-[22px] h-[22px] rounded-md object-cover flex-shrink-0 border border-[var(--sidebar-border-soft)]"
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate">{account.label}</span>
+                        {location && (
+                          <span className="block text-[10px] text-[var(--sidebar-muted-foreground)] truncate">
+                            {location}
+                          </span>
+                        )}
+                      </span>
+                      {selected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+                {filteredAccountOptions.length === 0 && (
+                  <p className="px-1 py-2 text-[11px] text-[var(--sidebar-muted-foreground)]">
+                    No matching sub-accounts.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {(isSuperAdmin || isDeveloper) && repScopeOptions.length > 0 ? (
+          <section className="space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
+                Account Reps
+              </p>
+              <span className="text-[10px] text-[var(--sidebar-muted-foreground)] tabular-nums">
+                {selectedRepIds.length > 0 ? `${selectedRepIds.length} selected` : `${repScopeOptions.length} total`}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => { setSelectedRepIds([]); setRepDropdownOpen(false); }}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors ${
+                  selectedRepIds.length === 0
+                    ? 'border-[var(--primary)]/60 bg-[var(--primary)]/14 text-[var(--primary)]'
+                    : 'border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:border-[var(--primary)]/35 hover:bg-[var(--sidebar-muted)]/70'
+                }`}
+              >
+                All Reps
+              </button>
+              {repScopeOptions.filter((r) => selectedRepIds.includes(r.id)).map((rep) => (
+                <button
+                  key={rep.id}
+                  type="button"
+                  onClick={() => setSelectedRepIds((prev) => prev.filter((id) => id !== rep.id))}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors border-[var(--primary)]/60 bg-[var(--primary)]/14 text-[var(--primary)] group"
+                >
+                  <span className="truncate max-w-[100px]">{rep.label}</span>
+                  <XMarkIcon className="w-3 h-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setRepDropdownOpen(!repDropdownOpen)}
+                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium leading-none transition-colors border-[var(--sidebar-border-soft)] text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:border-[var(--primary)]/35 hover:bg-[var(--sidebar-muted)]/70"
+              >
+                {repDropdownOpen ? 'Close' : '+ Add'}
+              </button>
+            </div>
+            {repDropdownOpen && (
+              <div className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-2 space-y-1">
+                <div className="themed-scrollbar space-y-1 max-h-48 overflow-y-auto pr-1">
+                  {repScopeOptions.map((rep) => {
+                    const selected = selectedRepIds.includes(rep.id);
+                    return (
+                      <button
+                        key={rep.id}
+                        type="button"
+                        onClick={() => toggleSuperAdminRepFilter(rep.id)}
+                        className={`w-full px-2 py-1.5 rounded-lg border text-[11px] text-left flex items-center justify-between gap-2 transition-colors ${
+                          selected
+                            ? 'border-[var(--primary)]/45 bg-[var(--primary)]/12 text-[var(--primary)]'
+                            : 'border-transparent text-[var(--sidebar-foreground)] hover:border-[var(--sidebar-border-soft)] hover:bg-[var(--sidebar-muted)]/70'
+                        }`}
+                      >
+                        <span className="truncate">{rep.label} ({rep.accountCount})</span>
+                        {selected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </section>
         ) : null}
 
@@ -2136,12 +2345,6 @@ function ManagementRoleDashboard({
           ) : null}
 
           <div className="flex items-center gap-2">
-            <DashboardToolbar
-              dateRange={dateRange}
-              onDateRangeChange={setDateRange}
-              customRange={customRange}
-              onCustomRangeChange={setCustomRange}
-            />
             <button
               type="button"
               onClick={() => {
@@ -2214,10 +2417,10 @@ function ManagementRoleDashboard({
                 { label: 'Users', value: users.length, note: `${roleCounts.length} role groups`, icon: UsersIcon },
                 { label: 'API Health', value: `${apiHealth.filter((api) => api.ok).length}/${apiHealth.length}`, note: 'reporting endpoints', icon: CommandLineIcon },
                 { label: 'Alerts', value: attentionAccounts.length, note: attentionAccounts.length > 0 ? 'needs action' : 'all clear', icon: ExclamationTriangleIcon },
-              ].map((item, index) => (
+              ].map((item) => (
                 <div key={item.label} className={developerMetricClass}>
                   <div className="mb-2 flex items-center justify-between">
-                    <item.icon className={`h-7 w-7 ${developerMetricIconClasses[index % developerMetricIconClasses.length]}`} />
+                    <item.icon className={`h-7 w-7 ${iconColorClassForLabel(item.label)}`} />
                     <span className={`text-[10px] uppercase tracking-wider ${developerMetricLabelClass}`}>{item.label}</span>
                   </div>
                   <p className={`text-3xl font-semibold tabular-nums ${developerMetricValueClass}`}>{item.value}</p>
@@ -2250,13 +2453,13 @@ function ManagementRoleDashboard({
                     { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
                     { href: '/flows', label: 'Flows', icon: FlowIcon },
                     { href: '/media', label: 'Media', icon: PhotoIcon },
-                  ].map((item, index) => (
+                  ].map((item) => (
                     <Link
                       key={item.href}
                       href={item.href}
                       className={developerControlCardClass}
                     >
-                      <item.icon className={`h-8 w-8 ${developerControlIconClasses[index % developerControlIconClasses.length]}`} />
+                      <item.icon className={`h-8 w-8 ${iconColorClassForLabel(item.label)}`} />
                       <p className={`mt-2 text-xs font-medium ${developerControlLabelClass}`}>{item.label}</p>
                     </Link>
                   ))}
@@ -2329,10 +2532,10 @@ function ManagementRoleDashboard({
                   { label: 'Contacts', value: formatCompactNumber(totals.contactsTotal), icon: UserGroupIcon },
                   { label: 'Campaigns', value: totals.campaignCount, icon: PaperAirplaneIcon },
                   { label: 'Flows', value: totals.workflowCount, icon: FlowIcon },
-                ].map((item, index) => (
+                ].map((item) => (
                   <div key={item.label} className={developerMetricClass}>
                     <div className="mb-2 flex items-center justify-between">
-                      <item.icon className={`h-7 w-7 ${developerMetricIconClasses[index % developerMetricIconClasses.length]}`} />
+                      <item.icon className={`h-7 w-7 ${iconColorClassForLabel(item.label)}`} />
                       <span className={`text-[10px] uppercase tracking-wider ${developerMetricLabelClass}`}>{item.label}</span>
                     </div>
                     <p className={`text-3xl font-semibold tabular-nums ${developerMetricValueClass}`}>{item.value}</p>
@@ -2902,7 +3105,7 @@ function ClientRoleDashboard({
     () => ({
       chart: { type: 'donut', background: 'transparent', toolbar: { show: false }, foreColor: clientChartTextColor },
       labels: clientStatusMixLabels,
-      colors: ['#818cf8', '#34d399', '#94a3b8'],
+      colors: ['#3b82f6', '#60a5fa', '#93c5fd'],
       dataLabels: { enabled: false },
       stroke: { width: 2, colors: [clientChartStrokeColor] },
       legend: { show: true, position: 'bottom', labels: { colors: clientChartTextColor }, fontSize: '11px' },
@@ -2922,7 +3125,7 @@ function ClientRoleDashboard({
   const clientChannelOptions = useMemo<ApexOptions>(
     () => ({
       chart: { type: 'bar', background: 'transparent', toolbar: { show: false }, foreColor: clientChartTextColor },
-      colors: ['#60a5fa', '#f472b6', '#f59e0b'],
+      colors: clientChannelCategories.map((label) => iconColorHexForLabel(label)),
       plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '58%', distributed: true } },
       dataLabels: { enabled: false },
       legend: { show: false },
@@ -3079,12 +3282,6 @@ function ClientRoleDashboard({
           </div>
 
           <div className="flex items-center gap-2">
-            <DashboardToolbar
-              dateRange={dateRange}
-              onDateRangeChange={setDateRange}
-              customRange={customRange}
-              onCustomRangeChange={setCustomRange}
-            />
             <button
               type="button"
               onClick={() => {

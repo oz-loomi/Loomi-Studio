@@ -29,6 +29,7 @@ import {
   parseEmailListPayload,
   type EmailListItem,
 } from '@/lib/email-list-payload';
+import { iconColorClass } from '@/lib/icon-colors';
 
 interface TemplateEntry {
   design: string;
@@ -171,7 +172,7 @@ export function AccountDashboard() {
       value: templates.length,
       href: '/templates/library',
       icon: BookOpenIcon,
-      color: 'text-purple-400',
+      color: iconColorClass('general'),
     },
     ...(hasContacts
       ? [
@@ -181,7 +182,7 @@ export function AccountDashboard() {
             sub: undefined as string | undefined,
             href: '#contacts',
             icon: UserGroupIcon,
-            color: 'text-cyan-400',
+            color: iconColorClass('contacts'),
           },
         ]
       : []),
@@ -237,7 +238,7 @@ export function AccountDashboard() {
       {(hasContacts || contactsLoading) && (
         <div id="contacts" className="mb-8">
           <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-1.5 mb-4">
-            <UserGroupIcon className="w-3.5 h-3.5" />
+            <UserGroupIcon className={`w-3.5 h-3.5 ${iconColorClass('contacts')}`} />
             Contact Analytics
           </h3>
           <ContactAnalytics
@@ -270,7 +271,7 @@ export function AccountDashboard() {
       {(espCampaigns.length > 0 || campaignsLoading) && (
         <div id="campaigns" className="mb-8">
           <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-1.5 mb-4">
-            <PaperAirplaneIcon className="w-3.5 h-3.5" />
+            <PaperAirplaneIcon className={`w-3.5 h-3.5 ${iconColorClass('campaigns')}`} />
             ESP Campaigns
           </h3>
           <CampaignAnalytics
@@ -285,7 +286,7 @@ export function AccountDashboard() {
       {(espWorkflows.length > 0 || campaignsLoading) && (
         <div id="flows" className="mb-8">
           <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-1.5 mb-4">
-            <FlowIcon className="w-3.5 h-3.5" />
+            <FlowIcon className={`w-3.5 h-3.5 ${iconColorClass('flows')}`} />
             Flows
           </h3>
           <FlowAnalytics
@@ -317,7 +318,7 @@ export function AccountDashboard() {
       {hasContacts && (
         <div className="mb-8">
           <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-1.5 mb-3">
-            <UserGroupIcon className="w-3.5 h-3.5" />
+            <UserGroupIcon className={`w-3.5 h-3.5 ${iconColorClass('contacts')}`} />
             All Contacts
           </h3>
           <ContactListCompact accountKey={accountKey} />

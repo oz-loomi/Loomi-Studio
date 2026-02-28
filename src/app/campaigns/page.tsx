@@ -7,16 +7,14 @@ import { useCampaignsAggregate, useWorkflowsAggregate } from '@/hooks/use-dashbo
 import { AdminOnly } from '@/components/route-guard';
 import { CampaignPageAnalytics } from '@/components/campaigns/campaign-page-analytics';
 import { CampaignPageList, type AccountMeta } from '@/components/campaigns/campaign-page-list';
-import type { CampaignFilterState, CampaignFilterOptions } from '@/components/filters/campaign-toolbar';
+import type { CampaignFilterState, CampaignFilterOptions, RepFilterOption } from '@/components/filters/campaign-toolbar';
 import { CampaignFilterSidebar } from '@/components/filters/campaign-filter-sidebar';
 import { DashboardToolbar, type CustomDateRange } from '@/components/filters/dashboard-toolbar';
 import { DEFAULT_DATE_RANGE, getDateRangeBounds, type DateRangeKey } from '@/lib/date-ranges';
-import { formatInlineEngagement } from '@/lib/campaign-engagement';
 import { resolveAccountLocationId, resolveAccountProvider } from '@/lib/account-resolvers';
 import { providerDisplayName } from '@/lib/esp/provider-display';
 import {
   getCampaignCreateLinks,
-  getCampaignStatsUrl,
   type CampaignCreateLinks,
 } from '@/lib/esp/provider-links';
 import {
@@ -24,9 +22,6 @@ import {
   EnvelopeIcon,
   DevicePhoneMobileIcon,
   FunnelIcon,
-  EyeIcon,
-  XMarkIcon,
-  ChartBarIcon,
   PlusIcon,
   ChevronDownIcon,
 } from '@heroicons/react/24/outline';
@@ -94,6 +89,8 @@ interface AccountData {
   city?: string;
   storefrontImage?: string;
   logos?: { light?: string; dark?: string; white?: string; black?: string };
+  accountRepId?: string | null;
+  accountRep?: { id: string; name: string; email: string } | null;
 }
 
 interface Workflow {
@@ -168,17 +165,6 @@ function normalizeCampaignStatus(status: string): string {
   return s || 'unknown';
 }
 
-function formatCampaignDate(date?: string): string {
-  if (!date) return '—';
-  const d = new Date(date);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-function getCampaignLastUpdatedDate(campaign: Campaign): string {
-  return formatCampaignDate(campaign.updatedAt || campaign.createdAt);
-}
-
 // ── Inner Page ──
 
 function AdminCampaignsPage() {
@@ -224,9 +210,10 @@ function AdminCampaignsPage() {
     status: [],
     oem: [],
     industry: [],
+    rep: [],
   });
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const activeFilterCount = [filters.account, filters.status, filters.oem, filters.industry]
+  const activeFilterCount = [filters.account, filters.status, filters.oem, filters.industry, filters.rep]
     .filter((a) => a.length > 0).length;
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
@@ -275,6 +262,9 @@ function AdminCampaignsPage() {
               storefrontImage: a.storefrontImage,
               logos: a.logos,
               locationId: resolveAccountLocationId(a) || undefined,
+              accountRepId: a.accountRepId || a.accountRep?.id || null,
+              accountRepName: a.accountRep?.name || null,
+              accountRepEmail: a.accountRep?.email || null,
             };
             const preferredProvider = resolveAccountProvider(a, '');
             providers[key] = preferredProvider;
@@ -363,11 +353,26 @@ function AdminCampaignsPage() {
       if (c.status) statuses.add(capitalize(normalizeCampaignStatus(c.status)));
     });
 
+    // Build rep options from accountMeta
+    const repMap = new Map<string, RepFilterOption>();
+    let unassignedRepCount = 0;
+    for (const key of accessibleAccountKeys) {
+      const m = accountMeta[key];
+      const repId = m?.accountRepId;
+      if (!repId) { unassignedRepCount++; continue; }
+      const label = m.accountRepName?.trim() || m.accountRepEmail || `Rep ${repId.slice(0, 6)}`;
+      const existing = repMap.get(repId);
+      if (existing) { existing.accountCount++; } else { repMap.set(repId, { id: repId, label, accountCount: 1 }); }
+    }
+    const reps = [...repMap.values()].sort((a, b) => a.label.localeCompare(b.label));
+    if (unassignedRepCount > 0) reps.push({ id: '__unassigned__', label: 'Unassigned', accountCount: unassignedRepCount });
+
     return {
       accounts: [...accountsByLabel.values()].sort((a, b) => a.label.localeCompare(b.label)),
       statuses: [...statuses].sort(),
       oems: [...oems].sort(),
       industries: [...industries].sort(),
+      reps,
     };
   }, [campaigns, accountNames, accountMeta, accessibleAccountKeys]);
 
@@ -721,13 +726,9 @@ function AccountCampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [apiError, setApiError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<PageTab>('analytics');
   const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
-  const [previewCampaign, setPreviewCampaign] = useState<Campaign | null>(null);
-  const [previewHtml, setPreviewHtml] = useState('');
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -797,18 +798,34 @@ function AccountCampaignsPage() {
     return result;
   }, [visibleCampaigns, bounds]);
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return dateFiltered;
-    const q = search.toLowerCase();
-    return dateFiltered.filter((c) => c.name.toLowerCase().includes(q));
-  }, [dateFiltered, search]);
+  const accountNotIntegrated = useMemo(() => {
+    const message = (apiError || '').toLowerCase();
+    const disconnectedConnection = accountData?.activeConnection?.connected === false;
+    const missingConnectionMetadata =
+      Boolean(accountData) &&
+      !accountData?.activeConnection?.connected &&
+      !accountData?.activeConnection?.provider &&
+      !accountData?.activeEspProvider &&
+      !accountData?.espProvider;
+    return (
+      message.includes('esp not connected') ||
+      message.includes('not connected for this account') ||
+      message.includes('not integrated') ||
+      disconnectedConnection ||
+      missingConnectionMetadata
+    );
+  }, [accountData, apiError]);
 
   const accountEmptyTitle =
-    visibleCampaigns.length === 0
+    accountNotIntegrated
+      ? 'Account not integrated'
+      : visibleCampaigns.length === 0
       ? 'No scheduled or sent campaigns yet'
       : 'No campaigns match this date range';
   const accountEmptySubtitle =
-    visibleCampaigns.length === 0
+    accountNotIntegrated
+      ? 'Connect your ESP integration to view reporting.'
+      : visibleCampaigns.length === 0
       ? 'Scheduled and sent campaigns will appear here.'
       : 'Try expanding the selected date range.';
 
@@ -819,6 +836,46 @@ function AccountCampaignsPage() {
   const accountCampaignLinks = getCampaignCreateLinks(
     accountProvider,
     accountLocationId,
+  );
+  const accountNames = useMemo(
+    () => (accountKey ? { [accountKey]: dealerName } : {}),
+    [accountKey, dealerName],
+  );
+  const accountMeta = useMemo<Record<string, AccountMeta>>(() => {
+    if (!accountKey) return {};
+    const accountOems = getAccountOems(accountData);
+    return {
+      [accountKey]: {
+        dealer: dealerName,
+        category: accountData?.category,
+        oem: accountOems[0],
+        oems: accountOems,
+        state: accountData?.state,
+        city: accountData?.city,
+        storefrontImage: accountData?.storefrontImage,
+        logos: accountData?.logos,
+        locationId: accountLocationId || undefined,
+      },
+    };
+  }, [accountData, accountKey, accountLocationId, dealerName]);
+  const accountProviders = useMemo(
+    () => (accountKey && accountProvider ? { [accountKey]: accountProvider } : {}),
+    [accountKey, accountProvider],
+  );
+  const accountListEmptyState = useMemo(
+    () => ({
+      title: accountEmptyTitle,
+      subtitle: accountEmptySubtitle,
+      actionLabel: accountNotIntegrated
+        ? 'Open Integrations'
+        : accountCampaignLinks.email
+          ? `Create in ${accountProviderLabel}`
+          : undefined,
+      actionHref: accountNotIntegrated
+        ? '/settings/integrations'
+        : accountCampaignLinks.email || undefined,
+    }),
+    [accountCampaignLinks.email, accountEmptySubtitle, accountEmptyTitle, accountNotIntegrated, accountProviderLabel],
   );
 
   function openAccountCreateCampaignInProvider(target: keyof CampaignCreateLinks) {
@@ -838,298 +895,157 @@ function AccountCampaignsPage() {
     window.open(href, '_blank', 'noopener,noreferrer');
   }
 
-  async function openAccountPreview(campaign: Campaign) {
-    setPreviewCampaign(campaign);
-    setPreviewHtml('');
-    setPreviewError(null);
-    setPreviewLoading(true);
-
-    try {
-      const scheduleId = campaign.scheduleId || campaign.id;
-      if (!accountKey || !scheduleId) {
-        throw new Error('Preview is unavailable for this campaign.');
-      }
-
-      const res = await fetch(
-        `/api/esp/campaigns/preview?accountKey=${encodeURIComponent(accountKey)}&scheduleId=${encodeURIComponent(scheduleId)}`,
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(
-          typeof data.error === 'string'
-            ? data.error
-            : `Failed to fetch campaign preview (${res.status})`,
-        );
-      }
-
-      const html = typeof data.html === 'string' ? data.html : '';
-      if (!html.trim()) {
-        throw new Error('Preview HTML is unavailable for this campaign.');
-      }
-      setPreviewHtml(html);
-    } catch (err) {
-      setPreviewError(err instanceof Error ? err.message : 'Failed to load preview.');
-    } finally {
-      setPreviewLoading(false);
-    }
-  }
-
-
   return (
     <div>
-      {/* Sticky header */}
+      {/* Sticky header with title + centered tabs + controls */}
       <div className="page-sticky-header mb-8">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <PaperAirplaneIcon className="w-7 h-7 text-[var(--primary)]" />
             <div>
               <h2 className="text-2xl font-bold">Campaigns</h2>
               <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
                 Email + SMS/MMS campaigns for {dealerName}
+                {dateFiltered.length !== visibleCampaigns.length && (
+                  <span className="ml-1 tabular-nums">
+                    · {dateFiltered.length} / {visibleCampaigns.length}
+                  </span>
+                )}
               </p>
             </div>
           </div>
 
-          <div ref={createMenuRef} className="relative">
+          {/* Centered tab toggle */}
+          <div className="flex items-center rounded-xl border border-[var(--border)] bg-[var(--card)] p-1">
             <button
               type="button"
-              onClick={() => setShowCreateMenu((prev) => !prev)}
-              className="inline-flex items-center gap-2 h-10 px-4 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors"
+              onClick={() => setActiveTab('analytics')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === 'analytics'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
             >
-              <PlusIcon className="w-4 h-4" />
-              Create Campaign
-              <ChevronDownIcon className={`w-4 h-4 transition-transform ${showCreateMenu ? 'rotate-180' : ''}`} />
+              <AnalyticsTabIcon className="w-3.5 h-3.5" />
+              Analytics
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('list')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeTab === 'list'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <ListTabIcon className="w-3.5 h-3.5" />
+              Campaigns
+            </button>
+          </div>
 
-            {showCreateMenu && (
-              <div className="absolute top-full right-0 mt-2 z-[90] glass-dropdown min-w-[320px] p-1.5 shadow-lg">
-                <button
-                  type="button"
-                  onClick={() => openAccountCreateCampaignInProvider('email')}
-                  disabled={!accountCampaignLinks.email && accountProvider !== 'klaviyo'}
-                  className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span className="inline-flex items-center gap-2 font-medium">
-                    <EnvelopeIcon className="w-3.5 h-3.5" />
-                    Email Blast
-                  </span>
-                  <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                    {accountProvider === 'klaviyo'
-                      ? 'Build and schedule in Loomi.'
-                      : 'Send a one-time bulk email campaign.'}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openAccountCreateCampaignInProvider('text')}
-                  disabled={!accountCampaignLinks.text}
-                  className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span className="inline-flex items-center gap-2 font-medium">
-                    <DevicePhoneMobileIcon className="w-3.5 h-3.5" />
-                    Text Blast
-                  </span>
-                  <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                    Send a one-time bulk SMS/MMS message.
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openAccountCreateCampaignInProvider('drip')}
-                  disabled={!accountCampaignLinks.drip}
-                  className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span className="inline-flex items-center gap-2 font-medium">
-                    <FlowIcon className="w-3.5 h-3.5" />
-                    Drip Campaign
-                  </span>
-                  <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
-                    Build a multi-step automated workflow sequence.
-                  </span>
-                </button>
-              </div>
-            )}
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <DashboardToolbar
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+              customRange={customRange}
+              onCustomRangeChange={setCustomRange}
+            />
+
+            <div ref={createMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setShowCreateMenu((prev) => !prev)}
+                className="inline-flex items-center gap-2 h-10 px-4 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors"
+              >
+                <PlusIcon className="w-4 h-4" />
+                Create Campaign
+                <ChevronDownIcon className={`w-4 h-4 transition-transform ${showCreateMenu ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showCreateMenu && (
+                <div className="absolute top-full right-0 mt-2 z-[90] glass-dropdown min-w-[320px] p-1.5 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => openAccountCreateCampaignInProvider('email')}
+                    disabled={!accountCampaignLinks.email && accountProvider !== 'klaviyo'}
+                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="inline-flex items-center gap-2 font-medium">
+                      <EnvelopeIcon className="w-3.5 h-3.5" />
+                      Email Blast
+                    </span>
+                    <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
+                      {accountProvider === 'klaviyo'
+                        ? 'Build and schedule in Loomi.'
+                        : 'Send a one-time bulk email campaign.'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openAccountCreateCampaignInProvider('text')}
+                    disabled={!accountCampaignLinks.text}
+                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="inline-flex items-center gap-2 font-medium">
+                      <DevicePhoneMobileIcon className="w-3.5 h-3.5" />
+                      Text Blast
+                    </span>
+                    <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
+                      Send a one-time bulk SMS/MMS message.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openAccountCreateCampaignInProvider('drip')}
+                    disabled={!accountCampaignLinks.drip}
+                    className="w-full text-left px-3 py-2.5 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="inline-flex items-center gap-2 font-medium">
+                      <FlowIcon className="w-3.5 h-3.5" />
+                      Drip Campaign
+                    </span>
+                    <span className="block text-[10px] text-[var(--muted-foreground)] mt-1">
+                      Build a multi-step automated workflow sequence.
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="w-full max-w-[1250px]">
-        {/* Analytics */}
-        <div className="space-y-6">
-          {apiError && (
-            <div className="px-4 py-3 rounded-xl border border-red-500/20 bg-red-500/10 text-sm text-red-300">
-              {apiError}
-            </div>
-          )}
+      <div className="min-w-0">
+        {apiError && !accountNotIntegrated && (
+          <div className="px-4 py-3 mb-4 rounded-xl border border-red-500/20 bg-red-500/10 text-sm text-red-300">
+            {apiError}
+          </div>
+        )}
 
+        {activeTab === 'analytics' && (
           <CampaignPageAnalytics
             campaigns={dateFiltered}
             loading={loading}
             showAccountBreakdown={false}
-            accountNames={{}}
+            accountNames={accountNames}
             emptyTitle={accountEmptyTitle}
             emptySubtitle={accountEmptySubtitle}
             dateRange={dateRange}
             customRange={customRange}
           />
+        )}
 
-          {/* Search + List */}
-          <div>
-            <div className="mb-4 flex items-center gap-3 flex-wrap">
-              <DashboardToolbar
-                dateRange={dateRange}
-                onDateRangeChange={setDateRange}
-                customRange={customRange}
-                onCustomRangeChange={setCustomRange}
-              />
-              {dateFiltered.length > 5 && (
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search campaigns..."
-                  className="w-full max-w-xs text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
-                />
-              )}
-            </div>
-
-            {loading ? (
-              <div className="text-[var(--muted-foreground)] text-sm py-8 text-center">Loading campaigns...</div>
-            ) : filtered.length === 0 ? (
-              <div className="text-center py-12 border border-dashed border-[var(--border)] rounded-xl">
-                <PaperAirplaneIcon className="w-8 h-8 mx-auto mb-3 text-[var(--muted-foreground)]" />
-                <p className="text-[var(--muted-foreground)] text-sm">
-                  {search ? 'No campaigns match your search.' : 'No campaigns found for this sub-account.'}
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y divide-[var(--border)]">
-                {filtered.map((c) => {
-                  const normalizedStatus = normalizeCampaignStatus(c.status);
-                  const engagementSummary = formatInlineEngagement(c);
-                  const showNoEngagementHint = normalizedStatus === 'sent' && !engagementSummary;
-                  const isScheduled = normalizedStatus === 'scheduled';
-
-                  return (
-                    <div
-                      key={c.id}
-                      className="flex items-center justify-between p-3 glass-card"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm truncate">{c.name}</p>
-                        <p className="text-[11px] text-[var(--muted-foreground)] mt-1">
-                          Updated: {getCampaignLastUpdatedDate(c)}
-                        </p>
-                        {(engagementSummary || showNoEngagementHint) && (
-                          <p className="text-[10px] text-[var(--muted-foreground)] mt-1 truncate">
-                            {engagementSummary || 'No engagement data yet'}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                          isScheduled
-                            ? 'bg-blue-500/10 text-blue-500'
-                            : 'bg-green-500/10 text-green-500'
-                        }`}>
-                          {isScheduled ? 'Scheduled' : 'Sent'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => openAccountPreview(c)}
-                          disabled={!accountKey || !(c.scheduleId || c.id)}
-                          className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[var(--border)] text-[var(--primary)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                          aria-label="Preview campaign email"
-                          title="Preview campaign email"
-                        >
-                          <EyeIcon className="w-4 h-4" />
-                        </button>
-                        {(() => {
-                          if (normalizedStatus !== 'sent') return null;
-                          const statsUrl = getCampaignStatsUrl({
-                            provider: c.provider || accountProvider,
-                            locationId: c.locationId || accountLocationId,
-                            scheduleId: c.scheduleId || c.id,
-                            bulkRequestId: c.bulkRequestId || null,
-                          });
-                          if (!statsUrl) return null;
-                          return (
-                            <a
-                              href={statsUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[var(--border)] text-[var(--primary)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors"
-                              aria-label="View analytics"
-                              title="View analytics"
-                            >
-                              <ChartBarIcon className="w-4 h-4" />
-                            </a>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {!loading && filtered.length > 0 && (
-              <p className="text-xs text-[var(--muted-foreground)] mt-3">
-                {filtered.length} campaign{filtered.length !== 1 ? 's' : ''}
-              </p>
-            )}
-          </div>
-        </div>
+        {activeTab === 'list' && (
+          <CampaignPageList
+            campaigns={dateFiltered}
+            loading={loading}
+            accountNames={accountNames}
+            accountMeta={accountMeta}
+            accountProviders={accountProviders}
+            emptyState={accountListEmptyState}
+          />
+        )}
       </div>
-
-      {previewCampaign && (
-        <div
-          className="fixed inset-0 z-[130] bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4"
-          onClick={() => setPreviewCampaign(null)}
-        >
-          <div
-            className="glass-modal w-[1120px] max-w-[96vw] h-[86vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-[var(--border)]">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold truncate">Email Preview</h3>
-                <p className="text-xs text-[var(--muted-foreground)] truncate mt-0.5">
-                  {previewCampaign.name || 'Untitled campaign'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreviewCampaign(null)}
-                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] transition-colors"
-                aria-label="Close preview"
-              >
-                <XMarkIcon className="w-4.5 h-4.5" />
-              </button>
-            </div>
-
-            <div className="flex-1 p-3 overflow-hidden">
-              {previewLoading ? (
-                <div className="h-full rounded-xl border border-[var(--border)] flex items-center justify-center text-sm text-[var(--muted-foreground)]">
-                  Loading preview...
-                </div>
-              ) : previewError ? (
-                <div className="h-full rounded-xl border border-red-500/20 bg-red-500/10 flex items-center justify-center text-sm text-red-300 px-4 text-center">
-                  {previewError}
-                </div>
-              ) : (
-                <iframe
-                  title="Campaign email preview"
-                  srcDoc={previewHtml}
-                  sandbox="allow-same-origin"
-                  className="w-full h-full rounded-xl border border-[var(--border)] bg-white"
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

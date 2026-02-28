@@ -206,8 +206,8 @@ export function ContactAnalytics({ contacts, totalCount, loading, dateRange, cus
           icon={UserGroupIcon}
           value={totalCount.toLocaleString()}
           label="Total Contacts"
-          color="text-blue-400"
-          bgColor="bg-blue-500/10"
+          color="text-violet-400"
+          bgColor="bg-violet-500/10"
           delay={0}
           animated={animated}
         />

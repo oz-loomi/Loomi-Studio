@@ -21,11 +21,18 @@ export interface AccountFilterOption {
   state?: string;
 }
 
+export interface RepFilterOption {
+  id: string;
+  label: string;
+  accountCount: number;
+}
+
 export interface CampaignFilterState {
   account: string[];
   status: string[];
   oem: string[];
   industry: string[];
+  rep: string[];
 }
 
 export interface CampaignFilterOptions {
@@ -33,6 +40,7 @@ export interface CampaignFilterOptions {
   statuses: string[];
   oems: string[];
   industries: string[];
+  reps: RepFilterOption[];
 }
 
 interface CampaignToolbarProps {
@@ -107,7 +115,7 @@ export function CampaignToolbar({
     return () => document.removeEventListener('keydown', handler);
   }, [openPanel]);
 
-  const activeCount = [filters.account, filters.status, filters.industry]
+  const activeCount = [filters.account, filters.status, filters.industry, filters.rep]
     .filter(values => values.length > 0)
     .length;
 
@@ -124,7 +132,7 @@ export function CampaignToolbar({
   }
 
   function clearAll() {
-    onFiltersChange({ account: [], status: [], oem: [], industry: [] });
+    onFiltersChange({ account: [], status: [], oem: [], industry: [], rep: [] });
     setOpenPanel(null);
   }
 
