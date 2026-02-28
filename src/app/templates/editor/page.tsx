@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowLeftIcon,
@@ -897,6 +898,45 @@ function BorderRadiusField({
   );
 }
 
+// ── Color picker HSV helpers ──
+
+function hexToHsv(hex: string): { h: number; s: number; v: number } {
+  const c = hex.replace("#", "");
+  const r = parseInt(c.substring(0, 2), 16) / 255;
+  const g = parseInt(c.substring(2, 4), 16) / 255;
+  const b = parseInt(c.substring(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d + 6) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  const s = max === 0 ? 0 : d / max;
+  return { h, s, v: max };
+}
+
+function hsvToHex(h: number, s: number, v: number): string {
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+  const toHex = (n: number) => Math.round((n + m) * 255).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function isValidHex(hex: string): boolean {
+  return /^#[0-9a-fA-F]{6}$/.test(hex);
+}
+
 // Render a single form field
 const VARIABLE_ELIGIBLE_TYPES = new Set(["text", "textarea", "url", "image"]);
 
@@ -955,59 +995,259 @@ function PropField({
     );
   }
   if (prop.type === "color") {
+    const [colorOpen, setColorOpen] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+    const svPanelRef = useRef<HTMLDivElement>(null);
+    const huePanelRef = useRef<HTMLDivElement>(null);
     const swatches = brandColors?.filter((c) => c.value) || [];
+    const displayColor = value || placeholderText || "#000000";
+    const [dropdownPos, setDropdownPos] = useState<CSSProperties>({});
+    const draggingRef = useRef<"sv" | "hue" | null>(null);
+
+    // Internal HSV state — synced from value on open
+    const parsed = isValidHex(displayColor) ? hexToHsv(displayColor) : { h: 0, s: 0, v: 1 };
+    const [hue, setHue] = useState(parsed.h);
+    const [sat, setSat] = useState(parsed.s);
+    const [bright, setBright] = useState(parsed.v);
+    const hexFromHsv = hsvToHex(hue, sat, bright);
+
+    // Sync HSV when external value changes while closed
+    const prevValueRef = useRef(value);
+    useEffect(() => {
+      if (!colorOpen && value !== prevValueRef.current) {
+        prevValueRef.current = value;
+        if (value && isValidHex(value)) {
+          const p = hexToHsv(value);
+          setHue(p.h); setSat(p.s); setBright(p.v);
+        }
+      }
+    }, [value, colorOpen]);
+
+    useEffect(() => {
+      if (!colorOpen) return;
+      const handleClick = (e: MouseEvent) => {
+        if (
+          dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
+          triggerRef.current && !triggerRef.current.contains(e.target as Node)
+        ) setColorOpen(false);
+      };
+      const handleUp = () => { draggingRef.current = null; };
+      const handleMove = (e: MouseEvent) => {
+        if (draggingRef.current === "sv" && svPanelRef.current) {
+          const rect = svPanelRef.current.getBoundingClientRect();
+          const s = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          const v = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));
+          setSat(s); setBright(v);
+          const hex = hsvToHex(hue, s, v);
+          onChange(hex); onLiveStyle?.(hex);
+        } else if (draggingRef.current === "hue" && huePanelRef.current) {
+          const rect = huePanelRef.current.getBoundingClientRect();
+          const h = Math.max(0, Math.min(359, ((e.clientX - rect.left) / rect.width) * 360));
+          setHue(h);
+          const hex = hsvToHex(h, sat, bright);
+          onChange(hex); onLiveStyle?.(hex);
+        }
+      };
+      document.addEventListener("mousedown", handleClick);
+      document.addEventListener("mouseup", handleUp);
+      document.addEventListener("mousemove", handleMove);
+      return () => {
+        document.removeEventListener("mousedown", handleClick);
+        document.removeEventListener("mouseup", handleUp);
+        document.removeEventListener("mousemove", handleMove);
+      };
+    }, [colorOpen, hue, sat, bright, onChange, onLiveStyle]);
+
+    const openDropdown = () => {
+      if (colorOpen) { setColorOpen(false); return; }
+      // Sync HSV from current value on open
+      if (value && isValidHex(value)) {
+        const p = hexToHsv(value);
+        setHue(p.h); setSat(p.s); setBright(p.v);
+      }
+      if (triggerRef.current) {
+        const rect = triggerRef.current.getBoundingClientRect();
+        setDropdownPos({ position: "fixed", top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 240), zIndex: 9999 });
+      }
+      setColorOpen(true);
+    };
+
+    const applyColor = (c: string) => { onChange(c); onLiveStyle?.(c); };
+
+    const handleSvDown = (e: React.MouseEvent) => {
+      draggingRef.current = "sv";
+      if (!svPanelRef.current) return;
+      const rect = svPanelRef.current.getBoundingClientRect();
+      const s = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const v = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));
+      setSat(s); setBright(v);
+      const hex = hsvToHex(hue, s, v);
+      onChange(hex); onLiveStyle?.(hex);
+    };
+
+    const handleHueDown = (e: React.MouseEvent) => {
+      draggingRef.current = "hue";
+      if (!huePanelRef.current) return;
+      const rect = huePanelRef.current.getBoundingClientRect();
+      const h = Math.max(0, Math.min(359, ((e.clientX - rect.left) / rect.width) * 360));
+      setHue(h);
+      const hex = hsvToHex(h, sat, bright);
+      onChange(hex); onLiveStyle?.(hex);
+    };
+
+    const hueColor = hsvToHex(hue, 1, 1);
+
     return (
-      <div className="flex items-center gap-1.5">
-        {swatches.length > 0 && (
-          <div className="flex items-center gap-0.5">
-            {swatches.map((c) => (
-              <button
-                key={c.label}
-                type="button"
-                onClick={() => { onChange(c.value); onLiveStyle?.(c.value); }}
-                title={`${c.label} (${c.value})`}
-                className={`w-5 h-5 rounded-full border-2 flex-shrink-0 transition-all hover:scale-110 ${value?.toLowerCase() === c.value.toLowerCase() ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-[var(--border)]"}`}
-                style={{ backgroundColor: c.value }}
+      <div className="w-full">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={openDropdown}
+          className="w-full flex items-center gap-2 bg-[var(--input)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-sm text-left hover:border-[var(--primary)] transition-colors"
+        >
+          <div className="w-6 h-6 rounded-md border border-[var(--border)] flex-shrink-0" style={{ backgroundColor: displayColor }} />
+          <span className="font-mono text-xs text-[var(--foreground)] truncate">{value || placeholderText || "#000000"}</span>
+        </button>
+
+        {colorOpen && createPortal(
+          <div ref={dropdownRef} style={dropdownPos} className="border border-[var(--border)] rounded-xl shadow-2xl backdrop-blur-2xl bg-[var(--popover)]/95 p-3 space-y-3">
+            {/* Brand palette */}
+            {swatches.length > 0 && (
+              <div>
+                <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)] mb-2 block">Brand Colors</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {swatches.map((c) => {
+                    const isActive = value?.toLowerCase() === c.value.toLowerCase();
+                    return (
+                      <button
+                        key={c.label}
+                        type="button"
+                        onClick={() => {
+                          applyColor(c.value);
+                          if (isValidHex(c.value)) { const p = hexToHsv(c.value); setHue(p.h); setSat(p.s); setBright(p.v); }
+                        }}
+                        title={`${c.label} (${c.value})`}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[10px] font-medium transition-all ${
+                          isActive
+                            ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
+                            : "border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)] hover:border-[var(--primary)]/50 hover:text-[var(--foreground)]"
+                        }`}
+                      >
+                        <span className="w-3.5 h-3.5 rounded-full border border-black/10 flex-shrink-0" style={{ backgroundColor: c.value }} />
+                        <span className="whitespace-nowrap">{c.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* SV panel */}
+            <div
+              ref={svPanelRef}
+              className="relative w-full h-[140px] rounded-lg cursor-crosshair overflow-hidden border border-[var(--border)]"
+              style={{ backgroundColor: hueColor }}
+              onMouseDown={handleSvDown}
+            >
+              <div className="absolute inset-0" style={{ background: "linear-gradient(to right, #ffffff, transparent)" }} />
+              <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom, transparent, #000000)" }} />
+              <div
+                className="absolute w-3.5 h-3.5 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.3)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+                style={{ left: `${sat * 100}%`, top: `${(1 - bright) * 100}%` }}
               />
-            ))}
-          </div>
+            </div>
+
+            {/* Hue slider */}
+            <div
+              ref={huePanelRef}
+              className="relative w-full h-3.5 rounded-full cursor-pointer border border-[var(--border)]"
+              style={{ background: "linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)" }}
+              onMouseDown={handleHueDown}
+            >
+              <div
+                className="absolute w-4 h-4 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.3)] -translate-x-1/2 -translate-y-1/2 pointer-events-none top-1/2"
+                style={{ left: `${(hue / 360) * 100}%` }}
+              />
+            </div>
+
+            {/* Hex input + preview swatch + eyedropper */}
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg border border-[var(--border)] flex-shrink-0" style={{ backgroundColor: hexFromHsv }} />
+              <input
+                type="text"
+                value={value || ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  applyColor(v);
+                  if (isValidHex(v)) { const p = hexToHsv(v); setHue(p.h); setSat(p.s); setBright(p.v); }
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter") setColorOpen(false); }}
+                className="flex-1 bg-[var(--input)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:border-[var(--primary)] min-w-0"
+                placeholder={placeholderText || "#000000"}
+              />
+              {"EyeDropper" in window && (
+                <button
+                  type="button"
+                  title="Pick color from screen"
+                  className="flex-shrink-0 p-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)] transition-colors"
+                  onClick={async () => {
+                    try {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const dropper = new (window as any).EyeDropper();
+                      const result = await dropper.open();
+                      const hex = result.sRGBHex as string;
+                      applyColor(hex);
+                      if (isValidHex(hex)) { const p = hexToHsv(hex); setHue(p.h); setSat(p.s); setBright(p.v); }
+                    } catch { /* user cancelled */ }
+                  }}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2 22l1-1h3l9-9" />
+                    <path d="M3 21v-3l9-9" />
+                    <path d="M14.5 5.5 18 2l4 4-3.5 3.5" />
+                    <path d="M12 8l4 4" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>,
+          document.body,
         )}
-        <div className="w-[124px] flex items-center bg-[var(--input)] border border-[var(--border)] rounded-lg overflow-hidden">
-          <input
-            type="color"
-            value={value || placeholderText || "#000000"}
-            onInput={(e) => onLiveStyle?.((e.target as HTMLInputElement).value)}
-            onChange={(e) => onChange(e.target.value)}
-            className="w-8 h-8 cursor-pointer bg-transparent flex-shrink-0 border-none p-0.5"
-          />
-          <input
-            type="text"
-            value={value || ""}
-            onChange={(e) => onChange(e.target.value)}
-            className="w-[82px] bg-transparent border-none px-2 py-1.5 text-xs font-mono outline-none"
-            placeholder={placeholderText || "#000000"}
-          />
-        </div>
       </div>
     );
   }
   if (prop.type === "fontSelect") {
     const [fontOpen, setFontOpen] = useState(false);
-    const fontRef = useRef<HTMLDivElement>(null);
+    const fontTriggerRef = useRef<HTMLButtonElement>(null);
+    const fontDropdownRef = useRef<HTMLDivElement>(null);
+    const [fontPos, setFontPos] = useState<CSSProperties>({});
     const selectedFont = prop.options?.find((o) => o.value === value);
     useEffect(() => {
       if (!fontOpen) return;
       const handleClick = (e: MouseEvent) => {
-        if (fontRef.current && !fontRef.current.contains(e.target as Node)) setFontOpen(false);
+        if (
+          fontDropdownRef.current && !fontDropdownRef.current.contains(e.target as Node) &&
+          fontTriggerRef.current && !fontTriggerRef.current.contains(e.target as Node)
+        ) setFontOpen(false);
       };
       document.addEventListener("mousedown", handleClick);
       return () => document.removeEventListener("mousedown", handleClick);
     }, [fontOpen]);
+    const openFontDropdown = () => {
+      if (fontOpen) { setFontOpen(false); return; }
+      if (fontTriggerRef.current) {
+        const rect = fontTriggerRef.current.getBoundingClientRect();
+        setFontPos({ position: "fixed", top: rect.bottom + 4, left: rect.left, width: rect.width, zIndex: 9999 });
+      }
+      setFontOpen(true);
+    };
     return (
-      <div ref={fontRef} className="relative w-full">
+      <div className="w-full">
         <button
+          ref={fontTriggerRef}
           type="button"
-          onClick={() => setFontOpen(!fontOpen)}
+          onClick={openFontDropdown}
           className="w-full flex items-center justify-between bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm text-left hover:border-[var(--primary)] transition-colors"
         >
           <span
@@ -1018,8 +1258,8 @@ function PropField({
           </span>
           <ChevronDownIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0 ml-2" />
         </button>
-        {fontOpen && (
-          <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-[var(--border)] rounded-lg shadow-lg overflow-hidden max-h-[260px] overflow-y-auto backdrop-blur-xl bg-[var(--card)]/80">
+        {fontOpen && createPortal(
+          <div ref={fontDropdownRef} style={fontPos} className="border border-[var(--border)] rounded-lg shadow-xl overflow-hidden max-h-[260px] overflow-y-auto backdrop-blur-xl bg-[var(--card)]/90">
             <button
               type="button"
               onClick={() => { onChange(""); onLiveStyle?.(""); setFontOpen(false); }}
@@ -1038,7 +1278,8 @@ function PropField({
                 {opt.label}
               </button>
             ))}
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
     );
@@ -1486,43 +1727,18 @@ function BorderSideEditor({
             </div>
           </div>
 
-          <div className="w-full flex items-center justify-between gap-3">
-            <label className="text-[11px] text-[var(--muted-foreground)]">
+          <div className="w-full">
+            <label className="text-[11px] text-[var(--muted-foreground)] mb-1 block">
               Border Color
             </label>
-            <div className="flex items-center gap-1.5">
-              {brandColors && brandColors.filter((c) => c.value).length > 0 && (
-                <div className="flex items-center gap-0.5">
-                  {brandColors.filter((c) => c.value).map((c) => (
-                    <button
-                      key={c.label}
-                      type="button"
-                      onClick={() => { handleBorderColorChange(c.value); onLiveStyle?.(shorthandColor.key, c.value); }}
-                      title={`${c.label} (${c.value})`}
-                      className={`w-5 h-5 rounded-full border-2 flex-shrink-0 transition-all hover:scale-110 ${(values[shorthandColor.key] || "")?.toLowerCase() === c.value.toLowerCase() ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-[var(--border)]"}`}
-                      style={{ backgroundColor: c.value }}
-                    />
-                  ))}
-                </div>
-              )}
-              <div className="w-[124px] flex items-center bg-[var(--input)] border border-[var(--border)] rounded-lg overflow-hidden">
-                <input
-                  type="color"
-                  value={values[shorthandColor.key] || shorthandColor.default || "#000000"}
-                  onInput={(e) =>
-                    onLiveStyle?.(shorthandColor.key, (e.target as HTMLInputElement).value)
-                  }
-                  onChange={(e) => handleBorderColorChange(e.target.value)}
-                  className="w-8 h-8 cursor-pointer bg-transparent flex-shrink-0 border-none p-0.5"
-                />
-                <input
-                  type="text"
-                  value={values[shorthandColor.key] || ""}
-                  onChange={(e) => handleBorderColorChange(e.target.value)}
-                  className="w-[82px] bg-transparent border-none px-2 py-1.5 text-xs font-mono outline-none"
-                  placeholder={shorthandColor.default || "#000000"}
-                />
-              </div>
+            <div>
+              <PropField
+                prop={{ key: shorthandColor.key, label: "Border Color", type: "color" }}
+                value={values[shorthandColor.key] || ""}
+                onChange={(v) => { handleBorderColorChange(v); }}
+                onLiveStyle={(v) => onLiveStyle?.(shorthandColor.key, v)}
+                brandColors={brandColors}
+              />
             </div>
           </div>
         </>
@@ -2111,6 +2327,7 @@ function ComponentPropsRenderer({
   onInsertVariable,
   previewWidth,
   brandColors,
+  accountLogos,
 }: {
   schema: { name?: string; repeatableGroups?: RepeatableGroup[] };
   props: Record<string, string>;
@@ -2135,6 +2352,7 @@ function ComponentPropsRenderer({
   onInsertVariable?: (propKey: string, token: string) => void;
   previewWidth: 'desktop' | 'mobile';
   brandColors?: { label: string; value: string }[];
+  accountLogos?: { light: string; dark: string; white?: string; black?: string };
 }) {
   const groups = schema.repeatableGroups || [];
 
@@ -2441,6 +2659,81 @@ function ComponentPropsRenderer({
                 }
                 brandColors={brandColors}
               />
+            </div>
+          </div>,
+        );
+        i += 1;
+      } else if (
+        prop.key === "logo-url" &&
+        (schema.name === "header" || schema.name === "footer") &&
+        accountLogos
+      ) {
+        // Custom logo picker: variant buttons + media library
+        const logoVariants: { key: keyof NonNullable<typeof accountLogos>; label: string }[] = [
+          { key: "light", label: "Light" },
+          { key: "dark", label: "Dark" },
+          { key: "white", label: "White" },
+          { key: "black", label: "Black" },
+        ];
+        const available = logoVariants.filter((v) => accountLogos[v.key]);
+        const currentVal = r.value;
+        elements.push(
+          <div key={prop.key}>
+            <label className="text-[11px] text-[var(--muted-foreground)] mb-1 flex items-center">
+              Logo
+              <RespIndicator isResp={r.isResp} hasMobileOverride={r.hasMobileOverride} />
+              <ClearMobile propKey={prop.key} isResp={r.isResp} />
+            </label>
+            {available.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {available.map((v) => {
+                  const url = accountLogos[v.key]!;
+                  const isActive = currentVal === url;
+                  return (
+                    <button
+                      key={v.key}
+                      type="button"
+                      onClick={() => onPropChange(r.effectiveKey, url)}
+                      className={`group relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-all ${
+                        isActive
+                          ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
+                          : "border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)] hover:border-[var(--primary)]/50 hover:text-[var(--foreground)]"
+                      }`}
+                      title={url}
+                    >
+                      <img
+                        src={url}
+                        alt={v.label}
+                        className="h-4 w-auto max-w-[48px] object-contain"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                      <span>{v.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={currentVal}
+                onChange={(e) => onPropChange(r.effectiveKey, e.target.value)}
+                className="flex-1 min-w-0 bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
+                placeholder="Logo URL..."
+              />
+              {onInsertVariable && (
+                <VariablePickerButton onInsert={(token: string) => onInsertVariable(r.effectiveKey, token)} />
+              )}
+              {onBrowseMedia && (
+                <button
+                  type="button"
+                  onClick={() => onBrowseMedia(prop.key)}
+                  className="flex-shrink-0 p-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)] transition-colors"
+                  title="Browse media library"
+                >
+                  <PhotoIcon className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>,
         );
@@ -3283,13 +3576,24 @@ export default function TemplateEditorPage() {
   const libraryTemplateSlug = searchParams.get("libraryTemplate") || "";
   const { isAdmin, isAccount, accountKey, accountData, accounts } = useAccount();
   const { markClean, markDirty } = useUnsavedChanges();
-  const effectiveAccountKey = accountKeyParam || accountKey;
+  // Track account key from loaded ESP template (may not be in URL)
+  const [espAccountKey, setEspAccountKey] = useState("");
+  const effectiveAccountKey = accountKeyParam || espAccountKey || accountKey;
   const effectiveAccountData = useMemo(
     () => (effectiveAccountKey ? accounts[effectiveAccountKey] || null : accountData),
     [effectiveAccountKey, accounts, accountData],
   );
+  // Parse branding safely — may arrive as a JSON string from the API
+  const parsedBranding = useMemo(() => {
+    const raw = effectiveAccountData?.branding;
+    if (!raw) return undefined;
+    if (typeof raw === "string") {
+      try { return JSON.parse(raw) as NonNullable<typeof effectiveAccountData>["branding"]; } catch { return undefined; }
+    }
+    return raw;
+  }, [effectiveAccountData?.branding]);
   const brandColors = useMemo(() => {
-    const colors = effectiveAccountData?.branding?.colors;
+    const colors = parsedBranding?.colors;
     if (!colors) return undefined;
     const entries: { label: string; value: string }[] = [];
     if (colors.primary) entries.push({ label: "Primary", value: colors.primary });
@@ -3298,7 +3602,16 @@ export default function TemplateEditorPage() {
     if (colors.background) entries.push({ label: "Background", value: colors.background });
     if (colors.text) entries.push({ label: "Text", value: colors.text });
     return entries.length > 0 ? entries : undefined;
-  }, [effectiveAccountData?.branding?.colors]);
+  }, [parsedBranding?.colors]);
+  // Parse logos safely — may also be a JSON string
+  const accountLogos = useMemo(() => {
+    const raw = effectiveAccountData?.logos;
+    if (!raw) return undefined;
+    if (typeof raw === "string") {
+      try { return JSON.parse(raw) as NonNullable<typeof effectiveAccountData>["logos"]; } catch { return undefined; }
+    }
+    return raw;
+  }, [effectiveAccountData?.logos]);
   const mediaPickerAccountKey = effectiveAccountKey || undefined;
   const canBrowseMedia = Boolean(mediaPickerAccountKey || isAdmin);
   const builderMode = searchParams.get("builder");
@@ -3638,6 +3951,7 @@ export default function TemplateEditorPage() {
         .then(async (data) => {
           if (data.error) { console.error(data.error); return; }
           const t = data.template;
+          if (t.accountKey) setEspAccountKey(t.accountKey);
           setEspSubject(t.subject || "");
           setEspPreviewText(t.previewText || "");
 
@@ -3685,7 +3999,7 @@ export default function TemplateEditorPage() {
       if (modeParam === "code") setEditorMode("code");
       // Apply branding font to all components in a parsed template
       const applyBrandingFont = (p: ParsedTemplate): ParsedTemplate => {
-        const brandFont = effectiveAccountData?.branding?.fonts?.body;
+        const brandFont = parsedBranding?.fonts?.body;
         if (!brandFont || !p.components.length) return p;
         // Only apply if no component already has an explicit font set
         const hasExplicitFont = p.components.some((c) => c.props.font);
@@ -6108,6 +6422,7 @@ export default function TemplateEditorPage() {
                                       updateComponentProp(index, propKey, (comp.props[propKey] || '') + token)
                                     }
                                     brandColors={brandColors}
+                                    accountLogos={accountLogos}
                                   />
                                 ) : (
                                   rawProps &&
