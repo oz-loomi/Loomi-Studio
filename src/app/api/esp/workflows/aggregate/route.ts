@@ -33,6 +33,9 @@ export async function GET() {
     const perAccount: Record<string, { dealer: string; count: number; connected: boolean; provider: string }> = {};
     const errors: Record<string, string> = {};
 
+    let skippedNoAdapter = 0;
+    let skippedNoCredentials = 0;
+
     const tasks = allowedKeys.map((accountKey) => async () => {
       const account = accounts[accountKey];
       const dealer = account?.dealer || accountKey;
@@ -40,12 +43,15 @@ export async function GET() {
       try {
         const adapter = await getAdapterForAccount(accountKey);
         if (!adapter.campaigns || !adapter.contacts) {
+          skippedNoAdapter++;
           perAccount[accountKey] = { dealer, count: 0, connected: false, provider: adapter.provider };
           return;
         }
 
         const credentials = await adapter.contacts.resolveCredentials(accountKey);
         if (!credentials) {
+          skippedNoCredentials++;
+          console.warn(`[workflows/aggregate] No credentials for "${accountKey}" (${adapter.provider}) — skipping`);
           perAccount[accountKey] = { dealer, count: 0, connected: false, provider: adapter.provider };
           return;
         }
@@ -67,11 +73,25 @@ export async function GET() {
 
     await withConcurrencyLimit(tasks, 5);
 
+    const errorCount = Object.keys(errors).length;
+    if (skippedNoCredentials > 0 || errorCount > 0) {
+      console.warn(
+        `[workflows/aggregate] Fetched ${allWorkflows.length} workflows from ${Object.keys(perAccount).length} accounts`
+        + ` (skipped: ${skippedNoAdapter} no adapter, ${skippedNoCredentials} no credentials, ${errorCount} errors)`
+      );
+    }
+
     return NextResponse.json({
       workflows: allWorkflows,
       perAccount,
       errors,
-      meta: { totalWorkflows: allWorkflows.length, accountsFetched: Object.keys(perAccount).length },
+      meta: {
+        totalWorkflows: allWorkflows.length,
+        accountsFetched: Object.keys(perAccount).length,
+        skippedNoAdapter,
+        skippedNoCredentials,
+        errorCount,
+      },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to fetch aggregate workflows';

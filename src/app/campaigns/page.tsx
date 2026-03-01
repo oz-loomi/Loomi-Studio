@@ -185,6 +185,10 @@ function AdminCampaignsPage() {
       const firstError = Object.values(aggData.errors)[0];
       return withCampaignErrorHint(`Some accounts returned campaign API errors. ${firstError}`);
     }
+    const skippedCreds = (aggData?.meta as Record<string, unknown>)?.skippedNoCredentials;
+    if (typeof skippedCreds === 'number' && skippedCreds > 0) {
+      return `${skippedCreds} sub-account${skippedCreds === 1 ? '' : 's'} skipped — no ESP credentials found. Check that each sub-account has a linked location in its Integration settings.`;
+    }
     return null;
   }, [localError, aggError, aggData]);
 

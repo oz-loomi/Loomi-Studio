@@ -54,6 +54,9 @@ export async function GET(req: NextRequest) {
     const perAccount: Record<string, { dealer: string; count: number; connected: boolean; provider: string }> = {};
     const errors: Record<string, string> = {};
 
+    let skippedNoAdapter = 0;
+    let skippedNoCredentials = 0;
+
     const tasks = selectedKeys.map((accountKey) => async () => {
       const account = accountMap.get(accountKey);
       const dealer = account?.dealer || accountKey;
@@ -61,12 +64,15 @@ export async function GET(req: NextRequest) {
       try {
         const adapter = await getAdapterForAccount(accountKey);
         if (!adapter.contacts) {
+          skippedNoAdapter++;
           perAccount[accountKey] = { dealer, count: 0, connected: false, provider: adapter.provider };
           return;
         }
 
         const credentials = await adapter.contacts.resolveCredentials(accountKey);
         if (!credentials) {
+          skippedNoCredentials++;
+          console.warn(`[contacts/aggregate] No credentials for "${accountKey}" (${adapter.provider}) — skipping`);
           perAccount[accountKey] = { dealer, count: 0, connected: false, provider: adapter.provider };
           return;
         }
@@ -97,6 +103,14 @@ export async function GET(req: NextRequest) {
 
     await withConcurrencyLimit(tasks, 5);
 
+    const errorCount = Object.keys(errors).length;
+    if (skippedNoCredentials > 0 || errorCount > 0) {
+      console.warn(
+        `[contacts/aggregate] Fetched ${allContacts.length} contacts from ${Object.keys(perAccount).length} accounts`
+        + ` (skipped: ${skippedNoAdapter} no adapter, ${skippedNoCredentials} no credentials, ${errorCount} errors)`
+      );
+    }
+
     return NextResponse.json({
       contacts: allContacts,
       perAccount,
@@ -108,6 +122,9 @@ export async function GET(req: NextRequest) {
         sampledContacts: allContacts.length,
         sampled: true,
         limitPerAccount,
+        skippedNoAdapter,
+        skippedNoCredentials,
+        errorCount,
       },
     });
   } catch (err) {
