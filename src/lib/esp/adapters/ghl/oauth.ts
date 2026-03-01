@@ -125,6 +125,8 @@ export const REQUIRED_SCOPES = [
   'locations.readonly',
   'locations/customValues.readonly',
   'locations/customValues.write',
+  'locations/customFields.readonly',
+  'locations/customFields.write',
   'contacts.readonly',
   'contacts.write',
   'conversations.readonly',
