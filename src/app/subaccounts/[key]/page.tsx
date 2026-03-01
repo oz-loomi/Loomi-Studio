@@ -7,6 +7,7 @@ import {
   ArrowLeftIcon,
   ArrowPathIcon,
   CheckCircleIcon,
+  ChevronDownIcon,
   LinkIcon,
   PencilSquareIcon,
   XMarkIcon,
@@ -174,6 +175,7 @@ export default function AccountDetailPage() {
 
   // Integration detail modals
   const [integrationModal, setIntegrationModal] = useState<string | null>(null);
+  const [showAdvancedDetails, setShowAdvancedDetails] = useState(false);
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>([]);
   const [genericProviderSecrets, setGenericProviderSecrets] = useState<Record<string, string>>({});
   const [genericProviderConnecting, setGenericProviderConnecting] = useState<Record<string, boolean>>({});
@@ -587,6 +589,10 @@ export default function AccountDetailPage() {
       cancelled = true;
     };
   }, [isGhlAgencyIntegrationModal, key]);
+
+  useEffect(() => {
+    setShowAdvancedDetails(false);
+  }, [integrationModal]);
 
   // ── Save ──
   function buildCustomValuesForSave(): Record<string, CustomValueDef> {
@@ -1531,6 +1537,7 @@ export default function AccountDetailPage() {
 
                       return (
                         <>
+                          {/* ── Logo Header ── */}
                           {providerTheme.logoSrc && (
                             <div className={`-mx-6 -mt-6 mb-2 flex items-center justify-center px-6 py-6 ${providerTheme.headerClassName || 'bg-[var(--muted)]'}`}>
                               <img
@@ -1541,6 +1548,7 @@ export default function AccountDetailPage() {
                             </div>
                           )}
 
+                          {/* ── Title + Description ── */}
                           <div>
                             <h3 className="text-lg font-semibold text-[var(--foreground)]">
                               {providerLabel}
@@ -1550,152 +1558,94 @@ export default function AccountDetailPage() {
                             </p>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className={labelClass}>Status</label>
-                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
-                                {connected ? 'Connected' : 'Not connected'}
+                          {/* ── Connection Status Banner ── */}
+                          {connected ? (
+                            <div className={`flex items-start gap-3 rounded-lg px-4 py-3 ${
+                              (isGhlAgencyMode && !ghlLocationLink?.locationId && !resolvedStatus.locationId)
+                                ? 'border border-amber-500/20 bg-amber-500/5'
+                                : 'border border-emerald-500/20 bg-emerald-500/5'
+                            }`}>
+                              <CheckCircleIcon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+                                (isGhlAgencyMode && !ghlLocationLink?.locationId && !resolvedStatus.locationId)
+                                  ? 'text-amber-400'
+                                  : 'text-emerald-400'
+                              }`} />
+                              <div className="min-w-0 flex-1">
+                                {(isGhlAgencyMode && !ghlLocationLink?.locationId && !resolvedStatus.locationId) ? (
+                                  <>
+                                    <p className="text-sm font-medium text-amber-400">Connected — no location linked</p>
+                                    <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                                      Link a GHL location below to enable features for this account.
+                                    </p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className="text-sm font-medium text-emerald-400">
+                                      Connected to {connectedAccountName || connectedAccountId || 'this provider'}
+                                    </p>
+                                    {connectedAccountId && (
+                                      <p className="text-[11px] font-mono text-[var(--muted-foreground)] mt-0.5 truncate">
+                                        {resolvedStatus.oauthConnected ? 'Location' : 'Account'}: {connectedAccountId}
+                                      </p>
+                                    )}
+                                    {resolvedStatus.installedAt && (
+                                      <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                                        Since {new Date(resolvedStatus.installedAt).toLocaleDateString()}
+                                      </p>
+                                    )}
+                                  </>
+                                )}
                               </div>
                             </div>
-                            <div>
-                              <label className={labelClass}>Auth Type</label>
-                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
-                                {provider.capabilities.auth}
-                              </div>
-                            </div>
-                            <div>
-                              <label className={labelClass}>Credential Validation</label>
-                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
-                                {provider.validationSupported ? 'Supported' : 'Not available'}
-                              </div>
-                            </div>
-                            <div>
-                              <label className={labelClass}>Details Refresh</label>
-                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
-                                {provider.businessDetailsRefreshSupported ? 'Supported' : 'Not available'}
-                              </div>
-                            </div>
-                            <div>
-                              <label className={labelClass}>Details Push Sync</label>
-                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
-                                {provider.businessDetailsSyncSupported ? 'Supported' : 'Not available'}
-                              </div>
-                            </div>
-                            <div>
-                              <label className={labelClass}>Webhook Families</label>
-                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
-                                {webhookEndpointEntries.length > 0
-                                  ? `${webhookEndpointEntries.length} enabled`
-                                  : 'Not available'}
-                              </div>
-                            </div>
-                          </div>
-
-                          {connected && resolvedStatus.installedAt && (
-                            <p className="text-xs text-[var(--muted-foreground)]">
-                              Connected since {new Date(resolvedStatus.installedAt).toLocaleDateString()}
-                            </p>
-                          )}
-
-                          {connected && connectedAccountName && (
-                            <div>
-                              <label className={labelClass}>Connected Account</label>
-                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)] truncate">
-                                {connectedAccountName}
-                              </div>
+                          ) : (
+                            <div className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/50 px-4 py-3">
+                              <div className="w-2 h-2 rounded-full bg-[var(--muted-foreground)]" />
+                              <p className="text-sm text-[var(--muted-foreground)]">Not connected</p>
                             </div>
                           )}
 
-                          {connected && connectedAccountId && (
-                            <div>
-                              <label className={labelClass}>
-                                {resolvedStatus.oauthConnected ? 'Location ID' : 'Account ID'}
-                              </label>
-                              <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)] font-mono truncate">
-                                {connectedAccountId}
-                              </div>
-                            </div>
-                          )}
-
-                          {resolvedStatus.scopes.length > 0 && (
-                            <div>
-                              <label className={labelClass}>Granted Scopes</label>
-                              <div className="flex flex-wrap gap-1">
-                                {resolvedStatus.scopes.map((scope) => (
-                                  <span key={scope} className="px-1.5 py-0.5 text-[9px] font-mono bg-[var(--muted)] text-[var(--muted-foreground)] rounded-full border border-[var(--border)]">
-                                    {scope}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
+                          {/* ── Re-auth Warning ── */}
                           {needsReauthorization && (
-                            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400">
-                              Missing required OAuth scopes for this provider.{' '}
-                              <a
-                                href={buildAuthorizeHref({
-                                  provider: providerId,
-                                  accountKey: key,
-                                  oauthMode: provider.oauthMode,
-                                })}
-                                className="underline font-medium hover:text-amber-300"
-                              >
-                                Re-authorize
-                              </a>
-                              {' '}to grant required scopes.
+                            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
+                              <ExclamationTriangleIcon className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                              <div>
+                                <p className="text-sm font-medium text-amber-400">Re-authorization needed</p>
+                                <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                                  This integration requires updated permissions.{' '}
+                                  <a
+                                    href={buildAuthorizeHref({
+                                      provider: providerId,
+                                      accountKey: key,
+                                      oauthMode: provider.oauthMode,
+                                    })}
+                                    className="underline font-medium text-amber-400 hover:text-amber-300"
+                                  >
+                                    Re-authorize now
+                                  </a>
+                                </p>
+                              </div>
                             </div>
                           )}
 
+                          {/* ── GHL Location Linking ── */}
                           {isGhlAgencyMode && (
-                            <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/40 p-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <div>
-                                  <p className="text-xs font-medium text-[var(--foreground)]">Agency OAuth</p>
-                                  <p className="text-[11px] text-[var(--muted-foreground)]">
-                                    Use one agency authorization, then link this account to a location.
-                                  </p>
-                                </div>
-                                <span className={`px-2 py-0.5 text-[10px] rounded-full border ${
-                                  agencyConnected
-                                    ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-                                    : 'text-[var(--muted-foreground)] border-[var(--border)] bg-[var(--card)]'
-                                }`}>
-                                  {ghlAgencyLoading
-                                    ? 'Checking...'
-                                    : agencyConnected
-                                      ? `Connected (${ghlAgencyStatus?.source || 'oauth'})`
-                                      : 'Not connected'}
-                                </span>
-                              </div>
-
-                              {ghlAgencyError && (
-                                <p className="text-[11px] text-amber-400">{ghlAgencyError}</p>
-                              )}
-
+                            <>
                               {!agencyConnected ? (
-                                <a
-                                  href={agencyConnectHref}
-                                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors"
-                                >
-                                  Connect Agency OAuth
-                                </a>
+                                <div className="space-y-3">
+                                  {ghlAgencyError && (
+                                    <p className="text-[11px] text-amber-400">{ghlAgencyError}</p>
+                                  )}
+                                  <a
+                                    href={agencyConnectHref}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors"
+                                  >
+                                    {ghlAgencyLoading ? 'Checking...' : 'Connect Agency OAuth'}
+                                  </a>
+                                </div>
                               ) : (
                                 <div className="space-y-3">
-                                  <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2">
-                                    <p className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wide">
-                                      Linked Location
-                                    </p>
-                                    <p className="text-xs text-[var(--foreground)] mt-1 truncate">
-                                      {ghlLocationLink?.locationName || resolvedStatus.locationName || 'Not linked yet'}
-                                    </p>
-                                    <p className="text-[11px] font-mono text-[var(--muted-foreground)] mt-1 truncate">
-                                      {ghlLocationLink?.locationId || resolvedStatus.locationId || '—'}
-                                    </p>
-                                  </div>
-
                                   <div>
-                                    <label className={labelClass}>Location ID</label>
+                                    <label className={labelClass}>Link to GHL Location</label>
                                     <input
                                       type="text"
                                       value={ghlSelectedLocationId}
@@ -1732,44 +1682,10 @@ export default function AccountDetailPage() {
                                   </div>
                                 </div>
                               )}
-                            </div>
+                            </>
                           )}
 
-                          <div>
-                            <label className={labelClass}>Enabled Capabilities</label>
-                            {enabledCapabilities.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {enabledCapabilities.map((capability) => (
-                                  <span key={capability} className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--muted)] text-[var(--muted-foreground)] rounded-full border border-[var(--border)] uppercase">
-                                    {capability}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-xs text-[var(--muted-foreground)]">No runtime capabilities reported.</p>
-                            )}
-                          </div>
-
-                          <div>
-                            <label className={labelClass}>Webhook Endpoints</label>
-                            {webhookEndpointEntries.length > 0 ? (
-                              <div className="space-y-2">
-                                {webhookEndpointEntries.map(([family, endpoint]) => (
-                                  <div key={`${family}:${endpoint}`} className="px-3 py-1.5 text-[11px] rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)] font-mono break-all">
-                                    <span className="block mb-1 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)] font-sans">
-                                      {family}
-                                    </span>
-                                    {endpoint}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-xs text-[var(--muted-foreground)]">
-                                No webhook endpoints are currently implemented for this provider.
-                              </p>
-                            )}
-                          </div>
-
+                          {/* ── Action Buttons ── */}
                           {connected ? (
                             <div className="flex items-center gap-2">
                               {canRefreshBusinessDetails && (
@@ -1837,13 +1753,99 @@ export default function AccountDetailPage() {
                                 </div>
                               )}
 
-                              {!provider.oauthSupported && !supportsDirectCredentials && (
+                              {!provider.oauthSupported && !supportsDirectCredentials && !isGhlAgencyMode && (
                                 <p className="text-xs text-[var(--muted-foreground)]">
                                   This provider does not expose a connection flow in Loomi yet.
                                 </p>
                               )}
                             </div>
                           )}
+
+                          {/* ── Collapsible Advanced Details ── */}
+                          <div className="border-t border-[var(--border)] pt-3">
+                            <button
+                              onClick={() => setShowAdvancedDetails(prev => !prev)}
+                              className="flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors w-full"
+                            >
+                              <ChevronDownIcon className={`w-3.5 h-3.5 transition-transform ${showAdvancedDetails ? 'rotate-0' : '-rotate-90'}`} />
+                              Advanced Details
+                            </button>
+
+                            {showAdvancedDetails && (
+                              <div className="mt-3 space-y-4">
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <label className={labelClass}>Auth Type</label>
+                                    <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                                      {provider.capabilities.auth}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className={labelClass}>Credential Validation</label>
+                                    <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                                      {provider.validationSupported ? 'Supported' : 'Not available'}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className={labelClass}>Details Refresh</label>
+                                    <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                                      {provider.businessDetailsRefreshSupported ? 'Supported' : 'Not available'}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className={labelClass}>Details Push Sync</label>
+                                    <div className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                                      {provider.businessDetailsSyncSupported ? 'Supported' : 'Not available'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {resolvedStatus.scopes.length > 0 && (
+                                  <div>
+                                    <label className={labelClass}>Granted Scopes</label>
+                                    <div className="flex flex-wrap gap-1">
+                                      {resolvedStatus.scopes.map((scope) => (
+                                        <span key={scope} className="px-1.5 py-0.5 text-[9px] font-mono bg-[var(--muted)] text-[var(--muted-foreground)] rounded-full border border-[var(--border)]">
+                                          {scope}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div>
+                                  <label className={labelClass}>Enabled Capabilities</label>
+                                  {enabledCapabilities.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1">
+                                      {enabledCapabilities.map((capability) => (
+                                        <span key={capability} className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--muted)] text-[var(--muted-foreground)] rounded-full border border-[var(--border)] uppercase">
+                                          {capability}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-[var(--muted-foreground)]">No runtime capabilities reported.</p>
+                                  )}
+                                </div>
+
+                                {webhookEndpointEntries.length > 0 && (
+                                  <div>
+                                    <label className={labelClass}>Webhook Endpoints</label>
+                                    <div className="space-y-2">
+                                      {webhookEndpointEntries.map(([family, endpoint]) => (
+                                        <div key={`${family}:${endpoint}`} className="px-3 py-1.5 text-[11px] rounded-lg border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)] font-mono break-all">
+                                          <span className="block mb-1 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)] font-sans">
+                                            {family}
+                                          </span>
+                                          {endpoint}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </>
                       );
                     })()}
