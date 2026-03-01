@@ -2965,6 +2965,8 @@ function PropField({
     default?: string;
     placeholder?: string;
     options?: { label: string; value: string }[];
+    min?: number;
+    max?: number;
   };
   value: string;
   onChange: (val: string) => void;
