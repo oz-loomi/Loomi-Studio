@@ -1100,28 +1100,6 @@ interface CustomValueDef {
   value: string;
 }
 
-function shouldUseAgencyAuthorize(
-  provider: string,
-  oauthMode: 'legacy' | 'hybrid' | 'agency' | undefined,
-): boolean {
-  return normalizeProviderId(provider) === 'ghl' && oauthMode === 'agency';
-}
-
-function buildAuthorizeHrefForAccount(input: {
-  provider: string;
-  accountKey: string;
-  oauthMode: 'legacy' | 'hybrid' | 'agency' | undefined;
-}): string {
-  const provider = normalizeProviderId(input.provider);
-  const params = new URLSearchParams({ provider });
-  if (shouldUseAgencyAuthorize(provider, input.oauthMode)) {
-    params.set('mode', 'agency');
-  } else {
-    params.set('accountKey', input.accountKey);
-  }
-  return `/api/esp/connections/authorize?${params.toString()}`;
-}
-
 interface AccountSyncStatus {
   key: string;
   dealer: string;
