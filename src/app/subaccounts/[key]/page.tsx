@@ -1614,12 +1614,13 @@ export default function AccountDetailPage() {
                             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
                               <ExclamationTriangleIcon className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
                               <div className="space-y-2">
-                                <p className="text-sm font-medium text-amber-400">Re-authorization needed</p>
+                                <p className="text-sm font-medium text-amber-400">Missing permissions</p>
                                 <p className="text-xs text-[var(--muted-foreground)]">
-                                  This integration is missing {missingScopes.length} required permission{missingScopes.length === 1 ? '' : 's'}.{' '}
                                   {isGhlAgencyMode
-                                    ? 'Try refreshing the agency token first, or re-authorize if that doesn\'t resolve it.'
-                                    : ''
+                                    ? `This integration is missing ${missingScopes.length} required scope${missingScopes.length === 1 ? '' : 's'}. `
+                                      + 'Make sure these scopes are enabled in your GHL marketplace app settings, then click "Refresh Agency Token" to update. '
+                                      + 'This fixes all sub-accounts at once.'
+                                    : `This integration is missing ${missingScopes.length} required permission${missingScopes.length === 1 ? '' : 's'}. Re-authorize to grant them.`
                                   }
                                 </p>
                                 {missingScopes.length > 0 && (
@@ -1642,9 +1643,8 @@ export default function AccountDetailPage() {
                                           if (data.allScopesGranted) {
                                             toast.success(`Agency token refreshed — all ${data.scopes?.length || 0} scopes granted!`);
                                           } else {
-                                            toast.warning(`Token refreshed but ${data.missingRequiredScopes?.length || 0} scope(s) still missing.`);
+                                            toast.warning(`Token refreshed but ${data.missingRequiredScopes?.length || 0} scope(s) still missing. Check your GHL marketplace app settings.`);
                                           }
-                                          // Reload the modal data
                                           window.location.reload();
                                         } catch (err) {
                                           toast.error(err instanceof Error ? err.message : 'Token refresh failed');

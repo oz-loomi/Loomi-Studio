@@ -2345,6 +2345,18 @@ function CustomValuesTab() {
                 <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
                   Agency mode is active for {ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length} sub-account{ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length !== 1 ? 's' : ''}. Link each sub-account to a location in Sub-Account Integrations.
                 </p>
+                {ghlAgencyStatus?.connected && ghlAgencyStatus.scopes.length > 0 && (
+                  <p className="text-[10px] mt-0.5">
+                    <span className="text-emerald-400">{ghlAgencyStatus.scopes.length} scopes granted</span>
+                    {(() => {
+                      const requiredGhl = requiredScopesByProvider['ghl'] || [];
+                      const missing = requiredGhl.filter((s) => !ghlAgencyStatus.scopes.includes(s));
+                      return missing.length > 0
+                        ? <span className="text-amber-400 ml-1">· {missing.length} missing</span>
+                        : <span className="text-[var(--muted-foreground)] ml-1">· all required scopes present</span>;
+                    })()}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <span className={`px-2 py-0.5 text-[10px] rounded-full border ${
@@ -2521,28 +2533,33 @@ function CustomValuesTab() {
         )}
 
         {accountStatuses.some((accountStatus) => accountStatus.needsReauthorization) && (() => {
-          const firstNeedsReauth = accountStatuses.find((a) => a.needsReauthorization);
           const reauthCount = accountStatuses.filter((a) => a.needsReauthorization).length;
-          const reauthHref = firstNeedsReauth
-            ? buildAuthorizeHrefForAccount({
-                provider: firstNeedsReauth.provider,
-                accountKey: firstNeedsReauth.key,
-                oauthMode: firstNeedsReauth.oauthMode,
-              })
-            : '#';
+          const isGhlAgency = accountStatuses.some((a) => a.needsReauthorization && a.provider === 'ghl' && a.oauthMode === 'agency');
           return (
             <div className="glass-card rounded-lg p-3 mb-4 border border-amber-500/20 bg-amber-500/5 flex items-center justify-between gap-3">
-              <p className="text-[11px] text-amber-400">
-                <strong>Re-authorization required:</strong> {reauthCount} sub-account{reauthCount !== 1 ? 's are' : ' is'} missing required scopes.
-                Re-authorizing once updates all sub-accounts under the same agency.
-              </p>
-              <a
-                href={reauthHref}
-                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors border border-amber-500/20"
-              >
-                <ArrowPathIcon className="w-3.5 h-3.5" />
-                Re-authorize All
-              </a>
+              <div>
+                <p className="text-[11px] text-amber-400">
+                  <strong>Missing permissions:</strong> {reauthCount} sub-account{reauthCount !== 1 ? 's are' : ' is'} missing required scopes.
+                </p>
+                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                  {isGhlAgency
+                    ? 'Refresh the agency token to pick up scopes added to your GHL marketplace app. This updates all sub-accounts at once.'
+                    : 'Re-authorizing updates all sub-accounts under the same agency.'
+                  }
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {isGhlAgency && (
+                  <button
+                    onClick={() => void handleForceRefreshGhlAgency()}
+                    disabled={ghlAgencyRefreshing}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors border border-amber-500/20 disabled:opacity-50"
+                  >
+                    <ArrowPathIcon className={`w-3.5 h-3.5 ${ghlAgencyRefreshing ? 'animate-spin' : ''}`} />
+                    {ghlAgencyRefreshing ? 'Refreshing...' : 'Refresh Agency Token'}
+                  </button>
+                )}
+              </div>
             </div>
           );
         })()}
@@ -2633,17 +2650,12 @@ function CustomValuesTab() {
                               : 'Connected'}
                         </span>
                       ) : acct.needsReauthorization ? (
-                        <a
-                          href={buildAuthorizeHrefForAccount({
-                            provider: acct.provider,
-                            accountKey: acct.key,
-                            oauthMode: acct.oauthMode,
-                          })}
-                          className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition-colors"
-                          title={`Re-authorize ${providerDisplayName(acct.provider)} to grant required scopes`}
+                        <span
+                          className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full"
+                          title="Missing required scopes — use Refresh Agency Token above"
                         >
-                          <ExclamationTriangleIcon className="w-2.5 h-2.5" /> Re-auth needed
-                        </a>
+                          <ExclamationTriangleIcon className="w-2.5 h-2.5" /> Missing scopes
+                        </span>
                       ) : (
                         acct.provider === 'ghl'
                         && acct.oauthMode === 'agency'
