@@ -887,12 +887,16 @@ export async function listAgencyLocations(input: {
   const search = (input.search || '').trim().toLowerCase();
   const limit = Number.isFinite(input.limit) ? Math.max(1, Math.min(Number(input.limit), 200)) : 100;
   const encodedSearch = encodeURIComponent(search);
-  const candidates = [
-    `${GHL_BASE}/locations/search?limit=${limit}${search ? `&query=${encodedSearch}` : ''}`,
-    `${GHL_BASE}/locations/search?limit=${limit}${search ? `&search=${encodedSearch}` : ''}`,
-    `${GHL_BASE}/locations/?limit=${limit}`,
-    `${GHL_BASE}/locations/`,
-  ];
+  const companyId = agency.subjectId || process.env.GHL_AGENCY_COMPANY_ID?.trim() || '';
+  const candidates = companyId
+    ? [
+        `${GHL_BASE}/locations/search?companyId=${companyId}&limit=${limit}${search ? `&query=${encodedSearch}` : ''}`,
+        `${GHL_BASE}/locations/search?companyId=${companyId}&limit=${limit}${search ? `&search=${encodedSearch}` : ''}`,
+      ]
+    : [
+        `${GHL_BASE}/locations/search?limit=${limit}${search ? `&query=${encodedSearch}` : ''}`,
+        `${GHL_BASE}/locations/search?limit=${limit}${search ? `&search=${encodedSearch}` : ''}`,
+      ];
 
   let lastError = 'Failed to list GHL locations';
   for (const candidate of candidates) {
