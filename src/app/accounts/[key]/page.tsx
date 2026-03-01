@@ -1610,28 +1610,17 @@ export default function AccountDetailPage() {
                           {needsReauthorization && (
                             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
                               <ExclamationTriangleIcon className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-                              <div>
+                              <div className="space-y-2">
                                 <p className="text-sm font-medium text-amber-400">Re-authorization needed</p>
-                                <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                                <p className="text-xs text-[var(--muted-foreground)]">
                                   This integration is missing {missingScopes.length} required permission{missingScopes.length === 1 ? '' : 's'}.{' '}
                                   {isGhlAgencyMode
-                                    ? 'Ensure the GHL marketplace app has all required scopes enabled, then '
+                                    ? 'Try refreshing the agency token first, or re-authorize if that doesn\'t resolve it.'
                                     : ''
                                   }
-                                  <a
-                                    href={buildAuthorizeHref({
-                                      provider: providerId,
-                                      accountKey: key,
-                                      oauthMode: provider.oauthMode,
-                                    })}
-                                    className="underline font-medium text-amber-400 hover:text-amber-300"
-                                  >
-                                    re-authorize now
-                                  </a>
-                                  .
                                 </p>
                                 {missingScopes.length > 0 && (
-                                  <div className="mt-2 flex flex-wrap gap-1">
+                                  <div className="flex flex-wrap gap-1">
                                     {missingScopes.map((scope) => (
                                       <span key={scope} className="px-1.5 py-0.5 text-[9px] font-mono bg-amber-500/10 text-amber-400 rounded-full border border-amber-500/20">
                                         {scope}
@@ -1639,6 +1628,41 @@ export default function AccountDetailPage() {
                                     ))}
                                   </div>
                                 )}
+                                <div className="flex items-center gap-2 pt-1">
+                                  {isGhlAgencyMode && (
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          const res = await fetch('/api/esp/connections/ghl/agency', { method: 'POST' });
+                                          const data = await res.json().catch(() => ({}));
+                                          if (!res.ok) throw new Error(data.error || 'Token refresh failed');
+                                          if (data.allScopesGranted) {
+                                            toast.success(`Agency token refreshed — all ${data.scopes?.length || 0} scopes granted!`);
+                                          } else {
+                                            toast.warning(`Token refreshed but ${data.missingRequiredScopes?.length || 0} scope(s) still missing.`);
+                                          }
+                                          window.location.reload();
+                                        } catch (err) {
+                                          toast.error(err instanceof Error ? err.message : 'Token refresh failed');
+                                        }
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors border border-amber-500/20"
+                                    >
+                                      <ArrowPathIcon className="w-3.5 h-3.5" />
+                                      Refresh Agency Token
+                                    </button>
+                                  )}
+                                  <a
+                                    href={buildAuthorizeHref({
+                                      provider: providerId,
+                                      accountKey: key,
+                                      oauthMode: provider.oauthMode,
+                                    })}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors border border-[var(--border)]"
+                                  >
+                                    Re-authorize
+                                  </a>
+                                </div>
                               </div>
                             </div>
                           )}
