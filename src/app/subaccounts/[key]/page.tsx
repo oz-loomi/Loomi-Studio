@@ -572,7 +572,7 @@ export default function AccountDetailPage() {
 
     let cancelled = false;
     (async () => {
-      const status = await refreshGhlAgencyStatus();
+      await refreshGhlAgencyStatus();
       if (cancelled) return;
 
       const link = await refreshGhlLocationLink();
