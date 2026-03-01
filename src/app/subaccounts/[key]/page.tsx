@@ -1525,6 +1525,11 @@ export default function AccountDetailPage() {
                         requiredScopes: requiredScopesByProvider[providerId] || [],
                       });
                       const needsReauthorization = providerSyncReadiness.needsReauthorization;
+                      const grantedScopesSet = new Set(resolvedStatus.scopes);
+                      const requiredScopesForProvider = requiredScopesByProvider[providerId] || [];
+                      const missingScopes = requiredScopesForProvider.filter(
+                        (scope) => !grantedScopesSet.has(scope),
+                      );
                       const canRefreshBusinessDetails =
                         connected && provider.businessDetailsRefreshSupported === true;
                       const webhookEndpointEntries = Object.entries(provider.webhookEndpoints || {})
@@ -1611,7 +1616,11 @@ export default function AccountDetailPage() {
                               <div>
                                 <p className="text-sm font-medium text-amber-400">Re-authorization needed</p>
                                 <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                                  This integration requires updated permissions.{' '}
+                                  This integration is missing {missingScopes.length} required permission{missingScopes.length === 1 ? '' : 's'}.{' '}
+                                  {isGhlAgencyMode
+                                    ? 'Ensure the GHL marketplace app has all required scopes enabled, then '
+                                    : ''
+                                  }
                                   <a
                                     href={buildAuthorizeHref({
                                       provider: providerId,
@@ -1620,9 +1629,19 @@ export default function AccountDetailPage() {
                                     })}
                                     className="underline font-medium text-amber-400 hover:text-amber-300"
                                   >
-                                    Re-authorize now
+                                    re-authorize now
                                   </a>
+                                  .
                                 </p>
+                                {missingScopes.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-1">
+                                    {missingScopes.map((scope) => (
+                                      <span key={scope} className="px-1.5 py-0.5 text-[9px] font-mono bg-amber-500/10 text-amber-400 rounded-full border border-amber-500/20">
+                                        {scope}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}
@@ -1800,13 +1819,25 @@ export default function AccountDetailPage() {
                                   </div>
                                 </div>
 
-                                {resolvedStatus.scopes.length > 0 && (
+                                {(resolvedStatus.scopes.length > 0 || missingScopes.length > 0) && (
                                   <div>
-                                    <label className={labelClass}>Granted Scopes</label>
+                                    <label className={labelClass}>
+                                      OAuth Scopes
+                                      {requiredScopesForProvider.length > 0 && (
+                                        <span className="ml-1 font-normal text-[var(--muted-foreground)]">
+                                          ({resolvedStatus.scopes.length} granted{missingScopes.length > 0 ? `, ${missingScopes.length} missing` : ''})
+                                        </span>
+                                      )}
+                                    </label>
                                     <div className="flex flex-wrap gap-1">
                                       {resolvedStatus.scopes.map((scope) => (
-                                        <span key={scope} className="px-1.5 py-0.5 text-[9px] font-mono bg-[var(--muted)] text-[var(--muted-foreground)] rounded-full border border-[var(--border)]">
-                                          {scope}
+                                        <span key={scope} className="px-1.5 py-0.5 text-[9px] font-mono bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20">
+                                          ✓ {scope}
+                                        </span>
+                                      ))}
+                                      {missingScopes.map((scope) => (
+                                        <span key={`missing-${scope}`} className="px-1.5 py-0.5 text-[9px] font-mono bg-red-500/10 text-red-400 rounded-full border border-red-500/20">
+                                          ✗ {scope}
                                         </span>
                                       ))}
                                     </div>
