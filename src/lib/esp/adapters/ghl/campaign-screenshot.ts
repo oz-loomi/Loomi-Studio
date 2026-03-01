@@ -2,16 +2,7 @@ import { fetchCampaignPreviewHtml } from './campaigns';
 import { resolveGhlCredentials } from './contacts';
 import { getConnection } from './oauth';
 import { renderCampaignScreenshotFromHtml } from '@/lib/esp/screenshot-render';
-
-function parseScopes(scopesRaw: string | null | undefined): string[] {
-  if (!scopesRaw) return [];
-  try {
-    const parsed = JSON.parse(scopesRaw);
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
-  }
-}
+import { parseScopes } from '@/lib/esp/scope-utils';
 
 export class GhlCampaignScreenshotError extends Error {
   readonly status: number;

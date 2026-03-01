@@ -15,7 +15,7 @@ import {
   EnvelopeIcon, PhoneIcon, PencilSquareIcon,
   PlayCircleIcon,
 } from '@heroicons/react/24/outline';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { CodeEditor } from '@/components/code-editor';
 import { AccountsList } from '@/components/accounts-list';
 import { OemMultiSelect } from '@/components/oem-multi-select';
@@ -1545,7 +1545,7 @@ function CustomValuesTab() {
         toast.success(`Agency token refreshed — all ${data.scopes?.length || 0} scopes granted!`);
       } else {
         const missing = data.missingRequiredScopes?.length || 0;
-        toast.warning(`Token refreshed but ${missing} required scope${missing !== 1 ? 's' : ''} still missing. A full re-authorization may be needed.`);
+        toast.warning(`Token refreshed but ${missing} required scope${missing !== 1 ? 's' : ''} still missing. Check your GHL marketplace app settings.`);
       }
 
       await loadGhlAgencyStatus();
@@ -2714,7 +2714,7 @@ function CustomValuesTab() {
                             ? providerUnsupportedMessage(acct.provider, 'custom values')
                             : !acct.readyForSync
                               ? acct.needsReauthorization
-                                ? `Re-authorize ${providerDisplayName(acct.provider)} to enable custom values`
+                                ? `Missing scopes — refresh agency token above to enable custom values`
                                 : acct.provider === 'ghl' && acct.oauthMode === 'agency' && ghlAgencyStatus?.connected && !acct.locationId
                                   ? 'Link this sub-account to a GHL location in Integrations'
                                 : `Connect ${providerDisplayName(acct.provider)} first`

@@ -19,11 +19,11 @@ import {
   upsertProviderOAuthCredential,
 } from '@/lib/esp/provider-oauth-credentials';
 
+import { GHL_BASE, API_VERSION } from './constants';
+
 // ── Constants ──
 const GHL_AUTH_URL = 'https://marketplace.gohighlevel.com/oauth/chooselocation';
 const GHL_TOKEN_URL = 'https://services.leadconnectorhq.com/oauth/token';
-const GHL_BASE = 'https://services.leadconnectorhq.com';
-const API_VERSION = '2021-07-28';
 const LOCATION_TOKEN_REFRESH_BUFFER_MS = 2 * 60 * 1000;
 
 export const GHL_AGENCY_ACCOUNT_KEY = '__ghl_agency__';

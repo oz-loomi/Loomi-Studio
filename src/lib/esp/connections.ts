@@ -6,6 +6,7 @@ import { listOAuthConnections } from '@/lib/esp/oauth-connections';
 import { listApiKeyConnections } from '@/lib/esp/api-key-connections';
 import { listAccountProviderLinks } from '@/lib/esp/account-provider-links';
 import { listProviderOAuthCredentials } from '@/lib/esp/provider-oauth-credentials';
+import { parseScopes } from '@/lib/esp/scope-utils';
 
 type ProviderWithAny = EspProvider | 'any';
 
@@ -54,16 +55,6 @@ export class EspConnectionError extends Error {
     super(message);
     this.name = 'EspConnectionError';
     this.status = status;
-  }
-}
-
-function parseScopes(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
   }
 }
 

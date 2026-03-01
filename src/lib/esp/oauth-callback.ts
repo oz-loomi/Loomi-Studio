@@ -4,8 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdapter } from '@/lib/esp/registry';
 import type { EspProvider } from '@/lib/esp/types';
 import * as accountService from '@/lib/services/accounts';
-
-const GHL_AGENCY_ACCOUNT_KEY = '__ghl_agency__';
+import { GHL_AGENCY_ACCOUNT_KEY } from '@/lib/esp/adapters/ghl/oauth';
 
 /**
  * Best-effort extraction of accountKey from an OAuth state string without

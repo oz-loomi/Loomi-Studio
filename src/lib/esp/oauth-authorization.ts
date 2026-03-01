@@ -2,8 +2,7 @@ import '@/lib/esp/init';
 
 import { getAdapter, getAdapterForAccount } from '@/lib/esp/registry';
 import type { EspProvider } from '@/lib/esp/types';
-
-const GHL_AGENCY_ACCOUNT_KEY = '__ghl_agency__';
+import { GHL_AGENCY_ACCOUNT_KEY } from '@/lib/esp/adapters/ghl/oauth';
 
 export type EspAuthorizationMode = 'account' | 'agency';
 

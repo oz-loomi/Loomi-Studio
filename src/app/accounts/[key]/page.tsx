@@ -2005,7 +2005,8 @@ export default function AccountDetailPage() {
               {activeProviderNeedsReauthorization && (
                 <div className="glass-card rounded-lg p-3 mb-3 border border-amber-500/20 bg-amber-500/5">
                   <p className="text-[11px] text-amber-400">
-                    <strong>Re-authorization required:</strong> This account&apos;s OAuth token is missing one or more required scopes for custom value sync in {providerDisplayName(activeProvider)}.{' '}
+                    <strong>Missing permissions:</strong> This account&apos;s OAuth token is missing one or more required scopes for custom value sync in {providerDisplayName(activeProvider)}.{' '}
+                    Use <strong>Refresh Agency Token</strong> on the Integration tab to update scopes, or{' '}
                     <a
                       href={buildAuthorizeHref({
                         provider: activeProvider,
@@ -2014,9 +2015,9 @@ export default function AccountDetailPage() {
                       })}
                       className="underline font-medium hover:text-amber-300"
                     >
-                      Re-authorize OAuth
+                      re-authorize
                     </a>{' '}
-                    to enable syncing custom values.
+                    if needed.
                   </p>
                 </div>
               )}

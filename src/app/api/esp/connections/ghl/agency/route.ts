@@ -10,6 +10,7 @@ import {
   REQUIRED_SCOPES,
 } from '@/lib/esp/adapters/ghl/oauth';
 import { getProviderOAuthCredential, upsertProviderOAuthCredential } from '@/lib/esp/provider-oauth-credentials';
+import { parseScopes } from '@/lib/esp/scope-utils';
 
 /**
  * GET /api/esp/connections/ghl/agency
@@ -111,16 +112,6 @@ export async function POST() {
     console.error('[ghl-agency] Force token refresh failed:', err);
     const message = err instanceof Error ? err.message : 'Token refresh failed';
     return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-
-function parseScopes(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
   }
 }
 
