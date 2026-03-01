@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/api-auth';
+import { MANAGEMENT_ROLES } from '@/lib/auth';
 import { completeEspOAuthCallback } from '@/lib/esp/oauth-callback';
 import { parseEspProvider, providerValidationMessage } from '@/lib/esp/provider-utils';
 import { resolveOAuthProviderFromState } from '@/lib/esp/oauth-provider-resolution';
@@ -16,8 +17,7 @@ export async function GET(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
-  const role = session.user.role;
-  if (role !== 'developer' && role !== 'admin') {
+  if (!MANAGEMENT_ROLES.includes(session.user.role)) {
     return NextResponse.redirect(new URL('/?error=forbidden', req.url));
   }
 

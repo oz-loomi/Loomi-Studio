@@ -58,7 +58,7 @@ function redirectSettingsError(req: NextRequest, provider: EspProvider, message:
 }
 
 function redirectAccountConnected(req: NextRequest, accountKey: string, provider: EspProvider): NextResponse {
-  const url = buildRedirectUrl(req, `/accounts/${accountKey}`);
+  const url = buildRedirectUrl(req, `/settings/subaccounts/${accountKey}`);
   url.searchParams.set('esp_connected', 'true');
   url.searchParams.set('esp_provider', provider);
   url.searchParams.set('tab', 'integration');
@@ -71,7 +71,7 @@ function redirectAccountError(
   provider: EspProvider,
   message: string,
 ): NextResponse {
-  const url = buildRedirectUrl(req, `/accounts/${accountKey}`);
+  const url = buildRedirectUrl(req, `/settings/subaccounts/${accountKey}`);
   url.searchParams.set('esp_error', message);
   url.searchParams.set('esp_provider', provider);
   url.searchParams.set('tab', 'integration');

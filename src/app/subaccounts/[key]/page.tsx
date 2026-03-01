@@ -611,19 +611,22 @@ export default function AccountDetailPage() {
     const errorMessage = searchParams.get('esp_error');
     const provider = searchParams.get('esp_provider');
     const label = providerDisplayName(provider);
+    const currentDetailPath = pathname.startsWith('/settings/subaccounts/')
+      ? `/settings/subaccounts/${key}`
+      : `/subaccounts/${key}`;
 
     if (connected === 'true') {
       toast.success(`Successfully connected to ${label}!`);
       setActiveTab('integration');
       refreshProviderCatalog();
       refreshAccountData();
-      router.replace(`/subaccounts/${key}`, { scroll: false });
+      router.replace(currentDetailPath, { scroll: false });
     } else if (errorMessage) {
       toast.error(`${label} connection failed: ${errorMessage}`);
       setActiveTab('integration');
-      router.replace(`/subaccounts/${key}`, { scroll: false });
+      router.replace(currentDetailPath, { scroll: false });
     }
-  }, [searchParams, key, router]);
+  }, [searchParams, pathname, key, router]);
 
   useEffect(() => {
     if (!isGhlAgencyIntegrationModal) {
