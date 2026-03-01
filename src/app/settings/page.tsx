@@ -2316,72 +2316,75 @@ function CustomValuesTab() {
         </div>
 
         {hasGhlAgencyAccounts && (
-          <div className="glass-card rounded-lg p-3 mb-4 border border-[var(--border)] bg-[var(--muted)]/40 space-y-3">
+          <div className="glass-card rounded-lg p-4 mb-4 border border-[var(--border)] bg-[var(--muted)]/40 space-y-3">
+            {/* ── Header: title + status badge ── */}
             <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold text-[var(--foreground)]">GHL Agency OAuth</p>
-                <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
-                  Agency mode is active for {ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length} sub-account{ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length !== 1 ? 's' : ''}. Link each sub-account to a location in Sub-Account Integrations.
-                </p>
-                {ghlAgencyStatus?.connected && ghlAgencyStatus.scopes.length > 0 && (
-                  <p className="text-[10px] mt-0.5">
-                    <span className="text-emerald-400">{ghlAgencyStatus.scopes.length} scopes granted</span>
-                    {(() => {
-                      const requiredGhl = requiredScopesByProvider['ghl'] || [];
-                      const missing = requiredGhl.filter((s) => !ghlAgencyStatus.scopes.includes(s));
-                      return missing.length > 0
-                        ? <span className="text-amber-400 ml-1">· {missing.length} missing</span>
-                        : <span className="text-[var(--muted-foreground)] ml-1">· all required scopes present</span>;
-                    })()}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-0.5 text-[10px] rounded-full border ${
-                  ghlAgencyStatus?.connected
-                    ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-                    : 'text-[var(--muted-foreground)] border-[var(--border)] bg-[var(--card)]'
-                }`}>
-                  {ghlAgencyLoading
-                    ? 'Checking...'
-                    : ghlAgencyStatus?.connected
-                      ? `Connected (${ghlAgencyStatus.source})`
-                      : 'Not connected'}
-                </span>
-                <button
-                  onClick={() => void loadGhlAgencyStatus()}
-                  disabled={ghlAgencyLoading}
-                  className="px-2.5 py-1.5 text-[11px] rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
-                >
-                  Refresh
-                </button>
-                {ghlAgencyStatus?.connected ? (
-                  <>
-                    <button
-                      onClick={() => void handleForceRefreshGhlAgency()}
-                      disabled={ghlAgencyRefreshing}
-                      className="px-2.5 py-1.5 text-[11px] rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
-                      title="Force-refresh the agency token to pick up new scopes"
-                    >
-                      {ghlAgencyRefreshing ? 'Refreshing Token...' : 'Refresh Token'}
-                    </button>
-                    <button
-                      onClick={() => void handleDisconnectGhlAgency()}
-                      disabled={ghlAgencyDisconnecting}
-                      className="px-2.5 py-1.5 text-[11px] rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                    >
-                      {ghlAgencyDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-                    </button>
-                  </>
-                ) : (
-                  <a
-                    href={ghlAgencyStatus?.connectUrl || '/api/esp/connections/authorize?provider=ghl&mode=agency'}
-                    className="px-2.5 py-1.5 text-[11px] rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
+              <p className="text-xs font-semibold text-[var(--foreground)]">GHL Agency OAuth</p>
+              <span className={`px-2.5 py-1 text-[10px] rounded-full border font-medium ${
+                ghlAgencyStatus?.connected
+                  ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                  : 'text-[var(--muted-foreground)] border-[var(--border)] bg-[var(--card)]'
+              }`}>
+                {ghlAgencyLoading
+                  ? 'Checking...'
+                  : ghlAgencyStatus?.connected
+                    ? `Connected (${ghlAgencyStatus.source})`
+                    : 'Not connected'}
+              </span>
+            </div>
+
+            {/* ── Description + scopes ── */}
+            <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
+              Agency mode is active for {ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length} sub-account{ghlAgencyLinkedAccounts.length + ghlAgencyUnlinkedAccounts.length !== 1 ? 's' : ''}. Link each sub-account to a location in Sub-Account Integrations.
+            </p>
+            {ghlAgencyStatus?.connected && ghlAgencyStatus.scopes.length > 0 && (
+              <p className="text-[10px]">
+                <span className="text-emerald-400">{ghlAgencyStatus.scopes.length} scopes granted</span>
+                {(() => {
+                  const requiredGhl = requiredScopesByProvider['ghl'] || [];
+                  const missing = requiredGhl.filter((s) => !ghlAgencyStatus.scopes.includes(s));
+                  return missing.length > 0
+                    ? <span className="text-amber-400 ml-1">· {missing.length} missing</span>
+                    : <span className="text-[var(--muted-foreground)] ml-1">· all required scopes present</span>;
+                })()}
+              </p>
+            )}
+
+            {/* ── Action buttons ── */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                onClick={() => void loadGhlAgencyStatus()}
+                disabled={ghlAgencyLoading}
+                className="px-3 py-1.5 text-[11px] rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+              >
+                Refresh Status
+              </button>
+              {ghlAgencyStatus?.connected ? (
+                <>
+                  <button
+                    onClick={() => void handleForceRefreshGhlAgency()}
+                    disabled={ghlAgencyRefreshing}
+                    className="px-3 py-1.5 text-[11px] rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                    title="Force-refresh the agency token to pick up new scopes"
                   >
-                    Connect
-                  </a>
-                )}
-              </div>
+                    {ghlAgencyRefreshing ? 'Refreshing...' : 'Refresh Token'}
+                  </button>
+                  <button
+                    onClick={() => void handleDisconnectGhlAgency()}
+                    disabled={ghlAgencyDisconnecting}
+                    className="px-3 py-1.5 text-[11px] rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                  >
+                    {ghlAgencyDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                  </button>
+                </>
+              ) : (
+                <a
+                  href={ghlAgencyStatus?.connectUrl || '/api/esp/connections/authorize?provider=ghl&mode=agency'}
+                  className="px-3 py-1.5 text-[11px] rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
+                >
+                  Connect Agency OAuth
+                </a>
+              )}
             </div>
 
             {ghlAgencyError && (
