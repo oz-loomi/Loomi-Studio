@@ -543,22 +543,19 @@ export default function AccountDetailPage() {
     const errorMessage = searchParams.get('esp_error');
     const provider = searchParams.get('esp_provider');
     const label = providerDisplayName(provider);
-    const currentDetailPath = pathname.startsWith('/settings/subaccounts/')
-      ? `/settings/subaccounts/${key}`
-      : `/subaccounts/${key}`;
 
     if (connected === 'true') {
       toast.success(`Successfully connected to ${label}!`);
       setActiveTab('integration');
       refreshProviderCatalog();
       refreshAccountData();
-      router.replace(currentDetailPath, { scroll: false });
+      router.replace(`/accounts/${key}`, { scroll: false });
     } else if (errorMessage) {
       toast.error(`${label} connection failed: ${errorMessage}`);
       setActiveTab('integration');
-      router.replace(currentDetailPath, { scroll: false });
+      router.replace(`/accounts/${key}`, { scroll: false });
     }
-  }, [searchParams, pathname, key, router]);
+  }, [searchParams, key, router]);
 
   useEffect(() => {
     if (!isGhlAgencyIntegrationModal) {
@@ -572,7 +569,7 @@ export default function AccountDetailPage() {
 
     let cancelled = false;
     (async () => {
-      const status = await refreshGhlAgencyStatus();
+      await refreshGhlAgencyStatus();
       if (cancelled) return;
 
       const link = await refreshGhlLocationLink();
@@ -733,7 +730,7 @@ export default function AccountDetailPage() {
       const res = await fetch(`/api/accounts?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
       if (res.ok) {
         await refreshAccountList();
-        router.push('/subaccounts');
+        router.push('/accounts');
       } else {
         toast.error('Failed to delete');
       }
@@ -887,7 +884,7 @@ export default function AccountDetailPage() {
       <AdminOnly>
         <div className="text-center py-16">
           <p className="text-[var(--muted-foreground)]">Sub-account not found</p>
-          <Link href="/subaccounts" className="text-sm text-[var(--primary)] mt-2 inline-block hover:underline">
+          <Link href="/accounts" className="text-sm text-[var(--primary)] mt-2 inline-block hover:underline">
             Back to Sub-Accounts
           </Link>
         </div>
@@ -899,14 +896,14 @@ export default function AccountDetailPage() {
   const labelClass = 'block text-xs font-medium text-[var(--muted-foreground)] mb-1.5';
   const sectionHeadingClass = 'text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4';
   const sectionCardClass = 'glass-section-card rounded-xl p-6';
-  const showContactsTab = !pathname.startsWith('/settings/subaccounts/');
+  const showContactsTab = !pathname.startsWith('/settings/accounts/');
   const canSeeCustomValues = userRole === 'developer' || userRole === 'super_admin';
   const visibleTabs = TABS.filter((tab) => {
     if (tab.key === 'contacts' && !showContactsTab) return false;
     if (tab.key === 'custom-values' && !canSeeCustomValues) return false;
     return true;
   });
-  const backHref = '/settings/subaccounts';
+  const backHref = showContactsTab ? '/accounts' : '/settings/account';
   const showBrandsSelector = industryHasBrands(category);
   const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
   const isEcommerceIndustry = category.trim().toLowerCase() === 'ecommerce';
