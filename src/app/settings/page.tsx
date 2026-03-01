@@ -235,7 +235,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'accounts' && <AccountsList listPath="/settings/accounts" detailBasePath="/settings/subaccounts" />}
+      {activeTab === 'accounts' && <AccountsList listPath="/settings/subaccounts" detailBasePath="/settings/subaccounts" />}
       {activeTab === 'account' && <AccountSettingsTab />}
       {activeTab === 'users' && <UsersTab />}
       {activeTab === 'integrations' && <AccountDetailTabRedirect targetTab="integration" />}

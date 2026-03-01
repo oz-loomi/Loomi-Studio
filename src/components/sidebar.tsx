@@ -44,7 +44,7 @@ export function Sidebar() {
 
   const isClientRole = userRole === 'client';
   const navItems = isClientRole ? clientNavItems : adminNavItems;
-  const settingsHref = isClientRole ? '/settings/account' : (isAccount ? '/settings/account' : '/settings/accounts');
+  const settingsHref = isClientRole ? '/settings/account' : (isAccount ? '/settings/account' : '/settings/subaccounts');
 
   const settingsActive = pathname === '/settings' || pathname.startsWith('/settings') || pathname.startsWith('/users') || pathname.startsWith('/subaccounts');
 

@@ -976,7 +976,7 @@ export default function AccountDetailPage() {
     if (tab.key === 'custom-values' && !canSeeCustomValues) return false;
     return true;
   });
-  const backHref = '/settings/accounts';
+  const backHref = '/settings/subaccounts';
   const showBrandsSelector = industryHasBrands(category);
   const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
   const isEcommerceIndustry = category.trim().toLowerCase() === 'ecommerce';

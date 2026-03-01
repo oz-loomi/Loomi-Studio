@@ -2340,7 +2340,7 @@ function ManagementRoleDashboard({
                   {[
                     { href: '/users', label: 'Users', icon: UsersIcon },
                     { href: '/subaccounts', label: 'Accounts', icon: BuildingStorefrontIcon },
-                    { href: '/settings/accounts', label: 'Integrations', icon: ArrowPathIcon },
+                    { href: '/settings/subaccounts', label: 'Integrations', icon: ArrowPathIcon },
                     { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
                     { href: '/flows', label: 'Flows', icon: FlowIcon },
                     { href: '/media', label: 'Media', icon: PhotoIcon },
