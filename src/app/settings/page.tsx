@@ -11,7 +11,7 @@ import {
   UsersIcon, SwatchIcon, SparklesIcon,
   XMarkIcon, ArrowPathIcon, MagnifyingGlassIcon,
   CheckCircleIcon, AdjustmentsHorizontalIcon, LinkIcon,
-  TrashIcon, ExclamationTriangleIcon, ClockIcon,
+  TrashIcon, ExclamationTriangleIcon, ClockIcon, CogIcon,
   EnvelopeIcon, PhoneIcon, PencilSquareIcon,
   PlayCircleIcon,
 } from '@heroicons/react/24/outline';
@@ -202,7 +202,10 @@ export default function SettingsPage() {
   return (
     <div className="animate-fade-in-up">
       <div className="page-sticky-header mb-8">
-        <h1 className="text-2xl font-bold text-[var(--foreground)]">Settings</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-[var(--foreground)]">
+          <CogIcon className="w-6 h-6" />
+          Settings
+        </h1>
         <p className="text-sm text-[var(--muted-foreground)] mt-1">
           Manage your preferences and configuration
         </p>
@@ -1182,6 +1185,14 @@ interface RemoteCustomFieldRow {
   raw: Record<string, unknown>;
 }
 
+type CustomValuesSectionKey = 'global-default-values' | 'sync-sub-accounts' | 'remote-manager';
+
+const CUSTOM_VALUES_SECTIONS: Array<{ key: CustomValuesSectionKey; label: string }> = [
+  { key: 'global-default-values', label: 'Global Default Values' },
+  { key: 'sync-sub-accounts', label: 'Sync Sub-accounts' },
+  { key: 'remote-manager', label: 'Remote Manager' },
+];
+
 function CustomValuesTab() {
   const { accounts } = useAccount();
   const { markClean } = useUnsavedChanges();
@@ -1233,6 +1244,7 @@ function CustomValuesTab() {
 
   // Industry defaults loader
   const [selectedIndustry, setSelectedIndustry] = useState('');
+  const [activeSection, setActiveSection] = useState<CustomValuesSectionKey>('global-default-values');
 
   // ── Pagination for account sync table ──
   const SYNC_PAGE_SIZE = 10;
@@ -2059,8 +2071,38 @@ function CustomValuesTab() {
   const sectionCardClass = 'glass-section-card rounded-xl p-6';
 
   return (
-    <div className="max-w-7xl grid grid-cols-1 gap-6">
+    <div className="max-w-7xl grid grid-cols-1 gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <aside className="lg:sticky lg:top-24 h-fit">
+        <nav
+          className="glass-section-card rounded-xl p-3 space-y-2"
+          aria-label="Custom values sections"
+        >
+          <div className="flex gap-2 overflow-x-auto pb-1 lg:pb-0 lg:flex-col">
+            {CUSTOM_VALUES_SECTIONS.map((section) => {
+              const isActive = activeSection === section.key;
+              return (
+                <button
+                  key={section.key}
+                  type="button"
+                  onClick={() => setActiveSection(section.key)}
+                  className={`text-left rounded-lg px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'bg-[var(--primary)]/10 text-[var(--primary)] border border-[var(--primary)]/30'
+                      : 'text-[var(--muted-foreground)] border border-transparent hover:border-[var(--border)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
+                  }`}
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  {section.label}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      </aside>
+
+      <div className="grid grid-cols-1 gap-6 min-w-0">
       {/* ── Section 1: Global Defaults ── */}
+      {activeSection === 'global-default-values' && (
       <section className={sectionCardClass}>
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -2232,8 +2274,10 @@ function CustomValuesTab() {
           Template token format: <code className="px-1 py-0.5 rounded bg-[var(--muted)] text-[var(--primary)] font-mono">{'{{custom_values.<field_key>}}'}</code>
         </p>
       </section>
+      )}
 
       {/* ── Section 2: Account Sync ── */}
+      {activeSection === 'sync-sub-accounts' && (
       <section className={sectionCardClass}>
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -2689,8 +2733,10 @@ function CustomValuesTab() {
           </div>
         )}
       </section>
+      )}
 
       {/* ── Section 3: Direct GHL Remote CRUD ── */}
+      {activeSection === 'remote-manager' && (
       <section className={sectionCardClass}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
@@ -2909,6 +2955,8 @@ function CustomValuesTab() {
           </div>
         )}
       </section>
+      )}
+      </div>
     </div>
   );
 }
