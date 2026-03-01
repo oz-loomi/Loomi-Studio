@@ -1981,7 +1981,7 @@ function ManagementRoleDashboard({
           <section className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
-                Account Reps
+                Sub-Account Reps
               </p>
               <span className="text-[10px] text-[var(--sidebar-muted-foreground)] tabular-nums">
                 {selectedRepIds.length > 0 ? `${selectedRepIds.length} selected` : `${repScopeOptions.length} total`}
@@ -2304,7 +2304,7 @@ function ManagementRoleDashboard({
             {renderManagedWidget('tech_overview', (
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
               {[
-                { label: 'Accounts', value: totals.accountCount, note: `${totals.connectedAccounts} connected`, icon: BuildingStorefrontIcon },
+                { label: 'Sub-Accounts', value: totals.accountCount, note: `${totals.connectedAccounts} connected`, icon: BuildingStorefrontIcon },
                 { label: 'Users', value: users.length, note: `${roleCounts.length} role groups`, icon: UsersIcon },
                 { label: 'API Health', value: `${apiHealth.filter((api) => api.ok).length}/${apiHealth.length}`, note: 'reporting endpoints', icon: CommandLineIcon },
                 { label: 'Alerts', value: attentionAccounts.length, note: attentionAccounts.length > 0 ? 'needs action' : 'all clear', icon: ExclamationTriangleIcon },
@@ -2339,7 +2339,7 @@ function ManagementRoleDashboard({
                 <div className="grid grid-cols-2 gap-2.5">
                   {[
                     { href: '/users', label: 'Users', icon: UsersIcon },
-                    { href: '/subaccounts', label: 'Accounts', icon: BuildingStorefrontIcon },
+                    { href: '/subaccounts', label: 'Sub-Accounts', icon: BuildingStorefrontIcon },
                     { href: '/settings/subaccounts', label: 'Integrations', icon: ArrowPathIcon },
                     { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
                     { href: '/flows', label: 'Flows', icon: FlowIcon },
@@ -2419,7 +2419,7 @@ function ManagementRoleDashboard({
               <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                 {[
-                  { label: 'Accounts', value: totals.accountCount, icon: BuildingStorefrontIcon },
+                  { label: 'Sub-Accounts', value: totals.accountCount, icon: BuildingStorefrontIcon },
                   { label: 'Contacts', value: formatCompactNumber(totals.contactsTotal), icon: UserGroupIcon },
                   { label: 'Campaigns', value: totals.campaignCount, icon: PaperAirplaneIcon },
                   { label: 'Flows', value: totals.workflowCount, icon: FlowIcon },

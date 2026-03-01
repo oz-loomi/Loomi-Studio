@@ -356,7 +356,7 @@ function RepDropdownSection({
     <section className="space-y-2.5">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
-          Account Rep
+          Sub-Account Rep
         </p>
         <span className="text-[10px] text-[var(--sidebar-muted-foreground)] tabular-nums">
           {values.length > 0 ? `${values.length} selected` : `${options.length} total`}

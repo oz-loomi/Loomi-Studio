@@ -4221,7 +4221,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
             <input
               value={sourceSearch}
               onChange={(event) => setSourceSearch(event.target.value)}
-              placeholder="Search accounts..."
+              placeholder="Search sub-accounts..."
               className="h-9 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm"
             />
             <button

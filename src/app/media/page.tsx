@@ -1510,7 +1510,7 @@ export default function MediaPage() {
               ) : (
                 <div className="text-center py-12 text-[var(--muted-foreground)]">
                   <MagnifyingGlassIcon className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No accounts match &quot;{overviewSearch}&quot;</p>
+                  <p className="text-sm">No sub-accounts match &quot;{overviewSearch}&quot;</p>
                 </div>
               )}
             </>
@@ -1980,7 +1980,7 @@ export default function MediaPage() {
                       type="text"
                       value={uploadAccountSearch}
                       onChange={(e) => setUploadAccountSearch(e.target.value)}
-                      placeholder="Search accounts..."
+                      placeholder="Search sub-accounts..."
                       className="w-full text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg pl-8 pr-3 py-1.5 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
                     />
                   </div>
@@ -2027,7 +2027,7 @@ export default function MediaPage() {
                       );
                     })}
                     {filteredKeys.length === 0 && (
-                      <p className="text-xs text-[var(--muted-foreground)] text-center py-4">No accounts match your search.</p>
+                      <p className="text-xs text-[var(--muted-foreground)] text-center py-4">No sub-accounts match your search.</p>
                     )}
                   </div>
                 </div>
@@ -2321,7 +2321,7 @@ export default function MediaPage() {
                         type="text"
                         value={pushAccountSearch}
                         onChange={(e) => setPushAccountSearch(e.target.value)}
-                        placeholder="Search accounts..."
+                        placeholder="Search sub-accounts..."
                         className="w-full text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg pl-8 pr-3 py-1.5 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
                       />
                     </div>
@@ -2368,7 +2368,7 @@ export default function MediaPage() {
                         );
                       })}
                       {filteredKeys.length === 0 && (
-                        <p className="text-xs text-[var(--muted-foreground)] text-center py-4">No accounts match your search.</p>
+                        <p className="text-xs text-[var(--muted-foreground)] text-center py-4">No sub-accounts match your search.</p>
                       )}
                     </div>
                   </>

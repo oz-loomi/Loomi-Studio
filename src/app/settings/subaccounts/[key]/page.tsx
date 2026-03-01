@@ -1,1 +1,7 @@
-export { default } from '../../../subaccounts/[key]/page';
+'use client';
+
+import { SubAccountDetailPage } from '@/components/subaccount-detail';
+
+export default function Page() {
+  return <SubAccountDetailPage basePath="/settings/subaccounts" />;
+}

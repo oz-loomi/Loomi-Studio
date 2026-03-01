@@ -185,7 +185,7 @@ export function AccountsList({
 
 
   const handleDelete = async (key: string) => {
-    if (!confirm(`Delete account "${accounts?.[key]?.dealer || key}"? This cannot be undone.`)) return;
+    if (!confirm(`Delete sub-account "${accounts?.[key]?.dealer || key}"? This cannot be undone.`)) return;
     try {
       const res = await fetch(`/api/accounts?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
       if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed to delete'); return; }
