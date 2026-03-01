@@ -589,10 +589,11 @@ export const componentSchemas: Record<string, ComponentSchema> = {
         { label: 'Bottom Left', value: 'left bottom' },
         { label: 'Bottom Right', value: 'right bottom' },
       ] },
+      { key: 'min-height', label: 'Min Height', type: 'unit', group: 'background', responsive: true },
       { key: 'overlay-color', label: 'Overlay Color', type: 'color', default: '#000000', half: true, group: 'background', conditionalOn: 'image' },
       { key: 'overlay-opacity', label: 'Overlay', type: 'range', default: '0', group: 'background', min: 0, max: 100, conditionalOn: 'image' },
       { key: 'bg-color', label: 'Section Background', type: 'color', default: '#ffffff', half: true, group: 'background', sideScoped: false },
-      { key: 'text-bg-color', label: 'Column Background', type: 'color', default: '#f9fafb', half: true, group: 'background' },
+      { key: 'text-bg-color', label: 'Background Color', type: 'color', default: '#f9fafb', half: true, group: 'background' },
       // ── Buttons ──
       ...buttonProps('primary-button', 'primary', {
         text: 'Schedule Service',

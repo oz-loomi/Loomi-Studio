@@ -171,6 +171,7 @@
       },
       // Background
       textBgColor: get('text-bg-color'),
+      minHeight: get('min-height'),
       // Layout
       textAlign: get('text-align', 'left'),
       contentPadding: get('content-padding', '32px'),
@@ -183,6 +184,7 @@
       mEyebrowSize: get('m:eyebrow-size'),
       mHeadlineSize: get('m:headline-size'),
       mDescriptionSize: get('m:description-size'),
+      mMinHeight: get('m:min-height'),
       mContentPadding: get('m:content-padding'),
       mTextAlign: get('m:text-align'),
       mPrimaryButtonFontSize: get('m:primary-button-font-size'),
@@ -248,9 +250,20 @@
         const side = allSides[i];
         const colSel = s + '.' + side.sideClass;
         const sc = colSel + ' ';
-        // Reset cover mode on mobile: remove bg-image, restore natural img
-        r.push(colSel + ' { background-image: none !important; }');
-        r.push(sc + '.loomi-split-img { height: auto !important; overflow: visible !important; width: 100% !important; }');
+        // Keep cover mode behavior on mobile; only reset to natural image in auto mode.
+        if (side.imageFit === 'cover') {
+          r.push(
+            colSel +
+              ' { background-size: cover !important; background-position: ' +
+              (side.imagePosition || 'center center') +
+              ' !important; background-repeat: no-repeat !important; }',
+          );
+          r.push(sc + '.loomi-split-img { height: 0 !important; overflow: hidden !important; width: 100% !important; }');
+        } else {
+          r.push(colSel + ' { background-image: none !important; }');
+          r.push(sc + '.loomi-split-img { height: auto !important; overflow: visible !important; width: 100% !important; }');
+        }
+        if (side.mMinHeight) r.push(colSel + ' { min-height: ' + side.mMinHeight + ' !important; }');
         // Text wrapping safety
         r.push(sc + '.loomi-split-headline, ' + sc + '.loomi-split-desc { overflow-wrap: anywhere !important; word-break: break-word !important; }');
         // Buttons: ensure full-width on mobile
@@ -306,7 +319,7 @@
           width="50%"
           valign="{{ left.contentValign }}"
           background="{{ left.imageFit === 'cover' && left.image ? left.image : '' }}"
-          style="padding: 0;{{ left.imageFit === 'cover' && left.image ? ' background-size: cover; background-position: ' + left.imagePosition + '; background-repeat: no-repeat;' : '' }}"
+          style="padding: 0;{{ left.minHeight ? ' min-height: ' + left.minHeight + ';' : '' }}{{ left.imageFit === 'cover' && left.image ? ' background-size: cover; background-position: ' + left.imagePosition + '; background-repeat: no-repeat;' : '' }}"
         >
           <if condition="left.image">
             <img
@@ -376,7 +389,7 @@
           width="50%"
           valign="{{ right.contentValign }}"
           background="{{ right.imageFit === 'cover' && right.image ? right.image : '' }}"
-          style="padding: 0;{{ right.imageFit === 'cover' && right.image ? ' background-size: cover; background-position: ' + right.imagePosition + '; background-repeat: no-repeat;' : '' }}"
+          style="padding: 0;{{ right.minHeight ? ' min-height: ' + right.minHeight + ';' : '' }}{{ right.imageFit === 'cover' && right.image ? ' background-size: cover; background-position: ' + right.imagePosition + '; background-repeat: no-repeat;' : '' }}"
         >
           <if condition="right.image">
             <img

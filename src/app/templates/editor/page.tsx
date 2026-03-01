@@ -5301,11 +5301,19 @@ function ComponentPropsRenderer({
   const [trackingSetTab, setTrackingSetTab] = useState<'primary' | 'secondary'>('primary');
   // Separate repeatable-group props from standard props
   const standardProps = allSchemaProps.filter(p => !p.repeatableGroup);
+  const splitSectionLevelProps =
+    isSplitComponent
+      ? standardProps.filter((p) => p.sideScoped === false)
+      : [];
+  const groupedStandardProps =
+    isSplitComponent
+      ? standardProps.filter((p) => p.sideScoped !== false)
+      : standardProps;
   const renderedRepeatableGroups = new Set<string>();
 
   // Group standard props by their group value
-  const propsByGroup: Record<string, typeof standardProps> = {};
-  for (const prop of standardProps) {
+  const propsByGroup: Record<string, typeof groupedStandardProps> = {};
+  for (const prop of groupedStandardProps) {
     const g = prop.group || 'text';
     if (!propsByGroup[g]) propsByGroup[g] = [];
     propsByGroup[g].push(prop);
@@ -5517,7 +5525,16 @@ function ComponentPropsRenderer({
         </div>
       )}
       {isSplitComponent && (
-        <div className="pb-2 border-b border-[var(--border)]">
+        <>
+          {splitSectionLevelProps.length > 0 && (
+            <div className="space-y-2 pb-1">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                Section
+              </div>
+              {renderStandardProps(splitSectionLevelProps)}
+            </div>
+          )}
+          <div className="pb-2">
           <div className="flex rounded-lg border border-[var(--border)] overflow-hidden">
             {(["left", "right"] as const).map((side) => {
               const isActive = activeSplitSide === side;
@@ -5537,7 +5554,8 @@ function ComponentPropsRenderer({
               );
             })}
           </div>
-        </div>
+          </div>
+        </>
       )}
       <div className="[&>*:first-child]:border-t-0">{sections}</div>
     </div>
@@ -8117,10 +8135,16 @@ export default function TemplateEditorPage() {
         tr[data-loomi] { cursor: pointer; position: relative; }
         tr[data-loomi] > td { transition: outline-color 0.15s ease; outline: 3px solid transparent; outline-offset: -3px; }
         tr[data-loomi]:hover > td { outline-color: rgba(99, 102, 241, 0.45); }
-        tr[data-loomi].loomi-selected > td { outline-color: rgb(99, 102, 241); }
+        tr[data-loomi].loomi-selected > td { outline-color: transparent; }
         /* Don't highlight nested data-loomi elements (child rows within a component) */
         tr[data-loomi] tr[data-loomi] > td { outline: none !important; }
         tr[data-loomi] tr[data-loomi] { cursor: default; }
+        .loomi-selected-overlay {
+          position: absolute; top: 0; left: 0; z-index: 9998;
+          border: 3px solid rgb(99, 102, 241);
+          box-sizing: border-box;
+          pointer-events: none;
+        }
         /* Floating toolbar */
         .loomi-toolbar {
           position: absolute; top: 0; left: 0; z-index: 9999;
@@ -8164,6 +8188,11 @@ export default function TemplateEditorPage() {
       `;
       doc.body?.appendChild(toolbar);
 
+      const selectedOverlay = doc.createElement("div");
+      selectedOverlay.className = "loomi-selected-overlay";
+      selectedOverlay.style.display = "none";
+      doc.body?.appendChild(selectedOverlay);
+
       let toolbarIdx: number | null = null;
       let toolbarHost: HTMLElement | null = null;
       let toolbarAnchor: HTMLElement | null = null;
@@ -8187,16 +8216,62 @@ export default function TemplateEditorPage() {
         return outer;
       };
 
-      const findComponentRootByIndex = (idx: number): HTMLElement | null => {
+      const findComponentRootsByIndex = (idx: number): HTMLElement[] => {
         const rows = Array.from(
           doc.querySelectorAll(`tr[data-loomi="${idx}"]`),
         ) as HTMLElement[];
-        if (!rows.length) return null;
+        if (!rows.length) return [];
         const roots = rows.filter(
           (row) =>
             !row.parentElement?.closest(`tr[data-loomi="${idx}"]`),
         );
-        return roots[0] || rows[0];
+        return roots.length > 0 ? roots : rows;
+      };
+
+      const findComponentRootByIndex = (idx: number): HTMLElement | null => {
+        const roots = findComponentRootsByIndex(idx);
+        return roots[0] || null;
+      };
+
+      const positionSelectedOverlayForIndex = (idx: number | null) => {
+        if (idx === null || idx < 0) {
+          selectedOverlay.style.display = "none";
+          return;
+        }
+
+        const roots = findComponentRootsByIndex(idx);
+        if (!roots.length) {
+          selectedOverlay.style.display = "none";
+          return;
+        }
+
+        const win = doc.defaultView;
+        const scrollX = win?.scrollX ?? doc.documentElement.scrollLeft ?? 0;
+        const scrollY = win?.scrollY ?? doc.documentElement.scrollTop ?? 0;
+
+        let minLeft = Number.POSITIVE_INFINITY;
+        let minTop = Number.POSITIVE_INFINITY;
+        let maxRight = Number.NEGATIVE_INFINITY;
+        let maxBottom = Number.NEGATIVE_INFINITY;
+
+        roots.forEach((row) => {
+          const rect = row.getBoundingClientRect();
+          minLeft = Math.min(minLeft, rect.left);
+          minTop = Math.min(minTop, rect.top);
+          maxRight = Math.max(maxRight, rect.right);
+          maxBottom = Math.max(maxBottom, rect.bottom);
+        });
+
+        if (!Number.isFinite(minLeft) || !Number.isFinite(minTop)) {
+          selectedOverlay.style.display = "none";
+          return;
+        }
+
+        selectedOverlay.style.left = `${Math.round(minLeft + scrollX)}px`;
+        selectedOverlay.style.top = `${Math.round(minTop + scrollY)}px`;
+        selectedOverlay.style.width = `${Math.max(0, Math.round(maxRight - minLeft))}px`;
+        selectedOverlay.style.height = `${Math.max(0, Math.round(maxBottom - minTop))}px`;
+        selectedOverlay.style.display = "block";
       };
 
       const positionToolbar = (anchorEl: HTMLElement) => {
@@ -8205,27 +8280,16 @@ export default function TemplateEditorPage() {
         const scrollY = win?.scrollY ?? doc.documentElement.scrollTop ?? 0;
         const viewportWidth = doc.documentElement.clientWidth || win?.innerWidth || 0;
         const viewportHeight = doc.documentElement.clientHeight || win?.innerHeight || 0;
-        const margin = 8;
+        const margin = 4;
 
         const anchorRect = anchorEl.getBoundingClientRect();
         const toolbarRect = toolbar.getBoundingClientRect();
 
         let left: number;
         let top = anchorRect.top + scrollY + margin;
-        const isMobileMode = previewWidth === "mobile";
-
-        if (isMobileMode) {
-          // In mobile preview, keep controls inside the hovered component bounds.
-          left = anchorRect.right + scrollX - toolbarRect.width - margin;
-        } else {
-          // Desktop: prefer outside-right when there is room; otherwise place inside-right.
-          const outsideLeft = anchorRect.right + scrollX + margin;
-          const outsideFits =
-            outsideLeft + toolbarRect.width <= scrollX + viewportWidth - margin;
-          left = outsideFits
-            ? outsideLeft
-            : anchorRect.right + scrollX - toolbarRect.width - margin;
-        }
+        // Keep controls inside the hovered component so cursor travel never leaves
+        // the component hover area before reaching the toolbar.
+        left = anchorRect.right + scrollX - toolbarRect.width - margin;
 
         const minLeft = scrollX + margin;
         const maxLeft = Math.max(
@@ -8310,6 +8374,7 @@ export default function TemplateEditorPage() {
           if (toolbar.style.display !== "none" && toolbarAnchor) {
             positionToolbar(toolbarAnchor);
           }
+          positionSelectedOverlayForIndex(selectedComponentRef.current);
         },
         true,
       );
@@ -8376,6 +8441,7 @@ export default function TemplateEditorPage() {
         doc
           .querySelectorAll(`tr[data-loomi="${idx}"]`)
           .forEach((el) => el.classList.add("loomi-selected"));
+        positionSelectedOverlayForIndex(idx);
 
         // Notify React
         handlePreviewComponentClick(idx);
@@ -8387,6 +8453,9 @@ export default function TemplateEditorPage() {
         doc
           .querySelectorAll(`tr[data-loomi="${sel}"]`)
           .forEach((el) => el.classList.add("loomi-selected"));
+        positionSelectedOverlayForIndex(sel);
+      } else {
+        positionSelectedOverlayForIndex(null);
       }
     } catch {}
   };
@@ -8398,6 +8467,54 @@ export default function TemplateEditorPage() {
     try {
       const doc = iframe.contentDocument;
       if (!doc) return;
+      const overlay = doc.querySelector(".loomi-selected-overlay") as HTMLElement | null;
+      const positionOverlayForIndex = (idx: number | null) => {
+        if (!overlay) return;
+        if (idx === null || idx < 0) {
+          overlay.style.display = "none";
+          return;
+        }
+
+        const rows = Array.from(
+          doc.querySelectorAll(`tr[data-loomi="${idx}"]`),
+        ) as HTMLElement[];
+        const roots = rows.filter(
+          (row) => !row.parentElement?.closest(`tr[data-loomi="${idx}"]`),
+        );
+        const targets = roots.length > 0 ? roots : rows;
+        if (!targets.length) {
+          overlay.style.display = "none";
+          return;
+        }
+
+        const win = doc.defaultView;
+        const scrollX = win?.scrollX ?? doc.documentElement.scrollLeft ?? 0;
+        const scrollY = win?.scrollY ?? doc.documentElement.scrollTop ?? 0;
+
+        let minLeft = Number.POSITIVE_INFINITY;
+        let minTop = Number.POSITIVE_INFINITY;
+        let maxRight = Number.NEGATIVE_INFINITY;
+        let maxBottom = Number.NEGATIVE_INFINITY;
+        targets.forEach((row) => {
+          const rect = row.getBoundingClientRect();
+          minLeft = Math.min(minLeft, rect.left);
+          minTop = Math.min(minTop, rect.top);
+          maxRight = Math.max(maxRight, rect.right);
+          maxBottom = Math.max(maxBottom, rect.bottom);
+        });
+
+        if (!Number.isFinite(minLeft) || !Number.isFinite(minTop)) {
+          overlay.style.display = "none";
+          return;
+        }
+
+        overlay.style.left = `${Math.round(minLeft + scrollX)}px`;
+        overlay.style.top = `${Math.round(minTop + scrollY)}px`;
+        overlay.style.width = `${Math.max(0, Math.round(maxRight - minLeft))}px`;
+        overlay.style.height = `${Math.max(0, Math.round(maxBottom - minTop))}px`;
+        overlay.style.display = "block";
+      };
+
       doc
         .querySelectorAll("tr.loomi-selected")
         .forEach((el) => el.classList.remove("loomi-selected"));
@@ -8409,6 +8526,9 @@ export default function TemplateEditorPage() {
         if (rows.length > 0) {
           rows[0].scrollIntoView({ behavior: "smooth", block: "center" });
         }
+        positionOverlayForIndex(selectedComponent);
+      } else {
+        positionOverlayForIndex(null);
       }
     } catch {}
   }, [selectedComponent]);
