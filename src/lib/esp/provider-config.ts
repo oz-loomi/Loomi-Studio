@@ -34,6 +34,8 @@ export type ProviderPortalLinks = {
 export type EspProviderConfig = {
   displayName?: string;
   description?: string;
+  /** Features / integrations available once connected — shown on "Learn More". */
+  features?: string[];
   logoSrc?: string;
   logoAlt?: string;
   iconSrc?: string;
@@ -48,6 +50,15 @@ const ESP_PROVIDER_CONFIG: Record<string, EspProviderConfig> = {
   ghl: {
     displayName: 'GoHighLevel',
     description: 'CRM, contacts, campaigns, workflows, and messaging in one platform.',
+    features: [
+      'Contact syncing & analytics',
+      'Email campaigns & scheduling',
+      'Automation workflows',
+      'Custom value sync',
+      'Template management',
+      'Media library access',
+      'Business details auto-refresh',
+    ],
     logoSrc: 'https://storage.googleapis.com/msgsndr/CVpny6EUSHRxlXfqAFb7/media/6992d29f3b3cc90258dacc4b.jpg',
     logoAlt: 'GoHighLevel',
     iconSrc: 'https://storage.googleapis.com/msgsndr/CVpny6EUSHRxlXfqAFb7/media/6992d3c254da0462343bf828.jpg',
@@ -104,6 +115,14 @@ const ESP_PROVIDER_CONFIG: Record<string, EspProviderConfig> = {
   klaviyo: {
     displayName: 'Klaviyo',
     description: 'Email marketing, automation flows, and customer data for ecommerce.',
+    features: [
+      'Contact syncing & analytics',
+      'Email campaigns & scheduling',
+      'Automation flows',
+      'Custom value sync',
+      'Template management',
+      'Media library access',
+    ],
     logoSrc: 'https://storage.googleapis.com/msgsndr/CVpny6EUSHRxlXfqAFb7/media/6992d29f6bac245308bb6556.png',
     logoAlt: 'Klaviyo',
     iconSrc: 'https://storage.googleapis.com/msgsndr/CVpny6EUSHRxlXfqAFb7/media/6992d3ac3b3cc9155bdaf06e.png',

@@ -179,6 +179,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
 
   // Integration detail modals
   const [integrationModal, setIntegrationModal] = useState<string | null>(null);
+  const [learnMoreModal, setLearnMoreModal] = useState<string | null>(null);
   const [showAdvancedDetails, setShowAdvancedDetails] = useState(false);
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>([]);
   const [genericProviderSecrets, setGenericProviderSecrets] = useState<Record<string, string>>({});
@@ -446,7 +447,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
   async function handleGhlLocationUnlink(): Promise<void> {
     const linkedId = ghlLocationLink?.locationId || '';
     if (!linkedId) return;
-    if (!confirm('Unlink this account from its GHL location?')) return;
+    if (!confirm('Unlink this sub-account from its GHL location?')) return;
 
     setGhlUnlinking(true);
     try {
@@ -778,9 +779,9 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
       } else if (data.account) {
         const accountName = typeof data.account.name === 'string' ? data.account.name : '';
         if (accountName) setDealer(accountName);
-        toast.success(`Account details refreshed from ${providerDisplayName(normalizedProvider)}!`);
+        toast.success(`Sub-account details refreshed from ${providerDisplayName(normalizedProvider)}!`);
       } else {
-        toast.error(data.error || `No account details were returned by ${providerDisplayName(normalizedProvider)}`);
+        toast.error(data.error || `No sub-account details were returned by ${providerDisplayName(normalizedProvider)}`);
       }
     } catch {
       toast.error(`Failed to refresh details from ${providerDisplayName(normalizedProvider)}`);
@@ -830,7 +831,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
   // ── Disconnect Provider ──
   async function handleProviderDisconnect(providerId: string) {
     const providerLabel = providerDisplayName(providerId);
-    const confirmMessage = `Disconnect this account from ${providerLabel}? You can reconnect later.`;
+    const confirmMessage = `Disconnect this sub-account from ${providerLabel}? You can reconnect later.`;
     if (!confirm(confirmMessage)) return;
 
     setGenericProviderDisconnecting(prev => ({ ...prev, [providerId]: true }));
@@ -1103,7 +1104,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                             Missing a rep in this list?
                           </span>
                           <span className="mt-1 block text-[10px] leading-4 text-[var(--muted-foreground)]">
-                            Go to Users, open that user, and assign this account to them first.
+                            Go to Users, open that user, and assign this sub-account to them first.
                           </span>
                           <Link
                             href="/settings/users"
@@ -1126,7 +1127,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                     if (assignedUsers.length === 0) {
                       return (
                         <p className="text-xs text-[var(--muted-foreground)] italic py-2">
-                          No users assigned to this account
+                          No users assigned to this sub-account
                         </p>
                       );
                     }
@@ -1269,7 +1270,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
               <h3 className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-3">Danger Zone</h3>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between p-4 border border-red-500/20 rounded-xl">
                 <div>
-                  <p className="text-sm font-medium">Delete this account</p>
+                  <p className="text-sm font-medium">Delete this sub-account</p>
                   <p className="text-xs text-[var(--muted-foreground)]">
                     Permanently remove {dealer || key} and all associated data.
                   </p>
@@ -1278,7 +1279,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                   onClick={handleDelete}
                   className="px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-colors flex-shrink-0"
                 >
-                  Delete Account
+                  Delete Sub-Account
                 </button>
               </div>
             </section>
@@ -1328,7 +1329,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
             <section className={sectionCardClass}>
               <h3 className={sectionHeadingClass}>Brand Colors</h3>
               <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
-                Set reusable color values for this account. These are available as custom value fallbacks in previews.
+                Set reusable color values for this sub-account. These are available as custom value fallbacks in previews.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {([
@@ -1451,7 +1452,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                       ) : (
                         <div className="flex flex-col gap-2 mt-auto">
                           <button
-                            onClick={() => setIntegrationModal(providerId)}
+                            onClick={() => setLearnMoreModal(providerId)}
                             className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-xs font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                           >
                             Learn More
@@ -1547,7 +1548,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                         <>
                           {/* ── Logo Header ── */}
                           {providerTheme.logoSrc && (
-                            <div className={`-mx-6 -mt-6 mb-2 flex items-center justify-center px-6 py-6 ${providerTheme.headerClassName || 'bg-[var(--muted)]'}`}>
+                            <div className={`-mx-6 -mt-6 flex items-center justify-center px-6 py-6 ${providerTheme.headerClassName || 'bg-[var(--muted)]'}`}>
                               <img
                                 src={providerTheme.logoSrc}
                                 alt={providerTheme.logoAlt || providerLabel}
@@ -1557,7 +1558,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                           )}
 
                           {/* ── Title + Description ── */}
-                          <div>
+                          <div className="pt-2">
                             <h3 className="text-lg font-semibold text-[var(--foreground)]">
                               {providerLabel}
                             </h3>
@@ -1583,7 +1584,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                                   <>
                                     <p className="text-sm font-medium text-amber-400">Connected — no location linked</p>
                                     <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                                      Link a GHL location below to enable features for this account.
+                                      Link a GHL location below to enable features for this sub-account.
                                     </p>
                                   </>
                                 ) : (
@@ -1922,6 +1923,63 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
               </div>
             )}
 
+            {/* ══════ Learn More Info Modal ══════ */}
+            {learnMoreModal && (() => {
+              const lmProviderId = normalizeProviderId(learnMoreModal);
+              const lmTheme = providerCardTheme(lmProviderId);
+              const lmLabel = providerDisplayName(learnMoreModal);
+              const lmFeatures = lmTheme.features || [];
+              return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setLearnMoreModal(null)}>
+                  <div className="glass-card glass-modal rounded-xl p-0 max-w-lg w-full mx-4 border border-[var(--border)] shadow-2xl overflow-hidden animate-fade-in-up max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                    <div className="p-6 space-y-5 overflow-y-auto flex-1 min-h-0">
+                      {/* ── Logo Header ── */}
+                      {lmTheme.logoSrc && (
+                        <div className={`-mx-6 -mt-6 mb-2 flex items-center justify-center px-6 py-6 ${lmTheme.headerClassName || 'bg-[var(--muted)]'}`}>
+                          <img
+                            src={lmTheme.logoSrc}
+                            alt={lmTheme.logoAlt || lmLabel}
+                            className="w-full max-w-[200px] object-contain"
+                          />
+                        </div>
+                      )}
+
+                      {/* ── Title + Description ── */}
+                      <div className="pt-2">
+                        <h3 className="text-lg font-semibold text-[var(--foreground)]">{lmLabel}</h3>
+                        <p className="text-sm text-[var(--muted-foreground)] mt-1 leading-relaxed">
+                          {lmTheme.description}
+                        </p>
+                      </div>
+
+                      {/* ── Features List ── */}
+                      {lmFeatures.length > 0 && (
+                        <div>
+                          <h4 className="text-xs font-semibold text-[var(--foreground)] uppercase tracking-wide mb-3">Available Integrations</h4>
+                          <ul className="space-y-2">
+                            {lmFeatures.map((feature) => (
+                              <li key={feature} className="flex items-center gap-2.5 text-sm text-[var(--muted-foreground)]">
+                                <CheckCircleIcon className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                                {feature}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-shrink-0 border-t border-[var(--border)] px-6 py-4 flex justify-end">
+                      <button
+                        onClick={() => setLearnMoreModal(null)}
+                        className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
           </div>
         )}
 
@@ -1933,7 +1991,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
             <section className={sectionCardClass}>
               <h3 className={sectionHeadingClass}>Custom Values</h3>
               <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
-                Fill in values for this account. Filled values are automatically synced to the connected ESP when supported.
+                Fill in values for this sub-account. Filled values are automatically synced to the connected ESP when supported.
                 Clearing a value will remove it from the connected ESP after confirmation.
                 Use <span className="font-mono">{'{{custom_values.field_key}}'}</span> in templates.
               </p>
@@ -2011,7 +2069,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
               {activeProviderNeedsReauthorization && (
                 <div className="glass-card rounded-lg p-3 mb-3 border border-amber-500/20 bg-amber-500/5">
                   <p className="text-[11px] text-amber-400">
-                    <strong>Missing permissions:</strong> This account&apos;s OAuth token is missing one or more required scopes for custom value sync in {providerDisplayName(activeProvider)}.{' '}
+                    <strong>Missing permissions:</strong> This sub-account&apos;s OAuth token is missing one or more required scopes for custom value sync in {providerDisplayName(activeProvider)}.{' '}
                     Use <strong>Refresh Agency Token</strong> on the Integration tab to update scopes, or{' '}
                     <a
                       href={buildAuthorizeHref({
@@ -2223,7 +2281,7 @@ function AccountContactsTab({ accountKey, isConnected }: { accountKey: string; i
         <ExclamationTriangleIcon className="w-8 h-8 text-[var(--muted-foreground)] mx-auto mb-3" />
         <p className="text-[var(--muted-foreground)] text-sm font-medium">No ESP Connection</p>
         <p className="text-[var(--muted-foreground)] text-xs mt-1">
-          Connect this account to an ESP provider to view contacts.
+          Connect this sub-account to an ESP provider to view contacts.
         </p>
       </div>
     );

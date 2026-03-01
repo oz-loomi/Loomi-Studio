@@ -5,6 +5,8 @@ import {
 
 export type ProviderCardTheme = {
   description: string;
+  /** Features / integrations available once connected — shown on "Learn More". */
+  features?: string[];
   logoSrc?: string;
   logoAlt?: string;
   headerClassName?: string;
@@ -31,6 +33,7 @@ export function providerCardTheme(provider: string | null | undefined): Provider
   const config = getProviderConfig(provider);
   return {
     description: config?.description || 'Provider registered in Loomi ESP adapters.',
+    features: config?.features,
     logoSrc: config?.logoSrc,
     logoAlt: config?.logoAlt || providerDisplayName(provider),
     headerClassName: config?.headerClassName || 'bg-[var(--muted)]',
