@@ -46,7 +46,7 @@ export function Sidebar() {
   const navItems = isClientRole ? clientNavItems : adminNavItems;
   const settingsHref = isClientRole ? '/settings/account' : (isAccount ? '/settings/account' : '/settings/accounts');
 
-  const settingsActive = pathname === '/settings' || pathname.startsWith('/settings') || pathname.startsWith('/users') || pathname.startsWith('/accounts');
+  const settingsActive = pathname === '/settings' || pathname.startsWith('/settings') || pathname.startsWith('/users') || pathname.startsWith('/subaccounts');
 
   return (
     <aside className="glass-panel fixed left-3 top-3 bottom-3 w-60 rounded-2xl text-[var(--sidebar-foreground)] flex flex-col z-50 overflow-hidden">

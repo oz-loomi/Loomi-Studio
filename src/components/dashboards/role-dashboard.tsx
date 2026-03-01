@@ -2339,7 +2339,7 @@ function ManagementRoleDashboard({
                 <div className="grid grid-cols-2 gap-2.5">
                   {[
                     { href: '/users', label: 'Users', icon: UsersIcon },
-                    { href: '/accounts', label: 'Accounts', icon: BuildingStorefrontIcon },
+                    { href: '/subaccounts', label: 'Accounts', icon: BuildingStorefrontIcon },
                     { href: '/settings/accounts', label: 'Integrations', icon: ArrowPathIcon },
                     { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
                     { href: '/flows', label: 'Flows', icon: FlowIcon },

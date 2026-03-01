@@ -80,8 +80,8 @@ function getVisiblePages(currentPage: number, totalPages: number, maxVisible = 5
 }
 
 export function AccountsList({
-  listPath = '/accounts',
-  detailBasePath = '/accounts',
+  listPath = '/subaccounts',
+  detailBasePath = '/subaccounts',
 }: AccountsListProps) {
   const router = useRouter();
   const searchParams = useSearchParams();

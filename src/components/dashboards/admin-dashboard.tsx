@@ -246,7 +246,7 @@ export function AdminDashboard() {
       label: 'Sub-Accounts',
       value: accountCount,
       sub: `${crmTotals.connectedAccounts} connected`,
-      href: '/accounts',
+      href: '/subaccounts',
       icon: BuildingStorefrontIcon,
       color: iconColorClass('general'),
     },

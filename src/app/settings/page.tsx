@@ -235,7 +235,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'accounts' && <AccountsList listPath="/settings/accounts" detailBasePath="/settings/accounts" />}
+      {activeTab === 'accounts' && <AccountsList listPath="/settings/accounts" detailBasePath="/settings/subaccounts" />}
       {activeTab === 'account' && <AccountSettingsTab />}
       {activeTab === 'users' && <UsersTab />}
       {activeTab === 'integrations' && <AccountDetailTabRedirect targetTab="integration" />}
@@ -257,7 +257,7 @@ function AccountDetailTabRedirect({ targetTab }: { targetTab: 'integration' | 'c
 
   useEffect(() => {
     if (!isAccount || !accountKey) return;
-    router.replace(`/settings/accounts/${encodeURIComponent(accountKey)}?tab=${targetTab}`);
+    router.replace(`/settings/subaccounts/${encodeURIComponent(accountKey)}?tab=${targetTab}`);
   }, [isAccount, accountKey, targetTab, router]);
 
   if (!isAccount || !accountKey) {
@@ -2324,7 +2324,7 @@ function CustomValuesTab() {
                   {ghlAgencyUnlinkedAccounts.slice(0, 8).map((accountStatus) => (
                     <a
                       key={accountStatus.key}
-                      href={`/settings/accounts/${encodeURIComponent(accountStatus.key)}?tab=integration`}
+                      href={`/settings/subaccounts/${encodeURIComponent(accountStatus.key)}?tab=integration`}
                       className="text-[10px] px-2 py-1 rounded-full border border-amber-500/30 text-amber-300 hover:bg-amber-500/10 transition-colors"
                     >
                       {accountStatus.dealer}
@@ -2568,7 +2568,7 @@ function CustomValuesTab() {
                         && !acct.locationId
                       ) ? (
                         <a
-                          href={`/settings/accounts/${encodeURIComponent(acct.key)}?tab=integration`}
+                          href={`/settings/subaccounts/${encodeURIComponent(acct.key)}?tab=integration`}
                           className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition-colors"
                           title="Link this sub-account to a GHL location"
                         >

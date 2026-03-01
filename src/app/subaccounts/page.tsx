@@ -10,7 +10,7 @@ export default function AccountsPage() {
         <div className="page-sticky-header mb-8">
           <h2 className="text-2xl font-bold">Sub-Accounts</h2>
         </div>
-        <AccountsList />
+        <AccountsList listPath="/subaccounts" detailBasePath="/subaccounts" />
       </div>
     </AdminOnly>
   );

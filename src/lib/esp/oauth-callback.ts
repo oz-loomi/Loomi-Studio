@@ -33,7 +33,7 @@ function buildRedirectUrl(req: NextRequest, pathname: string): URL {
 }
 
 function redirectAccountsError(req: NextRequest, provider: EspProvider, message: string): NextResponse {
-  const url = buildRedirectUrl(req, '/accounts');
+  const url = buildRedirectUrl(req, '/subaccounts');
   url.searchParams.set('esp_error', message);
   url.searchParams.set('esp_provider', provider);
   return NextResponse.redirect(url);

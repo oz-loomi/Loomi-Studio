@@ -617,11 +617,11 @@ export default function AccountDetailPage() {
       setActiveTab('integration');
       refreshProviderCatalog();
       refreshAccountData();
-      router.replace(`/accounts/${key}`, { scroll: false });
+      router.replace(`/subaccounts/${key}`, { scroll: false });
     } else if (errorMessage) {
       toast.error(`${label} connection failed: ${errorMessage}`);
       setActiveTab('integration');
-      router.replace(`/accounts/${key}`, { scroll: false });
+      router.replace(`/subaccounts/${key}`, { scroll: false });
     }
   }, [searchParams, key, router]);
 
@@ -803,7 +803,7 @@ export default function AccountDetailPage() {
       const res = await fetch(`/api/accounts?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
       if (res.ok) {
         await refreshAccountList();
-        router.push('/accounts');
+        router.push('/subaccounts');
       } else {
         toast.error('Failed to delete');
       }
@@ -957,7 +957,7 @@ export default function AccountDetailPage() {
       <AdminOnly>
         <div className="text-center py-16">
           <p className="text-[var(--muted-foreground)]">Sub-account not found</p>
-          <Link href="/accounts" className="text-sm text-[var(--primary)] mt-2 inline-block hover:underline">
+          <Link href="/subaccounts" className="text-sm text-[var(--primary)] mt-2 inline-block hover:underline">
             Back to Sub-Accounts
           </Link>
         </div>
@@ -969,14 +969,14 @@ export default function AccountDetailPage() {
   const labelClass = 'block text-xs font-medium text-[var(--muted-foreground)] mb-1.5';
   const sectionHeadingClass = 'text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-4';
   const sectionCardClass = 'glass-section-card rounded-xl p-6';
-  const showContactsTab = !pathname.startsWith('/settings/accounts/');
+  const showContactsTab = !pathname.startsWith('/settings/subaccounts/');
   const canSeeCustomValues = userRole === 'developer' || userRole === 'super_admin';
   const visibleTabs = TABS.filter((tab) => {
     if (tab.key === 'contacts' && !showContactsTab) return false;
     if (tab.key === 'custom-values' && !canSeeCustomValues) return false;
     return true;
   });
-  const backHref = showContactsTab ? '/accounts' : '/settings/account';
+  const backHref = '/settings/accounts';
   const showBrandsSelector = industryHasBrands(category);
   const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
   const isEcommerceIndustry = category.trim().toLowerCase() === 'ecommerce';
