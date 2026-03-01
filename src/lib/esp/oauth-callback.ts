@@ -107,18 +107,34 @@ export async function completeEspOAuthCallback(
 
   if (errorParam) {
     const desc = req.nextUrl.searchParams.get('error_description') || errorParam;
+    console.error(`[esp-oauth] ${provider} callback error from provider:`, {
+      error: errorParam,
+      description: desc,
+      isAgencyFlow,
+      hasState: Boolean(state),
+      stateValid: Boolean(statePayload),
+    });
     return isAgencyFlow
       ? redirectSettingsError(req, provider, desc)
       : redirectAccountsError(req, provider, desc);
   }
 
   if (!code || !state) {
+    console.error(`[esp-oauth] ${provider} callback missing params:`, {
+      hasCode: Boolean(code),
+      hasState: Boolean(state),
+      isAgencyFlow,
+    });
     return isAgencyFlow
       ? redirectSettingsError(req, provider, 'Missing authorization code')
       : redirectAccountsError(req, provider, 'Missing authorization code');
   }
 
   if (!statePayload) {
+    console.error(`[esp-oauth] ${provider} callback state verification failed:`, {
+      stateLength: state?.length,
+      isAgencyFlow,
+    });
     return redirectAccountsError(req, provider, 'Invalid or expired state parameter');
   }
 
@@ -141,6 +157,15 @@ export async function completeEspOAuthCallback(
       locationId: locationId || '',
       locationName,
       tokens,
+    });
+
+    const grantedScopes = tokens.scope ? tokens.scope.split(' ').filter(Boolean) : [];
+    console.info(`[esp-oauth] ${provider} OAuth success:`, {
+      isAgencyFlow,
+      accountKey: isAgencyFlow ? '(agency)' : accountKey,
+      locationId: locationId || '(none)',
+      grantedScopesCount: grantedScopes.length,
+      grantedScopes,
     });
 
     if (isAgencyFlow) {
