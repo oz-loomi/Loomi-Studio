@@ -41,8 +41,8 @@ import { fetchRequiredScopesByCatalogUrl } from '@/lib/esp/provider-scopes';
 const CATEGORY_SUGGESTIONS = ['Automotive', 'Powersports', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
 
 type Tab =
-  | 'accounts'
-  | 'account'
+  | 'subaccounts'
+  | 'subaccount'
   | 'users'
   | 'integrations'
   | 'custom-values'
@@ -147,8 +147,8 @@ export default function SettingsPage() {
   const tabs: { key: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [];
   const hasAdminAccess = userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
   const hasRollupAccess = userRole === 'developer' || userRole === 'super_admin';
-  if (hasAdminAccess && isAdmin) tabs.push({ key: 'accounts', label: 'Sub-Accounts', icon: BuildingStorefrontIcon });
-  if (isAccount) tabs.push({ key: 'account', label: 'Sub-Account', icon: BuildingStorefrontIcon });
+  if (hasAdminAccess && isAdmin) tabs.push({ key: 'subaccounts', label: 'Sub-Accounts', icon: BuildingStorefrontIcon });
+  if (isAccount) tabs.push({ key: 'subaccount', label: 'Sub-Account', icon: BuildingStorefrontIcon });
   if (hasAdminAccess) tabs.push({ key: 'users', label: 'Users', icon: UsersIcon });
   if (isAccount && hasAdminAccess) tabs.push({ key: 'integrations', label: 'Integrations', icon: LinkIcon });
   if (userRole === 'developer' || userRole === 'super_admin') tabs.push({ key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon });
@@ -235,8 +235,8 @@ export default function SettingsPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'accounts' && <AccountsList listPath="/settings/subaccounts" detailBasePath="/settings/subaccounts" />}
-      {activeTab === 'account' && <AccountSettingsTab />}
+      {activeTab === 'subaccounts' && <AccountsList listPath="/settings/subaccounts" detailBasePath="/settings/subaccounts" />}
+      {activeTab === 'subaccount' && <AccountSettingsTab />}
       {activeTab === 'users' && <UsersTab />}
       {activeTab === 'integrations' && <AccountDetailTabRedirect targetTab="integration" />}
       {activeTab === 'custom-values' && (
