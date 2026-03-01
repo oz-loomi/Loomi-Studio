@@ -765,6 +765,9 @@ input, select, textarea {
 .collapsible-inner {
   overflow: hidden;
 }
+.collapsible-wrapper[data-open="true"] .collapsible-inner {
+  overflow: visible;
+}
 
 /* ── Range Slider (Elementor-style) ── */
 .range-slider {

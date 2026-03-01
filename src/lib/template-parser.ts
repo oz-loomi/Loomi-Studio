@@ -54,6 +54,17 @@ export function parseTemplate(fileContent: string): ParsedTemplate {
   return { frontmatter, baseProps, components, raw };
 }
 
+function decodeAttributeEntities(value: string): string {
+  return value
+    .replace(/&quot;/gi, '"')
+    .replace(/&#34;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
+}
+
 function parseAttributes(attrString: string): Record<string, string> {
   const props: Record<string, string> = {};
   if (!attrString) return props;
@@ -64,7 +75,7 @@ function parseAttributes(attrString: string): Record<string, string> {
   while ((match = attrRegex.exec(attrString)) !== null) {
     const key = match[1];
     const value = match[2] !== undefined ? match[2] : match[3];
-    props[key] = value;
+    props[key] = decodeAttributeEntities(value);
   }
 
   return props;

@@ -201,8 +201,12 @@ export function VariablePickerButton({ onInsert }: VariablePickerButtonProps) {
   const dropdown = open && dropdownPos && createPortal(
     <div
       ref={dropdownRef}
-      className="fixed z-[9999] w-72 max-h-80 rounded-lg border border-[var(--border)] bg-[var(--card)] backdrop-blur-xl saturate-[160%] shadow-[0_4px_16px_rgba(0,0,0,0.1),inset_0_0.5px_0_rgba(255,255,255,0.04)] overflow-hidden flex flex-col"
-      style={{ top: dropdownPos.top, left: dropdownPos.left }}
+      className="fixed z-[9999] w-72 max-h-80 rounded-lg border border-[var(--border)] backdrop-blur-xl backdrop-saturate-150 shadow-[0_4px_16px_rgba(0,0,0,0.1),inset_0_0.5px_0_rgba(255,255,255,0.04)] overflow-hidden flex flex-col"
+      style={{
+        top: dropdownPos.top,
+        left: dropdownPos.left,
+        background: "color-mix(in srgb, var(--background) 96%, transparent)",
+      }}
     >
           {/* Search */}
           <div className="p-2 border-b border-[var(--border)]">

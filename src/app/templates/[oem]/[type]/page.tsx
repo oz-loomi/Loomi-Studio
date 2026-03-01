@@ -54,6 +54,15 @@ import { TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT } from "@/lib/ui-events";
 type EditorMode = "code" | "visual";
 type VisualTab = "settings" | "components";
 
+const EDITOR_PANEL_DEFAULT_WIDTH = 480;
+const EDITOR_PANEL_MIN_WIDTH = 360;
+const EDITOR_PANEL_MAX_WIDTH = 920;
+const PREVIEW_PANEL_MIN_WIDTH = 360;
+const AI_PANEL_WIDTH = 360;
+const SPLIT_GAP_PX = 16;
+const SPLITTER_WIDTH_PX = 8;
+const PANEL_WIDTH_STEP_PX = 24;
+
 interface TemplateHistoryVersion {
   id: string;
   createdAt: string;
@@ -1102,6 +1111,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
 ];
 
 // Helper to serialize a single component into lines
+function escapeTemplateAttrValue(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;");
+}
+
 function serializeComponent(
   comp: { type: string; props: Record<string, string>; content?: string },
   indent: string,
@@ -1109,7 +1124,9 @@ function serializeComponent(
   const lines: string[] = [];
   const propEntries = Object.entries(comp.props);
   if (propEntries.length <= 2) {
-    const attrStr = propEntries.map(([k, v]) => `${k}="${v}"`).join(" ");
+    const attrStr = propEntries
+      .map(([k, v]) => `${k}="${escapeTemplateAttrValue(String(v ?? ""))}"`)
+      .join(" ");
     if (comp.content) {
       lines.push(
         `${indent}<x-core.${comp.type} ${attrStr}>${comp.content}</x-core.${comp.type}>`,
@@ -1120,7 +1137,9 @@ function serializeComponent(
   } else {
     lines.push(`${indent}<x-core.${comp.type}`);
     for (const [key, value] of propEntries) {
-      lines.push(`${indent}  ${key}="${value}"`);
+      lines.push(
+        `${indent}  ${key}="${escapeTemplateAttrValue(String(value ?? ""))}"`,
+      );
     }
     if (comp.content) {
       lines[lines.length - 1] += ">";
@@ -1304,13 +1323,13 @@ function serializeTemplateForPreview(
   lines.push("");
   if (Object.keys(template.baseProps).length <= 2) {
     const inlineStr = Object.entries(template.baseProps)
-      .map(([k, v]) => `${k}="${v}"`)
+      .map(([k, v]) => `${k}="${escapeTemplateAttrValue(String(v ?? ""))}"`)
       .join(" ");
     lines.push(`<x-base ${inlineStr}>`);
   } else {
     lines.push(`<x-base`);
     for (const [k, v] of Object.entries(template.baseProps)) {
-      lines.push(`  ${k}="${v}"`);
+      lines.push(`  ${k}="${escapeTemplateAttrValue(String(v ?? ""))}"`);
     }
     lines.push(`>`);
   }
@@ -1392,13 +1411,13 @@ function serializeTemplateClient(template: ParsedTemplate): string {
   lines.push("");
   if (Object.keys(template.baseProps).length <= 2) {
     const inlineStr = Object.entries(template.baseProps)
-      .map(([k, v]) => `${k}="${v}"`)
+      .map(([k, v]) => `${k}="${escapeTemplateAttrValue(String(v ?? ""))}"`)
       .join(" ");
     lines.push(`<x-base ${inlineStr}>`);
   } else {
     lines.push(`<x-base`);
     for (const [k, v] of Object.entries(template.baseProps)) {
-      lines.push(`  ${k}="${v}"`);
+      lines.push(`  ${k}="${escapeTemplateAttrValue(String(v ?? ""))}"`);
     }
     lines.push(`>`);
   }
@@ -1503,6 +1522,10 @@ export default function TemplateEditorPage() {
   const selectedComponentRef = useRef<number | null>(null);
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const splitPaneRef = useRef<HTMLDivElement>(null);
+  const splitResizeStartRef = useRef<{ x: number; width: number } | null>(null);
+  const [editorPanelWidth, setEditorPanelWidth] = useState(EDITOR_PANEL_DEFAULT_WIDTH);
+  const [isResizingPanels, setIsResizingPanels] = useState(false);
 
   // Undo/redo history
   const historyRef = useRef<string[]>([]);
@@ -1518,6 +1541,89 @@ export default function TemplateEditorPage() {
     setCanUndo(true);
     setCanRedo(false);
   }, []);
+
+  const clampEditorPanelWidth = useCallback((desiredWidth: number) => {
+    const containerWidth = splitPaneRef.current?.getBoundingClientRect().width;
+    if (!containerWidth || Number.isNaN(containerWidth)) {
+      return Math.max(EDITOR_PANEL_MIN_WIDTH, Math.round(desiredWidth));
+    }
+
+    const reservedAiWidth = showAiAssistant ? AI_PANEL_WIDTH + SPLIT_GAP_PX : 0;
+    const maxWidth =
+      containerWidth -
+      reservedAiWidth -
+      PREVIEW_PANEL_MIN_WIDTH -
+      SPLIT_GAP_PX * 2 -
+      SPLITTER_WIDTH_PX;
+    const boundedMax = Math.max(
+      EDITOR_PANEL_MIN_WIDTH,
+      Math.min(Math.floor(maxWidth), EDITOR_PANEL_MAX_WIDTH),
+    );
+
+    return Math.round(
+      Math.min(Math.max(desiredWidth, EDITOR_PANEL_MIN_WIDTH), boundedMax),
+    );
+  }, [showAiAssistant]);
+
+  const beginPanelResize = useCallback((clientX: number) => {
+    splitResizeStartRef.current = { x: clientX, width: editorPanelWidth };
+    setIsResizingPanels(true);
+  }, [editorPanelWidth]);
+
+  const handlePanelResizerMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    beginPanelResize(e.clientX);
+  }, [beginPanelResize]);
+
+  const adjustEditorPanelWidth = useCallback((delta: number) => {
+    setEditorPanelWidth((prev) => clampEditorPanelWidth(prev + delta));
+  }, [clampEditorPanelWidth]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncWidth = () => {
+      setEditorPanelWidth((prev) => clampEditorPanelWidth(prev));
+    };
+    syncWidth();
+    window.addEventListener("resize", syncWidth);
+    return () => window.removeEventListener("resize", syncWidth);
+  }, [clampEditorPanelWidth]);
+
+  useEffect(() => {
+    if (!isResizingPanels || typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const start = splitResizeStartRef.current;
+      if (!start) return;
+      const nextWidth = start.width + (e.clientX - start.x);
+      setEditorPanelWidth(clampEditorPanelWidth(nextWidth));
+    };
+
+    const stopResizing = () => {
+      splitResizeStartRef.current = null;
+      setIsResizingPanels(false);
+    };
+
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", stopResizing);
+    window.addEventListener("blur", stopResizing);
+
+    return () => {
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", stopResizing);
+      window.removeEventListener("blur", stopResizing);
+    };
+  }, [clampEditorPanelWidth, isResizingPanels]);
 
   const selectedPreviewContact = useMemo(
     () =>
@@ -2943,9 +3049,12 @@ export default function TemplateEditorPage() {
       </div>
 
       {/* Main split pane */}
-      <div className="flex gap-4 flex-1 min-h-0">
+      <div ref={splitPaneRef} className="flex gap-4 flex-1 min-h-0">
         {/* Left panel — Editor */}
-        <div className="w-[480px] flex-shrink-0 flex flex-col border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--card)]">
+        <div
+          className="flex-shrink-0 flex flex-col border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--card)]"
+          style={{ width: `${editorPanelWidth}px` }}
+        >
           {/* Tabs */}
           <div className="flex items-center border-b border-[var(--border)] bg-[var(--muted)] flex-shrink-0">
             <button
@@ -3379,6 +3488,38 @@ export default function TemplateEditorPage() {
           )}
         </div>
 
+        <div
+          role="separator"
+          aria-label="Resize editor and preview panes"
+          aria-orientation="vertical"
+          aria-valuenow={editorPanelWidth}
+          aria-valuemin={EDITOR_PANEL_MIN_WIDTH}
+          aria-valuemax={EDITOR_PANEL_MAX_WIDTH}
+          tabIndex={0}
+          onMouseDown={handlePanelResizerMouseDown}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") {
+              e.preventDefault();
+              adjustEditorPanelWidth(-PANEL_WIDTH_STEP_PX);
+            } else if (e.key === "ArrowRight") {
+              e.preventDefault();
+              adjustEditorPanelWidth(PANEL_WIDTH_STEP_PX);
+            }
+          }}
+          className={`group flex-shrink-0 self-stretch w-2 -mx-1 rounded cursor-col-resize transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)] ${
+            isResizingPanels ? "bg-[var(--primary)]/15" : "hover:bg-[var(--muted)]"
+          }`}
+          title="Drag to resize editor and preview panes"
+        >
+          <span
+            className={`mx-auto block h-full w-[2px] rounded-full transition-colors ${
+              isResizingPanels
+                ? "bg-[var(--primary)]"
+                : "bg-[var(--border)] group-hover:bg-[var(--primary)]"
+            }`}
+          />
+        </div>
+
         {/* Right panel — Preview */}
         <div className="flex-1 flex flex-col border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--card)] min-w-0">
           <div className="flex items-center px-4 py-2 border-b border-[var(--border)] bg-[var(--muted)] flex-shrink-0">
@@ -3583,7 +3724,10 @@ export default function TemplateEditorPage() {
         </div>
 
         {showAiAssistant && (
-          <div className="relative w-[360px] flex-shrink-0 flex flex-col rounded-xl overflow-hidden ai-ed-panel animate-slide-in-right">
+          <div
+            data-ai-assistant-pane="true"
+            className="relative w-[360px] flex-shrink-0 flex flex-col rounded-xl overflow-hidden ai-ed-panel animate-slide-in-right"
+          >
             <div className="pointer-events-none absolute inset-0 ai-ed-glow" />
             <div className="relative z-10 flex h-full flex-col">
               {/* Header */}

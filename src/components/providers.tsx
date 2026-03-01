@@ -6,6 +6,7 @@ import { ThemeProvider, useTheme } from '@/contexts/theme-context';
 import { UnsavedChangesProvider } from '@/contexts/unsaved-changes-context';
 import { Toaster } from 'sonner';
 import { AiBubble } from '@/components/ai-bubble';
+import { SunIcon, MoonIcon } from '@heroicons/react/24/outline';
 
 function ThemedToaster() {
   const { theme } = useTheme();
@@ -36,7 +37,7 @@ function ThemedToaster() {
   );
 }
 
-/** Dev-only floating theme toggle — always visible */
+/** Dev-only floating theme toggle — sits above the Next.js dev indicator */
 function DevThemeToggle() {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
@@ -44,9 +45,10 @@ function DevThemeToggle() {
     <button
       onClick={toggleTheme}
       title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-      className="fixed bottom-4 left-4 z-50 w-8 h-8 rounded-full flex items-center justify-center border border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--muted-foreground)] transition-colors shadow-lg text-sm"
+      className="fixed bottom-[64px] left-5 z-[2147483646] w-9 h-9 rounded-full flex items-center justify-center bg-black/80 text-white/90 hover:bg-black/90 hover:text-white transition-colors text-sm cursor-pointer"
+      style={{ backdropFilter: 'blur(8px)' }}
     >
-      {isDark ? '☀️' : '🌙'}
+      {isDark ? <SunIcon className="w-4.5 h-4.5" /> : <MoonIcon className="w-4.5 h-4.5" />}
     </button>
   );
 }

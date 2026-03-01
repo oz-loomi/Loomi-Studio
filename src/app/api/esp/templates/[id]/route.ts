@@ -47,7 +47,7 @@ export async function PUT(
 
   const { id } = await params;
   const body = await req.json();
-  const { name, subject, previewText, html, source, editorType, syncToRemote } = body;
+  const { name, subject, previewText, html, source, editorType, syncToRemote, accountKey } = body;
 
   // Find the local template
   const existing = await prisma.espTemplate.findUnique({ where: { id } });
@@ -63,9 +63,37 @@ export async function PUT(
     return NextResponse.json({ error: 'Access denied' }, { status: 403 });
   }
 
+  const requestedAccountKey =
+    typeof accountKey === 'string' && accountKey.trim() ? accountKey.trim() : null;
+  const accountChanged =
+    !!requestedAccountKey && requestedAccountKey !== existing.accountKey;
+
+  let targetAccountKey = existing.accountKey;
+  let targetProvider = existing.provider;
+  if (accountChanged && requestedAccountKey) {
+    if (
+      userRole !== 'developer' &&
+      !hasUnrestrictedAdminAccess &&
+      !userAccountKeys.includes(requestedAccountKey)
+    ) {
+      return NextResponse.json({ error: 'Access denied for selected account' }, { status: 403 });
+    }
+
+    const targetAccount = await prisma.account.findUnique({
+      where: { key: requestedAccountKey },
+      select: { espProvider: true },
+    });
+    if (!targetAccount) {
+      return NextResponse.json({ error: 'Selected account not found' }, { status: 404 });
+    }
+
+    targetAccountKey = requestedAccountKey;
+    targetProvider = targetAccount.espProvider || existing.provider;
+  }
+
   try {
     // If syncing to remote and we have a remoteId, push update to ESP
-    if (syncToRemote && existing.remoteId) {
+    if (syncToRemote && existing.remoteId && !accountChanged) {
       const result = await resolveAdapterAndCredentials(existing.accountKey, {
         requireCapability: 'templates',
       });
@@ -89,7 +117,14 @@ export async function PUT(
         ...(html !== undefined && { html }),
         ...(source !== undefined && { source }),
         ...(editorType !== undefined && { editorType }),
-        ...(syncToRemote && { lastSyncedAt: new Date() }),
+        ...(accountChanged && {
+          accountKey: targetAccountKey,
+          provider: targetProvider,
+          remoteId: null,
+          status: 'draft',
+          lastSyncedAt: null,
+        }),
+        ...(syncToRemote && !accountChanged && { lastSyncedAt: new Date() }),
       },
     });
 

@@ -7,6 +7,10 @@ import {
   ArrowLeftIcon,
   DevicePhoneMobileIcon,
   ComputerDesktopIcon,
+  Bars2Icon,
+  Bars3BottomLeftIcon,
+  Bars3BottomRightIcon,
+  Bars3Icon,
   Square2StackIcon,
   CheckIcon,
   ArrowPathIcon,
@@ -35,10 +39,13 @@ import {
   QuestionMarkCircleIcon,
   BookOpenIcon,
   PhotoIcon,
+  ChevronUpDownIcon,
+  MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
 import Link from "next/link";
 import { VariablePickerButton } from "@/components/variable-picker";
+import { AccountAvatar } from "@/components/account-avatar";
 import { useAccount } from "@/contexts/account-context";
 import { useUnsavedChanges } from "@/contexts/unsaved-changes-context";
 import {
@@ -52,6 +59,7 @@ import {
   findMissingPreviewVariables,
   type PreviewContact,
 } from "@/lib/preview-variables";
+import espVariablesData from "@/data/esp-variables.json";
 import { ComponentIcon, SectionsIcon } from "@/components/icon-map";
 import { CodeEditor } from "@/components/code-editor";
 import { MediaPickerModal } from "@/components/media-picker-modal";
@@ -60,6 +68,16 @@ import { getStarterTemplate } from "@/lib/template-starters";
 
 type EditorMode = "code" | "visual";
 type VisualTab = "settings" | "components";
+type TextAlignMode = "left" | "center" | "right" | "justify";
+
+const EDITOR_PANEL_DEFAULT_WIDTH = 480;
+const EDITOR_PANEL_MIN_WIDTH = 360;
+const EDITOR_PANEL_MAX_WIDTH = 920;
+const PREVIEW_PANEL_MIN_WIDTH = 360;
+const AI_PANEL_WIDTH = 360;
+const SPLIT_GAP_PX = 16;
+const SPLITTER_WIDTH_PX = 8;
+const PANEL_WIDTH_STEP_PX = 24;
 
 interface TemplateHistoryVersion {
   id: string;
@@ -79,6 +97,67 @@ interface AssistantComponentEdit {
   key: string;
   value: string;
   reason?: string;
+}
+
+interface InlineVariableOption {
+  token: string;
+  label: string;
+  description?: string;
+}
+
+interface EspVariableCatalogEntry {
+  variable: string;
+  label: string;
+  description?: string;
+}
+
+const BASE_INLINE_VARIABLE_OPTIONS: InlineVariableOption[] = (() => {
+  const catalog = espVariablesData as Record<string, EspVariableCatalogEntry[]>;
+  const byToken = new Map<string, InlineVariableOption>();
+  for (const entries of Object.values(catalog)) {
+    for (const entry of entries) {
+      const token = (entry.variable || "").trim();
+      if (!token) continue;
+      const key = token.toLowerCase();
+      if (byToken.has(key)) continue;
+      byToken.set(key, {
+        token,
+        label: entry.label || token,
+        description: entry.description,
+      });
+    }
+  }
+  return Array.from(byToken.values());
+})();
+
+const INLINE_VARIABLE_TRIGGER_RE = /\{\{([a-zA-Z0-9_.-]*)$/;
+
+function findInlineVariableTrigger(text: string, caret: number) {
+  const safeCaret = Math.max(0, Math.min(caret, text.length));
+  const prefix = text.slice(0, safeCaret);
+  const match = INLINE_VARIABLE_TRIGGER_RE.exec(prefix);
+  if (!match) return null;
+  return {
+    start: safeCaret - match[0].length,
+    end: safeCaret,
+    query: match[1] || "",
+  };
+}
+
+function filterInlineVariableOptions(
+  options: InlineVariableOption[],
+  query: string,
+): InlineVariableOption[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return options;
+  return options.filter((option) => {
+    const tokenRaw = option.token.replace(/^\{\{|\}\}$/g, "").toLowerCase();
+    return (
+      option.label.toLowerCase().includes(q) ||
+      tokenRaw.includes(q) ||
+      option.token.toLowerCase().includes(q)
+    );
+  });
 }
 
 function formatBytes(bytes: number): string {
@@ -941,6 +1020,7 @@ function isValidHex(hex: string): boolean {
 const VARIABLE_ELIGIBLE_TYPES = new Set(["text", "textarea", "url", "image"]);
 
 const RICH_TEXT_ALLOWED_TAGS = new Set([
+  "div",
   "p",
   "br",
   "b",
@@ -949,6 +1029,7 @@ const RICH_TEXT_ALLOWED_TAGS = new Set([
   "em",
   "u",
   "span",
+  "a",
   "ul",
   "ol",
   "li",
@@ -961,7 +1042,12 @@ const RICH_TEXT_ALLOWED_STYLE_PROPS = new Set([
   "font-weight",
   "font-style",
   "text-decoration",
+  "font-family",
+  "text-align",
 ]);
+
+const FALLBACK_FONT_FAMILY = "Helvetica Neue, Helvetica, Arial, sans-serif";
+const DEFAULT_FONT_CONTROL_VALUE = "__default_font_family__";
 
 function normalizeHexColor(value: string): string | null {
   const input = value.trim().toLowerCase();
@@ -998,6 +1084,20 @@ function isSafeCssColor(value: string): boolean {
   );
 }
 
+function sanitizeLinkHref(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\{\{[a-zA-Z0-9_.-]+\}\}$/.test(trimmed)) return trimmed;
+  if (/^#/.test(trimmed) || /^\//.test(trimmed)) return trimmed;
+  if (/^(https?:|mailto:|tel:|sms:)/i.test(trimmed)) return trimmed;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return null;
+  return `https://${trimmed}`;
+}
+
+function normalizeFontFamilyValue(value: string): string {
+  return value.replace(/["']/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 function sanitizeInlineStyle(styleText: string): string {
   const safeEntries: string[] = [];
   for (const rawEntry of styleText.split(";")) {
@@ -1022,11 +1122,32 @@ function sanitizeInlineStyle(styleText: string): string {
       valid = /^(normal|italic|oblique)$/i.test(value);
     } else if (key === "text-decoration") {
       valid = /^(none|underline|line-through)(\s+(none|underline|line-through))*$/i.test(value);
+    } else if (key === "font-family") {
+      // Strip quotes around font names to avoid double-encoding through
+      // the PostHTML pipeline (browser adds "Times New Roman" with quotes,
+      // which become &quot; in innerHTML, then &amp;quot; after
+      // escapeTemplateAttrValue, breaking the CSS in the final HTML).
+      // Unquoted multi-word font names are universally accepted by browsers
+      // and email clients in inline styles.
+      const unquoted = value.replace(/["']/g, "").trim();
+      valid =
+        /^var\(--[a-z0-9-]+\)$/i.test(unquoted) ||
+        /^[a-z0-9\s,-]+$/i.test(unquoted);
+      if (valid && unquoted !== value) {
+        safeEntries.push(`${key}: ${unquoted}`);
+        continue;
+      }
+    } else if (key === "text-align") {
+      valid = /^(left|right|center|justify|start|end)$/i.test(value);
     }
 
     if (valid) safeEntries.push(`${key}: ${value}`);
   }
-  return safeEntries.join("; ");
+  // Add trailing semicolon to match browser cssText format. This prevents
+  // commitEditorValue from detecting a diff (trailing semicolon vs none) and
+  // unnecessarily replacing innerHTML + moving the caret to the end.
+  const joined = safeEntries.join("; ");
+  return joined ? joined + ";" : "";
 }
 
 function escapeHtml(value: string): string {
@@ -1066,12 +1187,20 @@ function sanitizeRichTextHtml(raw: string): string {
         }
 
         for (const attr of Array.from(el.attributes)) {
-          if (attr.name.toLowerCase() === "style") {
+          const attrName = attr.name.toLowerCase();
+          if (attrName === "style") {
             const cleanedStyle = sanitizeInlineStyle(attr.value || "");
             if (cleanedStyle) {
               el.setAttribute("style", cleanedStyle);
             } else {
               el.removeAttribute("style");
+            }
+          } else if (tag === "a" && attrName === "href") {
+            const safeHref = sanitizeLinkHref(attr.value || "");
+            if (safeHref) {
+              el.setAttribute("href", safeHref);
+            } else {
+              el.removeAttribute("href");
             }
           } else {
             el.removeAttribute(attr.name);
@@ -1085,7 +1214,10 @@ function sanitizeRichTextHtml(raw: string): string {
   sanitizeNode(root);
 
   return root.innerHTML
-    .replace(/<div>/gi, "<p>")
+    .replace(
+      /<div(\s[^>]*)?>/gi,
+      (_match, attrs: string | undefined) => `<p${attrs || ""}>`,
+    )
     .replace(/<\/div>/gi, "</p>")
     .replace(/<p>\s*<\/p>/gi, "<br>")
     .replace(/(?:<br\s*\/?>\s*){3,}/gi, "<br><br>");
@@ -1159,34 +1291,98 @@ function RichTextField({
   placeholderText,
   onInsertVariable,
   brandColors,
+  previewAsLabel,
+  baseFontFamily,
+  inlineVariableOptions = [],
 }: {
   value: string;
   onChange: (val: string) => void;
   placeholderText?: string;
   onInsertVariable?: (token: string) => void;
   brandColors?: { label: string; value: string }[];
+  previewAsLabel?: string;
+  baseFontFamily?: string;
+  inlineVariableOptions?: InlineVariableOption[];
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const selectionRef = useRef<Range | null>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const alignButtonRef = useRef<HTMLButtonElement>(null);
+  const alignDropdownRef = useRef<HTMLDivElement>(null);
+  const alignCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fontButtonRef = useRef<HTMLButtonElement>(null);
+  const fontDropdownRef = useRef<HTMLDivElement>(null);
   const colorButtonRef = useRef<HTMLButtonElement>(null);
   const colorDropdownRef = useRef<HTMLDivElement>(null);
+  const linkInputRef = useRef<HTMLInputElement>(null);
+  const toolbarTooltipRef = useRef<HTMLDivElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [internalHtml, setInternalHtml] = useState("");
+  const [alignOpen, setAlignOpen] = useState(false);
+  const [fontOpen, setFontOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkInputValue, setLinkInputValue] = useState("https://");
+  const [alignDropdownPos, setAlignDropdownPos] = useState<CSSProperties>({});
+  const [fontDropdownPos, setFontDropdownPos] = useState<CSSProperties>({});
+  const [colorDropdownPos, setColorDropdownPos] = useState<CSSProperties>({});
+  const [showToolbarLabels, setShowToolbarLabels] = useState(true);
   const [commandState, setCommandState] = useState({
     bold: false,
     italic: false,
     underline: false,
     unordered: false,
     ordered: false,
+    link: false,
+    align: "left" as TextAlignMode,
   });
+  const [fontFamilyControl, setFontFamilyControl] = useState(
+    DEFAULT_FONT_CONTROL_VALUE,
+  );
   const [fontSizeControl, setFontSizeControl] = useState("16px");
   const [lineHeightControl, setLineHeightControl] = useState("1.8");
   const [textColor, setTextColor] = useState("#111111");
   const [colorHexInput, setColorHexInput] = useState("#111111");
+  const [inlineVarOpen, setInlineVarOpen] = useState(false);
+  const [inlineVarQuery, setInlineVarQuery] = useState("");
+  const [inlineVarTriggerLength, setInlineVarTriggerLength] = useState(0);
+  const [inlineVarActiveIndex, setInlineVarActiveIndex] = useState(0);
+  const [toolbarTooltip, setToolbarTooltip] = useState<{
+    label: string;
+    left: number;
+    top: number;
+  } | null>(null);
 
+  const effectiveBaseFontFamily = (baseFontFamily || "").trim() || FALLBACK_FONT_FAMILY;
+  const defaultFontLabel = useMemo(() => {
+    const normalizedBase = normalizeFontFamilyValue(effectiveBaseFontFamily);
+    const match = WEBSAFE_FONTS.find(
+      (option) => normalizeFontFamilyValue(option.value) === normalizedBase,
+    );
+    return match ? `Default (${match.label})` : "Default (Component Font)";
+  }, [effectiveBaseFontFamily]);
+  const fontFamilyOptions = useMemo(
+    () => [
+      { label: defaultFontLabel, value: DEFAULT_FONT_CONTROL_VALUE },
+      ...WEBSAFE_FONTS,
+    ],
+    [defaultFontLabel],
+  );
+  const alignmentOptions = useMemo(
+    () => [
+      { key: "left" as const, label: "Align left", command: "justifyLeft", icon: Bars3BottomLeftIcon },
+      { key: "center" as const, label: "Align center", command: "justifyCenter", icon: Bars2Icon },
+      { key: "right" as const, label: "Align right", command: "justifyRight", icon: Bars3BottomRightIcon },
+      { key: "justify" as const, label: "Justify", command: "justifyFull", icon: Bars3Icon },
+    ],
+    [],
+  );
   const fontSizeOptions = ["12px", "14px", "16px", "18px", "20px", "24px", "28px", "32px"];
   const lineHeightOptions = ["normal", "1.2", "1.4", "1.6", "1.8", "2"];
+  const filteredInlineVarOptions = useMemo(
+    () => filterInlineVariableOptions(inlineVariableOptions, inlineVarQuery).slice(0, 12),
+    [inlineVariableOptions, inlineVarQuery],
+  );
 
   const getCurrentLinePrefixText = useCallback((): string | null => {
     if (typeof window === "undefined") return null;
@@ -1220,6 +1416,45 @@ function RichTextField({
     const currentLine = fullPrefix.split("\n").pop() ?? fullPrefix;
     return currentLine;
   }, []);
+
+  const detectInlineVariableTrigger = useCallback(() => {
+    if (typeof window === "undefined") return null;
+    const root = editorRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.rangeCount === 0 || !selection.isCollapsed) {
+      return null;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.startContainer)) return null;
+    if (range.startContainer.nodeType !== Node.TEXT_NODE) return null;
+
+    const textNode = range.startContainer as Text;
+    const trigger = findInlineVariableTrigger(textNode.data, range.startOffset);
+    if (!trigger) return null;
+
+    return {
+      query: trigger.query,
+      length: trigger.end - trigger.start,
+    };
+  }, []);
+
+  const syncInlineVariableAutocomplete = useCallback(() => {
+    if (inlineVariableOptions.length === 0) {
+      setInlineVarOpen(false);
+      return;
+    }
+    const trigger = detectInlineVariableTrigger();
+    if (!trigger) {
+      setInlineVarOpen(false);
+      return;
+    }
+
+    setInlineVarQuery(trigger.query);
+    setInlineVarTriggerLength(trigger.length);
+    setInlineVarOpen(true);
+    setInlineVarActiveIndex(0);
+  }, [detectInlineVariableTrigger, inlineVariableOptions.length]);
 
   const ensureListStyles = useCallback(() => {
     const root = editorRef.current;
@@ -1278,7 +1513,7 @@ function RichTextField({
     let el = node as HTMLElement | null;
     while (el && el !== root) {
       const tag = el.tagName.toLowerCase();
-      if (["span", "b", "strong", "i", "em", "u", "p", "li", "div"].includes(tag)) {
+      if (["span", "b", "strong", "i", "em", "u", "a", "p", "li", "div"].includes(tag)) {
         return el;
       }
       el = el.parentElement;
@@ -1298,7 +1533,10 @@ function RichTextField({
         underline: false,
         unordered: false,
         ordered: false,
+        link: false,
+        align: "left",
       });
+      setFontFamilyControl(DEFAULT_FONT_CONTROL_VALUE);
       return;
     }
 
@@ -1307,12 +1545,19 @@ function RichTextField({
     let underline = false;
     let unordered = false;
     let ordered = false;
+    let link = false;
+    let align: TextAlignMode = "left";
     try {
       bold = document.queryCommandState("bold");
       italic = document.queryCommandState("italic");
       underline = document.queryCommandState("underline");
       unordered = document.queryCommandState("insertUnorderedList");
       ordered = document.queryCommandState("insertOrderedList");
+      link = document.queryCommandState("createLink");
+      if (document.queryCommandState("justifyCenter")) align = "center";
+      else if (document.queryCommandState("justifyRight")) align = "right";
+      else if (document.queryCommandState("justifyFull")) align = "justify";
+      else if (document.queryCommandState("justifyLeft")) align = "left";
     } catch {
       // Ignore command-state failures in non-standard browser contexts.
     }
@@ -1321,14 +1566,43 @@ function RichTextField({
     if (anchor) {
       unordered = unordered || !!anchor.closest("ul");
       ordered = ordered || !!anchor.closest("ol");
+      link = link || !!anchor.closest("a");
 
-      const computed = window.getComputedStyle(anchor);
+      const block = anchor.closest("p, li, div") as HTMLElement | null;
+      const computed = window.getComputedStyle(block || anchor);
       const nextFontSize = computed.fontSize || "16px";
       const nextLineHeight = computed.lineHeight && computed.lineHeight !== "normal"
         ? computed.lineHeight
         : "normal";
       const nextColor = cssColorToHex(computed.color) || "#111111";
+      const findInlineFontFamily = () => {
+        let probe: HTMLElement | null = anchor;
+        while (probe && probe !== root) {
+          const inlineFont = probe.style?.getPropertyValue("font-family");
+          if (inlineFont) return inlineFont;
+          probe = probe.parentElement;
+        }
+        // Also check the root element itself (cursor may be at root level after
+        // innerHTML replacement moves caret to end)
+        const rootFont = root.style?.getPropertyValue("font-family");
+        if (rootFont) return rootFont;
+        // Fallback: check the first child element (common after moveCaretToEnd
+        // places cursor after the last <p>)
+        const firstChild = root.querySelector("p, li, div, span, a") as HTMLElement | null;
+        if (firstChild) {
+          const childFont = firstChild.style?.getPropertyValue("font-family");
+          if (childFont) return childFont;
+        }
+        return "";
+      };
+      const inlineFontFamily = findInlineFontFamily();
+      const nextTextAlign = (computed.textAlign || "left").toLowerCase();
+      if (nextTextAlign.includes("center")) align = "center";
+      else if (nextTextAlign.includes("right")) align = "right";
+      else if (nextTextAlign.includes("justify")) align = "justify";
+      else align = "left";
 
+      setFontFamilyControl(inlineFontFamily || DEFAULT_FONT_CONTROL_VALUE);
       setFontSizeControl(nextFontSize);
       setLineHeightControl(nextLineHeight);
       setTextColor(nextColor);
@@ -1341,6 +1615,8 @@ function RichTextField({
       underline,
       unordered,
       ordered,
+      link,
+      align,
     });
   }, [getSelectionAnchorElement]);
 
@@ -1351,9 +1627,56 @@ function RichTextField({
   }, [updateToolbarState]);
 
   useEffect(() => {
-    if (!colorOpen) return;
+    if (!(alignOpen || fontOpen || colorOpen) || typeof window === "undefined") return;
+
+    const updateDropdownPositions = () => {
+      if (alignOpen && alignButtonRef.current) {
+        const rect = alignButtonRef.current.getBoundingClientRect();
+        setAlignDropdownPos({
+          position: "fixed",
+          top: rect.bottom + 6,
+          left: rect.left + rect.width / 2,
+          zIndex: 1200,
+        });
+      }
+      if (fontOpen && fontButtonRef.current) {
+        const rect = fontButtonRef.current.getBoundingClientRect();
+        const dropdownWidth = 220;
+        const viewportRight = window.innerWidth - 8;
+        const left = Math.min(rect.left, Math.max(8, viewportRight - dropdownWidth));
+        setFontDropdownPos({
+          position: "fixed",
+          top: rect.bottom + 6,
+          left,
+          width: dropdownWidth,
+          zIndex: 1200,
+        });
+      }
+      if (colorOpen && colorButtonRef.current) {
+        const rect = colorButtonRef.current.getBoundingClientRect();
+        setColorDropdownPos({
+          position: "fixed",
+          top: rect.bottom + 6,
+          left: rect.left,
+          zIndex: 1200,
+        });
+      }
+    };
+
     const handleOutside = (e: MouseEvent) => {
       const target = e.target as Node;
+      if (
+        alignDropdownRef.current && !alignDropdownRef.current.contains(target) &&
+        alignButtonRef.current && !alignButtonRef.current.contains(target)
+      ) {
+        setAlignOpen(false);
+      }
+      if (
+        fontDropdownRef.current && !fontDropdownRef.current.contains(target) &&
+        fontButtonRef.current && !fontButtonRef.current.contains(target)
+      ) {
+        setFontOpen(false);
+      }
       if (
         colorDropdownRef.current && !colorDropdownRef.current.contains(target) &&
         colorButtonRef.current && !colorButtonRef.current.contains(target)
@@ -1361,9 +1684,82 @@ function RichTextField({
         setColorOpen(false);
       }
     };
+
+    updateDropdownPositions();
+    window.addEventListener("resize", updateDropdownPositions);
+    window.addEventListener("scroll", updateDropdownPositions, true);
     document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, [colorOpen]);
+    return () => {
+      window.removeEventListener("resize", updateDropdownPositions);
+      window.removeEventListener("scroll", updateDropdownPositions, true);
+      document.removeEventListener("mousedown", handleOutside);
+    };
+  }, [alignOpen, colorOpen, fontOpen]);
+
+  useEffect(() => {
+    if (!toolbarTooltip || typeof window === "undefined") return;
+    const tooltipEl = toolbarTooltipRef.current;
+    if (!tooltipEl) return;
+
+    const rect = tooltipEl.getBoundingClientRect();
+    const margin = 8;
+    let nextLeft = toolbarTooltip.left;
+    if (rect.left < margin) {
+      nextLeft += margin - rect.left;
+    } else if (rect.right > window.innerWidth - margin) {
+      nextLeft -= rect.right - (window.innerWidth - margin);
+    }
+
+    if (Math.abs(nextLeft - toolbarTooltip.left) >= 1) {
+      setToolbarTooltip((prev) => (prev ? { ...prev, left: nextLeft } : prev));
+    }
+  }, [toolbarTooltip]);
+
+  useEffect(() => {
+    if (!linkModalOpen || typeof window === "undefined") return;
+
+    const timer = window.setTimeout(() => {
+      linkInputRef.current?.focus();
+      linkInputRef.current?.select();
+    }, 0);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setLinkModalOpen(false);
+        setLinkInputValue("https://");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [linkModalOpen]);
+
+  useEffect(() => {
+    if (!inlineVarOpen) return;
+    if (filteredInlineVarOptions.length === 0) {
+      setInlineVarOpen(false);
+      return;
+    }
+    if (inlineVarActiveIndex >= filteredInlineVarOptions.length) {
+      setInlineVarActiveIndex(0);
+    }
+  }, [filteredInlineVarOptions.length, inlineVarActiveIndex, inlineVarOpen]);
+
+  useEffect(() => {
+    const toolbar = toolbarRef.current;
+    if (!toolbar || typeof ResizeObserver === "undefined") return;
+
+    const updateMode = () => {
+      setShowToolbarLabels(toolbar.getBoundingClientRect().width >= 640);
+    };
+
+    updateMode();
+    const observer = new ResizeObserver(updateMode);
+    observer.observe(toolbar);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     setInternalHtml(normalizeRichTextValue(value || ""));
@@ -1395,12 +1791,53 @@ function RichTextField({
     updateToolbarState();
   }, [onChange, updateToolbarState]);
 
-  const runCommand = useCallback((command: "bold" | "italic" | "underline" | "insertUnorderedList" | "insertOrderedList") => {
+  const applyInlineVariableToken = useCallback((token: string) => {
+    if (typeof window === "undefined") return;
+    const root = editorRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.startContainer)) return;
+
+    let replaced = false;
+    if (
+      range.collapsed &&
+      range.startContainer.nodeType === Node.TEXT_NODE &&
+      inlineVarTriggerLength > 0 &&
+      range.startOffset >= inlineVarTriggerLength
+    ) {
+      const textNode = range.startContainer as Text;
+      const triggerStart = range.startOffset - inlineVarTriggerLength;
+      textNode.data =
+        textNode.data.slice(0, triggerStart) +
+        token +
+        textNode.data.slice(range.startOffset);
+      const nextOffset = triggerStart + token.length;
+      const nextRange = document.createRange();
+      nextRange.setStart(textNode, nextOffset);
+      nextRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+      replaced = true;
+    }
+
+    if (!replaced) {
+      document.execCommand("insertText", false, token);
+    }
+
+    setInlineVarOpen(false);
+    commitEditorValue();
+    saveSelection();
+    updateToolbarState();
+  }, [commitEditorValue, inlineVarTriggerLength, saveSelection, updateToolbarState]);
+
+  const runCommand = useCallback((command: string, value?: string) => {
     const el = editorRef.current;
     if (!el) return;
     el.focus();
     restoreSelection();
-    document.execCommand(command);
+    document.execCommand(command, false, value);
     if (command === "insertUnorderedList" || command === "insertOrderedList") {
       ensureListStyles();
     }
@@ -1409,14 +1846,228 @@ function RichTextField({
     updateToolbarState();
   }, [commitEditorValue, ensureListStyles, restoreSelection, saveSelection, updateToolbarState]);
 
-  const applyInlineStyle = useCallback((styleKey: "font-size" | "line-height" | "color", styleValue: string) => {
+  const applyAlignment = useCallback((nextAlignment: TextAlignMode) => {
+    if (typeof window === "undefined") return;
+    const root = editorRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.rangeCount === 0) return;
+
+    root.focus();
+    restoreSelection();
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.commonAncestorContainer)) return;
+
+    const findBlock = (node: Node | null): HTMLElement | null => {
+      let probe: Node | null = node;
+      while (probe && probe !== root) {
+        if (probe.nodeType === Node.ELEMENT_NODE) {
+          const el = probe as HTMLElement;
+          const tag = el.tagName.toLowerCase();
+          if (["p", "div", "li"].includes(tag)) return el;
+        }
+        probe = probe.parentNode;
+      }
+      return null;
+    };
+
+    const commandByAlign: Record<TextAlignMode, string> = {
+      left: "justifyLeft",
+      center: "justifyCenter",
+      right: "justifyRight",
+      justify: "justifyFull",
+    };
+    const command = commandByAlign[nextAlignment];
+    let appliedByCommand = false;
+    try {
+      appliedByCommand = document.execCommand(command, false);
+    } catch {
+      appliedByCommand = false;
+    }
+
+    if (!appliedByCommand) {
+      const targets = new Set<HTMLElement>();
+      const startBlock = findBlock(range.startContainer);
+      const endBlock = findBlock(range.endContainer);
+      if (startBlock) targets.add(startBlock);
+      if (endBlock) targets.add(endBlock);
+      if (!range.collapsed) {
+        root.querySelectorAll("p, div, li").forEach((candidate) => {
+          if (range.intersectsNode(candidate)) {
+            targets.add(candidate as HTMLElement);
+          }
+        });
+      }
+      if (targets.size === 0) targets.add(root);
+
+      targets.forEach((target) => {
+        target.style.textAlign = nextAlignment;
+      });
+    }
+
+    commitEditorValue();
+    saveSelection();
+    updateToolbarState();
+  }, [commitEditorValue, restoreSelection, saveSelection, updateToolbarState]);
+
+  const closeLinkModal = useCallback(() => {
+    setLinkModalOpen(false);
+    setLinkInputValue("https://");
+  }, []);
+
+  const openLinkModal = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const root = editorRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.rangeCount === 0) return;
+
+    root.focus();
+    restoreSelection();
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.commonAncestorContainer)) return;
+
+    const currentAnchor = getSelectionAnchorElement()?.closest("a");
+    const existingHref = currentAnchor?.getAttribute("href") || "https://";
+    setLinkInputValue(existingHref);
+    setLinkModalOpen(true);
+  }, [getSelectionAnchorElement, restoreSelection]);
+
+  const removeLink = useCallback(() => {
+    const root = editorRef.current;
+    if (!root) return;
+    root.focus();
+    restoreSelection();
+    document.execCommand("unlink");
+    commitEditorValue();
+    saveSelection();
+    updateToolbarState();
+    closeLinkModal();
+  }, [closeLinkModal, commitEditorValue, restoreSelection, saveSelection, updateToolbarState]);
+
+  const applyLinkFromModal = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const root = editorRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.rangeCount === 0) return;
+
+    root.focus();
+    restoreSelection();
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.commonAncestorContainer)) return;
+
+    const trimmedHref = linkInputValue.trim();
+    if (!trimmedHref) {
+      removeLink();
+      return;
+    }
+
+    const safeHref = sanitizeLinkHref(trimmedHref);
+    if (!safeHref) {
+      toast.error("Please enter a valid URL, mailto:, tel:, or relative link.");
+      return;
+    }
+
+    if (range.collapsed) {
+      const encodedHref = escapeHtml(safeHref);
+      document.execCommand(
+        "insertHTML",
+        false,
+        `<a href="${encodedHref}">${encodedHref}</a>`,
+      );
+    } else {
+      document.execCommand("createLink", false, safeHref);
+    }
+
+    commitEditorValue();
+    saveSelection();
+    updateToolbarState();
+    closeLinkModal();
+  }, [closeLinkModal, commitEditorValue, linkInputValue, removeLink, restoreSelection, saveSelection, updateToolbarState]);
+
+  const clearFormatting = useCallback(() => {
+    const root = editorRef.current;
+    if (!root) return;
+    root.focus();
+    restoreSelection();
+    document.execCommand("removeFormat");
+    document.execCommand("unlink");
+    ensureListStyles();
+    commitEditorValue();
+    saveSelection();
+    updateToolbarState();
+  }, [commitEditorValue, ensureListStyles, restoreSelection, saveSelection, updateToolbarState]);
+
+  const applyInlineStyle = useCallback((styleKey: "font-size" | "line-height" | "color" | "font-family", styleValue: string) => {
     const el = editorRef.current;
     if (!el || typeof window === "undefined") return;
 
     el.focus();
     restoreSelection();
 
-    if (styleKey === "color") {
+    if (styleKey === "font-family") {
+      const nextStyleValue = styleValue === DEFAULT_FONT_CONTROL_VALUE ? "" : styleValue;
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      if (!el.contains(range.commonAncestorContainer)) return;
+
+      const allTargets = Array.from(el.querySelectorAll("p, li, div, span, a")) as HTMLElement[];
+      const targets = new Set<HTMLElement>();
+
+      const wrapLooseRootTextNodes = () => {
+        if (!nextStyleValue) return;
+        Array.from(el.childNodes).forEach((node) => {
+          if (node.nodeType !== Node.TEXT_NODE) return;
+          const text = node.textContent || "";
+          if (!text.trim()) return;
+          const span = document.createElement("span");
+          span.style.setProperty(styleKey, nextStyleValue);
+          span.textContent = text;
+          el.replaceChild(span, node);
+        });
+      };
+
+      if (range.collapsed) {
+        // No selection — apply font to all block-level elements (global change)
+        wrapLooseRootTextNodes();
+        const updatedTargets = Array.from(el.querySelectorAll("p, li, div, span, a")) as HTMLElement[];
+        if (updatedTargets.length === 0) {
+          targets.add(el);
+        } else {
+          updatedTargets.forEach((node) => targets.add(node));
+        }
+        targets.forEach((target) => {
+          if (nextStyleValue) {
+            target.style.setProperty(styleKey, nextStyleValue);
+          } else {
+            target.style.removeProperty(styleKey);
+            if (!target.getAttribute("style")) target.removeAttribute("style");
+          }
+        });
+      } else if (nextStyleValue) {
+        // Text is selected — wrap only the selected content in a styled span
+        // (same approach as font-size/line-height) so only the selected
+        // word/phrase gets the new font, not the entire paragraph.
+        const styledSpan = document.createElement("span");
+        styledSpan.style.setProperty(styleKey, nextStyleValue);
+        const extracted = range.extractContents();
+        styledSpan.appendChild(extracted);
+        range.insertNode(styledSpan);
+        const nextRange = document.createRange();
+        nextRange.selectNodeContents(styledSpan);
+        nextRange.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(nextRange);
+      } else {
+        // Removing font — strip font-family from elements in the selection
+        allTargets.forEach((node) => {
+          if (range.intersectsNode(node)) targets.add(node);
+        });
+        targets.forEach((target) => {
+          target.style.removeProperty(styleKey);
+          if (!target.getAttribute("style")) target.removeAttribute("style");
+        });
+      }
+    } else if (styleKey === "color") {
       document.execCommand("styleWithCSS", false, "true");
       document.execCommand("foreColor", false, styleValue);
     } else {
@@ -1433,7 +2084,7 @@ function RichTextField({
 
         while (target && target !== el) {
           const tag = target.tagName.toLowerCase();
-          if (["span", "p", "li", "div"].includes(tag)) break;
+          if (["span", "p", "li", "div", "a"].includes(tag)) break;
           target = target.parentElement;
         }
 
@@ -1507,6 +2158,30 @@ function RichTextField({
   }, [commitEditorValue, saveSelection, updateToolbarState]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (inlineVarOpen && filteredInlineVarOptions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setInlineVarActiveIndex((prev) => (prev + 1) % filteredInlineVarOptions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setInlineVarActiveIndex((prev) => (prev - 1 + filteredInlineVarOptions.length) % filteredInlineVarOptions.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const selected = filteredInlineVarOptions[inlineVarActiveIndex] || filteredInlineVarOptions[0];
+        if (selected) applyInlineVariableToken(selected.token);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setInlineVarOpen(false);
+        return;
+      }
+    }
+
     if (e.key !== " ") return;
 
     const linePrefix = getCurrentLinePrefixText();
@@ -1546,7 +2221,7 @@ function RichTextField({
     commitEditorValue();
     saveSelection();
     updateToolbarState();
-  }, [commitEditorValue, ensureListStyles, getCurrentLinePrefixText, saveSelection, updateToolbarState]);
+  }, [applyInlineVariableToken, commitEditorValue, ensureListStyles, filteredInlineVarOptions, getCurrentLinePrefixText, inlineVarActiveIndex, inlineVarOpen, saveSelection, updateToolbarState]);
 
   const isEmpty = stripRichText(internalHtml).length === 0;
   const toolbarButtonClass = (active: boolean) =>
@@ -1555,117 +2230,466 @@ function RichTextField({
         ? "border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary)]"
         : "border-[var(--border)] bg-[var(--input)] hover:border-[var(--primary)]"
     }`;
+  const listIconMaskStyle = (iconPath: string): CSSProperties => ({
+    WebkitMaskImage: `url(${iconPath})`,
+    maskImage: `url(${iconPath})`,
+    WebkitMaskRepeat: "no-repeat",
+    maskRepeat: "no-repeat",
+    WebkitMaskPosition: "center",
+    maskPosition: "center",
+    WebkitMaskSize: "contain",
+    maskSize: "contain",
+    backgroundColor: "currentColor",
+  });
+  const activeAlignOption =
+    alignmentOptions.find((option) => option.key === commandState.align) || alignmentOptions[0];
+  const ActiveAlignIcon = activeAlignOption.icon;
+  const defaultFontValue = fontFamilyOptions[0]?.value || DEFAULT_FONT_CONTROL_VALUE;
+  const normalizedCurrentFont =
+    fontFamilyControl === DEFAULT_FONT_CONTROL_VALUE
+      ? DEFAULT_FONT_CONTROL_VALUE
+      : normalizeFontFamilyValue(fontFamilyControl);
+  const activeFontOption =
+    fontFamilyOptions.find((option) => {
+      if (option.value === DEFAULT_FONT_CONTROL_VALUE) {
+        return normalizedCurrentFont === DEFAULT_FONT_CONTROL_VALUE;
+      }
+      const normalizedOption = normalizeFontFamilyValue(option.value);
+      return (
+        normalizedCurrentFont === normalizedOption ||
+        normalizedCurrentFont.startsWith(normalizedOption.split(",")[0] || "")
+      );
+    }) || fontFamilyOptions[0];
+  const fontSelectValue = fontSizeOptions.includes(fontSizeControl) ? fontSizeControl : "custom";
+  const lineHeightSelectValue = lineHeightOptions.includes(lineHeightControl) ? lineHeightControl : "custom";
+  const fontOverrideActive =
+    activeFontOption.value !== defaultFontValue;
+  const openToolbarTooltip = useCallback(
+    (label: string, target: HTMLElement) => {
+      const rect = target.getBoundingClientRect();
+      setToolbarTooltip({
+        label,
+        left: rect.left + rect.width / 2,
+        top: rect.top - 8,
+      });
+    },
+    [],
+  );
+  const closeToolbarTooltip = useCallback(() => setToolbarTooltip(null), []);
+  const openAlignDropdown = useCallback(() => {
+    if (alignCloseTimerRef.current) {
+      clearTimeout(alignCloseTimerRef.current);
+      alignCloseTimerRef.current = null;
+    }
+    setAlignOpen(true);
+  }, []);
+  const scheduleCloseAlignDropdown = useCallback(() => {
+    if (alignCloseTimerRef.current) {
+      clearTimeout(alignCloseTimerRef.current);
+    }
+    alignCloseTimerRef.current = setTimeout(() => {
+      setAlignOpen(false);
+      alignCloseTimerRef.current = null;
+    }, 90);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (alignCloseTimerRef.current) {
+        clearTimeout(alignCloseTimerRef.current);
+        alignCloseTimerRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <div className="space-y-1.5" data-no-component-drag>
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1 flex-wrap">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => runCommand("bold")}
-            className={`${toolbarButtonClass(commandState.bold)} font-semibold`}
-            title="Bold"
+        <div ref={toolbarRef} className="flex items-center gap-1 flex-wrap">
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Bold", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Bold", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
           >
-            B
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => runCommand("italic")}
-            className={`${toolbarButtonClass(commandState.italic)} italic`}
-            title="Italic"
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => runCommand("bold")}
+              className={`${toolbarButtonClass(commandState.bold)} h-7 w-7 !px-0 flex items-center justify-center font-semibold`}
+              aria-label="Bold"
+            >
+              B
+            </button>
+          </div>
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Italic", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Italic", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
           >
-            I
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => runCommand("underline")}
-            className={`${toolbarButtonClass(commandState.underline)} underline`}
-            title="Underline"
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => runCommand("italic")}
+              className={`${toolbarButtonClass(commandState.italic)} h-7 w-7 !px-0 flex items-center justify-center italic`}
+              aria-label="Italic"
+            >
+              I
+            </button>
+          </div>
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Underline", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Underline", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
           >
-            U
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => runCommand("insertUnorderedList")}
-            className={toolbarButtonClass(commandState.unordered)}
-            title="Bulleted list"
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => runCommand("underline")}
+              className={`${toolbarButtonClass(commandState.underline)} h-7 w-7 !px-0 flex items-center justify-center underline`}
+              aria-label="Underline"
+            >
+              U
+            </button>
+          </div>
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Bulleted list", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Bulleted list", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
           >
-            • List
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => runCommand("insertOrderedList")}
-            className={toolbarButtonClass(commandState.ordered)}
-            title="Numbered list"
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => runCommand("insertUnorderedList")}
+              className={`${toolbarButtonClass(commandState.unordered)} h-7 w-7 !px-0 flex items-center justify-center`}
+              aria-label="Bulleted list"
+            >
+              <span
+                className="w-3.5 h-3.5"
+                style={listIconMaskStyle("/icons/editor-bullet-list.svg")}
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Numbered list", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Numbered list", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
           >
-            1. List
-          </button>
-          <select
-            value={fontSizeOptions.includes(fontSizeControl) ? fontSizeControl : "custom"}
-            onChange={(e) => {
-              const selected = e.target.value === "custom" ? fontSizeControl : e.target.value;
-              setFontSizeControl(selected);
-              applyInlineStyle("font-size", selected);
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => runCommand("insertOrderedList")}
+              className={`${toolbarButtonClass(commandState.ordered)} h-7 w-7 !px-0 flex items-center justify-center`}
+              aria-label="Numbered list"
+            >
+              <span
+                className="w-3.5 h-3.5"
+                style={listIconMaskStyle("/icons/editor-numbered-list.svg")}
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => {
+              openAlignDropdown();
+              openToolbarTooltip("Text align", e.currentTarget);
             }}
-            className="h-7 px-2 text-xs rounded border border-[var(--border)] bg-[var(--input)]"
-            title="Text size"
-          >
-            {!fontSizeOptions.includes(fontSizeControl) && (
-              <option value="custom">{fontSizeControl}</option>
-            )}
-            {fontSizeOptions.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-          <select
-            value={lineHeightOptions.includes(lineHeightControl) ? lineHeightControl : "custom"}
-            onChange={(e) => {
-              const selected = e.target.value === "custom" ? lineHeightControl : e.target.value;
-              setLineHeightControl(selected);
-              applyInlineStyle("line-height", selected);
+            onMouseLeave={() => {
+              scheduleCloseAlignDropdown();
+              closeToolbarTooltip();
             }}
-            className="h-7 px-2 text-xs rounded border border-[var(--border)] bg-[var(--input)]"
-            title="Line height"
+            onFocus={(e) => {
+              openAlignDropdown();
+              openToolbarTooltip("Text align", e.currentTarget);
+            }}
+            onBlur={() => {
+              scheduleCloseAlignDropdown();
+              closeToolbarTooltip();
+            }}
           >
-            {!lineHeightOptions.includes(lineHeightControl) && (
-              <option value="custom">{lineHeightControl}</option>
-            )}
-            {lineHeightOptions.map((lh) => (
-              <option key={lh} value={lh}>
-                {lh}
-              </option>
-            ))}
-          </select>
-          <div className="relative" data-no-component-drag>
+            <button
+              ref={alignButtonRef}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                if (alignOpen) {
+                  if (alignCloseTimerRef.current) {
+                    clearTimeout(alignCloseTimerRef.current);
+                    alignCloseTimerRef.current = null;
+                  }
+                  setAlignOpen(false);
+                } else {
+                  openAlignDropdown();
+                }
+              }}
+              className={`${toolbarButtonClass(alignOpen || commandState.align !== "left")} h-7 w-7 !px-0 flex items-center justify-center`}
+              aria-label={activeAlignOption.label}
+            >
+              <ActiveAlignIcon className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Font family", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Font family", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
+          >
+            <button
+              ref={fontButtonRef}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setFontOpen((prev) => !prev)}
+              className={`${toolbarButtonClass(fontOpen || fontOverrideActive)} h-7 w-7 !px-0 flex items-center justify-center`}
+              aria-label="Font family"
+            >
+              <span
+                className="block w-3.5 h-3.5"
+                style={listIconMaskStyle("/icons/editor-font-size.svg")}
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Font size", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Font size", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
+          >
+            <select
+              value={fontSelectValue}
+              onChange={(e) => {
+                const selected = e.target.value === "custom" ? fontSizeControl : e.target.value;
+                setFontSizeControl(selected);
+                applyInlineStyle("font-size", selected);
+              }}
+              className={`h-7 rounded border border-[var(--border)] bg-[var(--input)] text-xs px-2 ${
+                showToolbarLabels ? "min-w-[98px]" : "min-w-[84px]"
+              }`}
+              aria-label="Font size"
+            >
+              {!fontSizeOptions.includes(fontSizeControl) && (
+                <option value="custom">{fontSizeControl}</option>
+              )}
+              {fontSizeOptions.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Line height", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Line height", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
+          >
+            <div className="relative">
+              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]">
+                <AdjustmentsHorizontalIcon className="w-3.5 h-3.5" />
+              </span>
+              <select
+                value={lineHeightSelectValue}
+                onChange={(e) => {
+                  const selected = e.target.value === "custom" ? lineHeightControl : e.target.value;
+                  setLineHeightControl(selected);
+                  applyInlineStyle("line-height", selected);
+                }}
+                className={`h-7 rounded border border-[var(--border)] bg-[var(--input)] text-xs pl-7 pr-2 ${
+                  showToolbarLabels ? "min-w-[98px]" : "min-w-[84px]"
+                }`}
+                aria-label="Line height"
+              >
+                {!lineHeightOptions.includes(lineHeightControl) && (
+                  <option value="custom">{lineHeightControl}</option>
+                )}
+                {lineHeightOptions.map((lh) => (
+                  <option key={lh} value={lh}>
+                    {lh}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Link", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Link", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
+          >
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={openLinkModal}
+              className={`${toolbarButtonClass(commandState.link)} h-7 w-7 !px-0 flex items-center justify-center`}
+              aria-label="Add link"
+            >
+              <LinkIcon className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Clear formatting", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Clear formatting", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
+          >
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={clearFormatting}
+              className={`${toolbarButtonClass(false)} h-7 w-7 !px-0 flex items-center justify-center`}
+              aria-label="Clear formatting"
+            >
+              <span
+                className="block w-3.5 h-3.5"
+                style={listIconMaskStyle("/icons/editor-clear-formatting.svg")}
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+
+          <div
+            className="relative group"
+            data-no-component-drag
+            onMouseEnter={(e) => openToolbarTooltip("Text color", e.currentTarget)}
+            onMouseLeave={closeToolbarTooltip}
+            onFocus={(e) => openToolbarTooltip("Text color", e.currentTarget)}
+            onBlur={closeToolbarTooltip}
+          >
             <button
               ref={colorButtonRef}
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setColorOpen((prev) => !prev)}
-              className={`h-7 px-2 text-xs rounded border flex items-center gap-1.5 ${
-                colorOpen
-                  ? "border-[var(--primary)] bg-[var(--primary)]/10"
-                  : "border-[var(--border)] bg-[var(--input)]"
-              }`}
-              title="Text color"
+              className={`${toolbarButtonClass(colorOpen)} h-7 w-9 !px-0 flex items-center justify-center`}
+              aria-label="Text color"
             >
               <span
-                className="w-3 h-3 rounded-sm border border-[var(--border)]"
+                className="w-3.5 h-3.5 rounded-sm border border-[var(--border)]"
                 style={{ backgroundColor: textColor }}
               />
-              <span className="font-mono">{textColor}</span>
             </button>
-            {colorOpen && (
+          </div>
+
+          {alignOpen &&
+            createPortal(
+              <div
+                ref={alignDropdownRef}
+                style={alignDropdownPos}
+                className="-translate-x-1/2 flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)] backdrop-blur-xl backdrop-saturate-150 shadow-[0_18px_35px_rgba(0,0,0,0.45)] p-1"
+                onMouseEnter={openAlignDropdown}
+                onMouseLeave={scheduleCloseAlignDropdown}
+              >
+                {alignmentOptions.map((option) => {
+                  const AlignIcon = option.icon;
+                  const active = commandState.align === option.key;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyAlignment(option.key);
+                        setAlignOpen(false);
+                      }}
+                      className={`${toolbarButtonClass(active)} h-7 w-7 !px-0 flex items-center justify-center`}
+                      aria-label={option.label}
+                    >
+                      <AlignIcon className="w-3.5 h-3.5" />
+                    </button>
+                  );
+                })}
+              </div>,
+              document.body,
+            )}
+
+          {fontOpen &&
+            createPortal(
+              <div
+                ref={fontDropdownRef}
+                style={fontDropdownPos}
+                className="rounded-xl border border-[var(--border)] bg-[var(--card)] backdrop-blur-xl backdrop-saturate-150 shadow-[0_20px_40px_rgba(0,0,0,0.5)] overflow-hidden max-h-64 overflow-y-auto"
+              >
+                {fontFamilyOptions.map((option) => {
+                  const active =
+                    option.value === DEFAULT_FONT_CONTROL_VALUE
+                      ? activeFontOption.value === DEFAULT_FONT_CONTROL_VALUE
+                      : normalizeFontFamilyValue(option.value) ===
+                        normalizeFontFamilyValue(activeFontOption.value);
+                  return (
+                    <button
+                      key={`${option.value}-${option.label}`}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setFontFamilyControl(option.value);
+                        applyInlineStyle("font-family", option.value);
+                        setFontOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                        active
+                          ? "bg-[var(--primary)]/20 text-[var(--primary)]"
+                          : "text-[var(--foreground)] hover:bg-[var(--muted)]"
+                      }`}
+                      style={{
+                        fontFamily:
+                          option.value === DEFAULT_FONT_CONTROL_VALUE
+                            ? effectiveBaseFontFamily
+                            : option.value,
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>,
+              document.body,
+            )}
+
+          {colorOpen &&
+            createPortal(
               <div
                 ref={colorDropdownRef}
-                className="absolute left-0 top-full mt-1 z-20 w-56 rounded-lg border border-[var(--border)] bg-[var(--card)] shadow-xl p-2 space-y-2"
+                className="w-56 rounded-xl border border-[var(--border)] shadow-[0_22px_50px_rgba(0,0,0,0.6)] p-2.5 space-y-2 backdrop-blur-2xl backdrop-saturate-200"
+                data-no-component-drag
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  ...colorDropdownPos,
+                  background: "var(--card)",
+                }}
               >
                 {brandColors && brandColors.length > 0 && (
                   <div>
@@ -1679,9 +2703,9 @@ function RichTextField({
                           type="button"
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => applyColor(color.value)}
-                          title={`${color.label} (${color.value})`}
                           className="w-5 h-5 rounded border border-[var(--border)]"
                           style={{ backgroundColor: color.value }}
+                          aria-label={`${color.label} ${color.value}`}
                         />
                       ))}
                     </div>
@@ -1693,7 +2717,6 @@ function RichTextField({
                     value={normalizeHexColor(textColor) || "#111111"}
                     onChange={(e) => applyColor(e.target.value)}
                     className="w-8 h-8 rounded border border-[var(--border)] bg-transparent p-0.5"
-                    title="Pick custom color"
                   />
                   <input
                     type="text"
@@ -1720,9 +2743,109 @@ function RichTextField({
                     className="flex-1 h-8 px-2 text-xs font-mono rounded border border-[var(--border)] bg-[var(--input)]"
                   />
                 </div>
-              </div>
+              </div>,
+              document.body,
             )}
-          </div>
+          {toolbarTooltip &&
+            createPortal(
+              <div
+                ref={toolbarTooltipRef}
+                className="pointer-events-none fixed z-[1300] -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border border-white/15 bg-[rgba(8,12,22,0.94)] px-2 py-1 text-[10px] font-medium text-white shadow-lg backdrop-blur-xl"
+                style={{ left: toolbarTooltip.left, top: toolbarTooltip.top }}
+              >
+                {toolbarTooltip.label}
+              </div>,
+              document.body,
+            )}
+          {linkModalOpen &&
+            createPortal(
+              <div
+                className="fixed inset-0 z-[1320] backdrop-blur-md flex items-center justify-center p-4"
+                style={{
+                  background: "color-mix(in srgb, var(--background) 68%, transparent)",
+                }}
+                onMouseDown={(e) => {
+                  if (e.target === e.currentTarget) {
+                    closeLinkModal();
+                  }
+                }}
+              >
+                <div
+                  className="w-full max-w-sm rounded-xl border border-[var(--border)] p-4 space-y-3 text-[var(--foreground)] shadow-[0_32px_90px_rgba(0,0,0,0.45)] backdrop-blur-3xl backdrop-saturate-[1.9]"
+                  style={{
+                    background: "color-mix(in srgb, var(--card) 92%, transparent)",
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <div>
+                    <h3 className="text-sm font-semibold text-[var(--foreground)]">Insert Link</h3>
+                    <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                      Enter a URL, `mailto:`, `tel:`, or relative path.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-[var(--muted-foreground)]">Preview As</label>
+                    <div
+                      className="h-9 px-3 rounded-lg border border-[var(--border)] text-sm flex items-center text-[var(--foreground)]"
+                      style={{
+                        background: "color-mix(in srgb, var(--input) 94%, transparent)",
+                      }}
+                    >
+                      {previewAsLabel || "Sample"}
+                    </div>
+                  </div>
+                  <input
+                    ref={linkInputRef}
+                    type="text"
+                    value={linkInputValue}
+                    onChange={(e) => setLinkInputValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        applyLinkFromModal();
+                      }
+                    }}
+                    placeholder="https://example.com"
+                    className="w-full h-9 px-3 text-sm rounded-lg border border-[var(--border)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none focus:border-[var(--primary)]"
+                    style={{
+                      background: "color-mix(in srgb, var(--input) 94%, transparent)",
+                    }}
+                  />
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={removeLink}
+                      className="px-3 py-1.5 text-xs rounded border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)] transition-colors"
+                      style={{
+                        background: "color-mix(in srgb, var(--input) 92%, transparent)",
+                      }}
+                    >
+                      Remove Link
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={closeLinkModal}
+                        className="px-3 py-1.5 text-xs rounded border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)] transition-colors"
+                        style={{
+                          background: "color-mix(in srgb, var(--input) 92%, transparent)",
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={applyLinkFromModal}
+                        className="px-3 py-1.5 text-xs rounded border border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary)] hover:bg-[var(--primary)]/20 transition-colors"
+                      >
+                        Apply Link
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>,
+              document.body,
+            )}
         </div>
         {onInsertVariable && (
           <VariablePickerButton onInsert={insertVariableAtCursor} />
@@ -1731,7 +2854,7 @@ function RichTextField({
 
       <div className="relative">
         {isEmpty && !isFocused && placeholderText && (
-          <span className="pointer-events-none absolute left-3 top-2 text-sm text-[var(--muted-foreground)]">
+          <span className="pointer-events-none absolute left-3 top-4 text-sm text-[var(--muted-foreground)]">
             {placeholderText}
           </span>
         )}
@@ -1742,27 +2865,37 @@ function RichTextField({
           data-no-component-drag
           onFocus={() => {
             setIsFocused(true);
+            try {
+              document.execCommand("defaultParagraphSeparator", false, "p");
+            } catch {
+              // Ignore if unsupported.
+            }
             saveSelection();
             updateToolbarState();
+            syncInlineVariableAutocomplete();
           }}
           onBlur={() => {
             setIsFocused(false);
             commitEditorValue();
             updateToolbarState();
+            setTimeout(() => setInlineVarOpen(false), 120);
           }}
           onInput={() => {
             commitEditorValue();
             saveSelection();
             updateToolbarState();
+            syncInlineVariableAutocomplete();
           }}
           onKeyDown={handleKeyDown}
           onKeyUp={() => {
             saveSelection();
             updateToolbarState();
+            syncInlineVariableAutocomplete();
           }}
           onMouseUp={() => {
             saveSelection();
             updateToolbarState();
+            syncInlineVariableAutocomplete();
           }}
           onPaste={(e) => {
             e.preventDefault();
@@ -1771,9 +2904,43 @@ function RichTextField({
             commitEditorValue();
             saveSelection();
             updateToolbarState();
+            syncInlineVariableAutocomplete();
           }}
-          className="w-full min-h-[110px] max-h-[420px] overflow-auto resize-y whitespace-pre-wrap break-words bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm leading-6 outline-none focus:border-[var(--primary)] [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-2 [&_li]:my-0.5"
+          className="w-full min-h-[140px] max-h-[420px] overflow-auto resize-y whitespace-pre-wrap break-words bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-4 text-sm leading-6 outline-none focus:border-[var(--primary)] [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-2 [&_li]:my-0.5"
+          style={{ fontFamily: effectiveBaseFontFamily }}
         />
+        {inlineVarOpen && filteredInlineVarOptions.length > 0 && (
+          <div
+            className="absolute left-3 right-3 bottom-3 z-20 rounded-lg border border-[var(--border)] backdrop-blur-xl backdrop-saturate-150 shadow-xl max-h-48 overflow-y-auto"
+            style={{ background: "color-mix(in srgb, var(--background) 96%, transparent)" }}
+          >
+            {filteredInlineVarOptions.map((option, idx) => {
+              const isActive = idx === inlineVarActiveIndex;
+              return (
+                <button
+                  key={option.token}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyInlineVariableToken(option.token);
+                  }}
+                  className={`w-full text-left px-2.5 py-1.5 transition-colors ${
+                    isActive
+                      ? "bg-[var(--primary)]/10"
+                      : "hover:bg-[var(--muted)]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[var(--foreground)] truncate">{option.label}</span>
+                    <code className="text-[10px] font-mono text-[var(--muted-foreground)] truncate max-w-[55%]">
+                      {option.token}
+                    </code>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1787,6 +2954,9 @@ function PropField({
   onBrowseMedia,
   onInsertVariable,
   brandColors,
+  previewAsLabel,
+  richTextBaseFontFamily,
+  inlineVariableOptions = [],
 }: {
   prop: {
     key: string;
@@ -1802,8 +2972,69 @@ function PropField({
   onBrowseMedia?: () => void;
   onInsertVariable?: (token: string) => void;
   brandColors?: { label: string; value: string }[];
+  previewAsLabel?: string;
+  richTextBaseFontFamily?: string;
+  inlineVariableOptions?: InlineVariableOption[];
 }) {
   const placeholderText = prop.placeholder || prop.default;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [inlineVarOpen, setInlineVarOpen] = useState(false);
+  const [inlineVarQuery, setInlineVarQuery] = useState("");
+  const [inlineVarActiveIndex, setInlineVarActiveIndex] = useState(0);
+  const [inlineVarRange, setInlineVarRange] = useState<{ start: number; end: number } | null>(null);
+
+  const filteredInlineVarOptions = useMemo(
+    () => filterInlineVariableOptions(inlineVariableOptions, inlineVarQuery).slice(0, 12),
+    [inlineVariableOptions, inlineVarQuery],
+  );
+
+  const syncInlineVarFromInput = useCallback((text: string, caret: number) => {
+    if (inlineVariableOptions.length === 0) {
+      setInlineVarOpen(false);
+      return;
+    }
+    const trigger = findInlineVariableTrigger(text, caret);
+    if (!trigger) {
+      setInlineVarOpen(false);
+      return;
+    }
+    setInlineVarQuery(trigger.query);
+    setInlineVarRange({ start: trigger.start, end: trigger.end });
+    setInlineVarOpen(true);
+    setInlineVarActiveIndex(0);
+  }, [inlineVariableOptions.length]);
+
+  const applyInlineVarToken = useCallback((token: string) => {
+    const currentValue = inputRef.current?.value ?? value ?? "";
+    const range = inlineVarRange;
+    let nextValue = currentValue;
+    let nextCaret = currentValue.length;
+    if (range) {
+      nextValue = `${currentValue.slice(0, range.start)}${token}${currentValue.slice(range.end)}`;
+      nextCaret = range.start + token.length;
+    } else {
+      nextValue = `${currentValue}${token}`;
+      nextCaret = nextValue.length;
+    }
+    onChange(nextValue);
+    setInlineVarOpen(false);
+    requestAnimationFrame(() => {
+      if (!inputRef.current) return;
+      inputRef.current.focus();
+      inputRef.current.setSelectionRange(nextCaret, nextCaret);
+    });
+  }, [inlineVarRange, onChange, value]);
+
+  useEffect(() => {
+    if (!inlineVarOpen) return;
+    if (filteredInlineVarOptions.length === 0) {
+      setInlineVarOpen(false);
+      return;
+    }
+    if (inlineVarActiveIndex >= filteredInlineVarOptions.length) {
+      setInlineVarActiveIndex(0);
+    }
+  }, [filteredInlineVarOptions.length, inlineVarActiveIndex, inlineVarOpen]);
 
   if (prop.type === "padding") {
     return (
@@ -2153,31 +3384,88 @@ function PropField({
         placeholderText={placeholderText}
         onInsertVariable={onInsertVariable}
         brandColors={brandColors}
+        previewAsLabel={previewAsLabel}
+        baseFontFamily={richTextBaseFontFamily}
+        inlineVariableOptions={inlineVariableOptions}
       />
     );
   }
   if (prop.type === "image") {
     return (
-      <div className="flex items-center gap-1.5">
-        <input
-          type="text"
-          value={value || ""}
-          onChange={(e) => onChange(e.target.value)}
-          className="flex-1 min-w-0 bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
-          placeholder={placeholderText || "Image URL..."}
-        />
-        {onInsertVariable && (
-          <VariablePickerButton onInsert={onInsertVariable} />
-        )}
-        {onBrowseMedia && (
-          <button
-            type="button"
-            onClick={onBrowseMedia}
-            className="flex-shrink-0 p-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)] transition-colors"
-            title="Browse media library"
+      <div className="relative">
+        <div className="flex items-center gap-1.5">
+          <input
+            ref={inputRef}
+            type="text"
+            value={value || ""}
+            onChange={(e) => {
+              onChange(e.target.value);
+              syncInlineVarFromInput(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            }}
+            onKeyDown={(e) => {
+              if (!inlineVarOpen || filteredInlineVarOptions.length === 0) return;
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setInlineVarActiveIndex((prev) => (prev + 1) % filteredInlineVarOptions.length);
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setInlineVarActiveIndex((prev) => (prev - 1 + filteredInlineVarOptions.length) % filteredInlineVarOptions.length);
+              } else if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                const selected = filteredInlineVarOptions[inlineVarActiveIndex] || filteredInlineVarOptions[0];
+                if (selected) applyInlineVarToken(selected.token);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setInlineVarOpen(false);
+              }
+            }}
+            onBlur={() => setTimeout(() => setInlineVarOpen(false), 120)}
+            className="flex-1 min-w-0 bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
+            placeholder={placeholderText || "Image URL..."}
+          />
+          {onInsertVariable && (
+            <VariablePickerButton onInsert={onInsertVariable} />
+          )}
+          {onBrowseMedia && (
+            <button
+              type="button"
+              onClick={onBrowseMedia}
+              className="flex-shrink-0 p-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)] transition-colors"
+              title="Browse media library"
+            >
+              <PhotoIcon className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {inlineVarOpen && filteredInlineVarOptions.length > 0 && (
+          <div
+            className="absolute left-0 right-0 top-full mt-1 z-30 rounded-lg border border-[var(--border)] backdrop-blur-xl backdrop-saturate-150 shadow-xl max-h-52 overflow-y-auto"
+            style={{ background: "color-mix(in srgb, var(--background) 96%, transparent)" }}
           >
-            <PhotoIcon className="w-4 h-4" />
-          </button>
+            {filteredInlineVarOptions.map((option, idx) => {
+              const isActive = idx === inlineVarActiveIndex;
+              return (
+                <button
+                  key={option.token}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyInlineVarToken(option.token);
+                  }}
+                  className={`w-full text-left px-2.5 py-1.5 transition-colors ${
+                    isActive ? "bg-[var(--primary)]/10" : "hover:bg-[var(--muted)]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[var(--foreground)] truncate">{option.label}</span>
+                    <code className="text-[10px] font-mono text-[var(--muted-foreground)] truncate max-w-[55%]">
+                      {option.token}
+                    </code>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
     );
@@ -2195,31 +3483,161 @@ function PropField({
       </button>
     );
   }
+  if (prop.type === "range") {
+    const numVal = parseInt(value || prop.default || "100", 10);
+    const min = prop.min ?? 0;
+    const max = prop.max ?? 100;
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          value={numVal}
+          onChange={(e) => onChange(e.target.value)}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="flex-1 h-1 range-slider"
+        />
+        <span className="text-xs text-[var(--muted-foreground)] w-8 text-right tabular-nums">{numVal}%</span>
+      </div>
+    );
+  }
   // Text/URL/number — variable picker for eligible types
   if (onInsertVariable && prop.type !== "number") {
     return (
-      <div className="flex items-center gap-1.5">
-        <input
-          type="text"
-          value={value || ""}
-          onChange={(e) => onChange(e.target.value)}
-          className="flex-1 min-w-0 bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
-          placeholder={placeholderText}
-        />
-        <VariablePickerButton onInsert={onInsertVariable} />
+      <div className="relative">
+        <div className="flex items-center gap-1.5">
+          <input
+            ref={inputRef}
+            type="text"
+            value={value || ""}
+            onChange={(e) => {
+              onChange(e.target.value);
+              syncInlineVarFromInput(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            }}
+            onKeyDown={(e) => {
+              if (!inlineVarOpen || filteredInlineVarOptions.length === 0) return;
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setInlineVarActiveIndex((prev) => (prev + 1) % filteredInlineVarOptions.length);
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setInlineVarActiveIndex((prev) => (prev - 1 + filteredInlineVarOptions.length) % filteredInlineVarOptions.length);
+              } else if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                const selected = filteredInlineVarOptions[inlineVarActiveIndex] || filteredInlineVarOptions[0];
+                if (selected) applyInlineVarToken(selected.token);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setInlineVarOpen(false);
+              }
+            }}
+            onBlur={() => setTimeout(() => setInlineVarOpen(false), 120)}
+            className="flex-1 min-w-0 bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
+            placeholder={placeholderText}
+          />
+          <VariablePickerButton onInsert={onInsertVariable} />
+        </div>
+        {inlineVarOpen && filteredInlineVarOptions.length > 0 && (
+          <div
+            className="absolute left-0 right-0 top-full mt-1 z-30 rounded-lg border border-[var(--border)] backdrop-blur-xl backdrop-saturate-150 shadow-xl max-h-52 overflow-y-auto"
+            style={{ background: "color-mix(in srgb, var(--background) 96%, transparent)" }}
+          >
+            {filteredInlineVarOptions.map((option, idx) => {
+              const isActive = idx === inlineVarActiveIndex;
+              return (
+                <button
+                  key={option.token}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyInlineVarToken(option.token);
+                  }}
+                  className={`w-full text-left px-2.5 py-1.5 transition-colors ${
+                    isActive ? "bg-[var(--primary)]/10" : "hover:bg-[var(--muted)]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[var(--foreground)] truncate">{option.label}</span>
+                    <code className="text-[10px] font-mono text-[var(--muted-foreground)] truncate max-w-[55%]">
+                      {option.token}
+                    </code>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }
 
+  const isNumberInput = prop.type === "number";
   return (
-    <input
-      type={prop.type === "number" ? "number" : "text"}
-      value={value || ""}
-      onChange={(e) => onChange(e.target.value)}
-      onWheel={(e) => e.currentTarget.blur()}
-      className="w-full bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
-      placeholder={placeholderText}
-    />
+    <div className="relative">
+      <input
+        ref={inputRef}
+        type={isNumberInput ? "number" : "text"}
+        value={value || ""}
+        onChange={(e) => {
+          onChange(e.target.value);
+          if (!isNumberInput) {
+            syncInlineVarFromInput(e.target.value, e.target.selectionStart ?? e.target.value.length);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (!inlineVarOpen || filteredInlineVarOptions.length === 0) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setInlineVarActiveIndex((prev) => (prev + 1) % filteredInlineVarOptions.length);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setInlineVarActiveIndex((prev) => (prev - 1 + filteredInlineVarOptions.length) % filteredInlineVarOptions.length);
+          } else if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            const selected = filteredInlineVarOptions[inlineVarActiveIndex] || filteredInlineVarOptions[0];
+            if (selected) applyInlineVarToken(selected.token);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setInlineVarOpen(false);
+          }
+        }}
+        onBlur={() => setTimeout(() => setInlineVarOpen(false), 120)}
+        onWheel={(e) => e.currentTarget.blur()}
+        className="w-full bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
+        placeholder={placeholderText}
+      />
+      {!isNumberInput && inlineVarOpen && filteredInlineVarOptions.length > 0 && (
+        <div
+          className="absolute left-0 right-0 top-full mt-1 z-30 rounded-lg border border-[var(--border)] backdrop-blur-xl backdrop-saturate-150 shadow-xl max-h-52 overflow-y-auto"
+          style={{ background: "color-mix(in srgb, var(--background) 96%, transparent)" }}
+        >
+          {filteredInlineVarOptions.map((option, idx) => {
+            const isActive = idx === inlineVarActiveIndex;
+            return (
+              <button
+                key={option.token}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  applyInlineVarToken(option.token);
+                }}
+                className={`w-full text-left px-2.5 py-1.5 transition-colors ${
+                  isActive ? "bg-[var(--primary)]/10" : "hover:bg-[var(--muted)]"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-[var(--foreground)] truncate">{option.label}</span>
+                  <code className="text-[10px] font-mono text-[var(--muted-foreground)] truncate max-w-[55%]">
+                    {option.token}
+                  </code>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2227,12 +3645,24 @@ function PropField({
 const GROUP_CONFIG: Record<string, { label: string; order: number; defaultOpen?: boolean }> = {
   stats: { label: 'Stats', order: -1 },
   text: { label: 'Text', order: 0, defaultOpen: true },
+  "footer-logo-bg": { label: 'Logo & Background', order: 0, defaultOpen: true },
+  "footer-business": { label: 'Business Details', order: 1 },
+  "footer-socials": { label: 'Socials', order: 2 },
+  "footer-legal": { label: 'Legal', order: 3 },
   background: { label: 'Background', order: 1 },
   buttons: { label: 'Buttons', order: 2 },
-  layout: { label: 'Layout', order: 3 },
-  border: { label: 'Border', order: 4 },
-  tracking: { label: 'Tracking', order: 5 },
+  layout: { label: 'Layout', order: 4 },
+  border: { label: 'Border', order: 5 },
+  tracking: { label: 'Tracking', order: 6 },
 };
+
+const SPLIT_SIDE_EDITABLE_GROUPS = new Set([
+  "text",
+  "background",
+  "buttons",
+  "layout",
+  "tracking",
+]);
 
 // Button set tabs (Primary / Secondary toggle like Elementor's hover/active tabs)
 function ButtonSetTabs({
@@ -3159,6 +4589,9 @@ function ComponentPropsRenderer({
   onInsertVariable,
   previewWidth,
   brandColors,
+  previewAsLabel,
+  defaultFontFamily,
+  inlineVariableOptions,
   accountLogos,
 }: {
   schema: { name?: string; repeatableGroups?: RepeatableGroup[] };
@@ -3177,6 +4610,7 @@ function ComponentPropsRenderer({
     buttonSet?: 'primary' | 'secondary';
     responsive?: boolean;
     separator?: boolean;
+    sideScoped?: boolean;
   }[];
   onPropChange: (key: string, val: string) => void;
   onLiveStyle?: (key: string, val: string) => void;
@@ -3184,10 +4618,69 @@ function ComponentPropsRenderer({
   onInsertVariable?: (propKey: string, token: string) => void;
   previewWidth: 'desktop' | 'mobile';
   brandColors?: { label: string; value: string }[];
+  previewAsLabel?: string;
+  defaultFontFamily?: string;
+  inlineVariableOptions?: InlineVariableOption[];
   accountLogos?: { light: string; dark: string; white?: string; black?: string };
 }) {
   const groups = schema.repeatableGroups || [];
   const isCopyComponent = schema.name === "copy";
+  const copyBodyProp = isCopyComponent
+    ? allSchemaProps.find((p) => p.key === "body" && !p.repeatableGroup)
+    : undefined;
+  const componentBaseFontFamily =
+    (compProps.font || defaultFontFamily || FALLBACK_FONT_FAMILY).trim() ||
+    FALLBACK_FONT_FAMILY;
+  const isSplitComponent = schema.name === "split";
+  const [activeSplitSide, setActiveSplitSide] = useState<"left" | "right">("left");
+  const splitSideLabel: Record<"left" | "right", string> =
+    previewWidth === "mobile"
+      ? { left: "Top", right: "Bottom" }
+      : { left: "Left", right: "Right" };
+  type SchemaPropDef = (typeof allSchemaProps)[number];
+  const hasOwnProp = (key: string) =>
+    Object.prototype.hasOwnProperty.call(compProps, key);
+  const usesSplitSideKey = (prop?: SchemaPropDef) =>
+    !!prop &&
+    isSplitComponent &&
+    !!prop.group &&
+    SPLIT_SIDE_EDITABLE_GROUPS.has(prop.group) &&
+    prop.sideScoped !== false;
+  const scopedPropKey = (rawKey: string, prop?: SchemaPropDef) =>
+    usesSplitSideKey(prop) ? `${activeSplitSide}-${rawKey}` : rawKey;
+  // Legacy split: if image-side exists, route unscoped props to the correct side
+  const legacyImageSide = isSplitComponent ? (compProps["image-side"] || "") : "";
+  const LEGACY_IMAGE_KEYS = new Set(["image", "image-alt", "image-fit", "image-position", "overlay-color", "overlay-opacity"]);
+  const LEGACY_TEXT_CONTENT_KEYS = new Set(["eyebrow", "headline", "description", "primary-button-text", "primary-button-url", "secondary-button-text", "secondary-button-url"]);
+  const readScopedPropValue = (rawKey: string, prop?: SchemaPropDef) => {
+    const resolvedKey = scopedPropKey(rawKey, prop);
+    if (resolvedKey !== rawKey) {
+      // Side-scoped: prefer scoped key
+      if (hasOwnProp(resolvedKey)) return compProps[resolvedKey] ?? "";
+      // Unscoped fallback for legacy templates
+      const cleanKey = rawKey.replace(/^m:/, "");
+      if (legacyImageSide && hasOwnProp(rawKey)) {
+        // Image props → image side only
+        if (LEGACY_IMAGE_KEYS.has(cleanKey)) {
+          return activeSplitSide === legacyImageSide ? (compProps[rawKey] ?? "") : "";
+        }
+        // Text content props → text side only
+        if (LEGACY_TEXT_CONTENT_KEYS.has(cleanKey)) {
+          const txtSide = legacyImageSide === "left" ? "right" : "left";
+          return activeSplitSide === txtSide ? (compProps[rawKey] ?? "") : "";
+        }
+        // Shared props (font, sizes, colors, padding, etc.) → both sides
+        return compProps[rawKey] ?? "";
+      }
+      // No legacy: shared fallback to unscoped (handles partially migrated templates)
+      if (hasOwnProp(rawKey)) {
+        if (LEGACY_IMAGE_KEYS.has(cleanKey) || LEGACY_TEXT_CONTENT_KEYS.has(cleanKey)) return "";
+        return compProps[rawKey] ?? "";
+      }
+      return "";
+    }
+    return compProps[rawKey] ?? "";
+  };
 
   // For numbered groups (feature{n}, stat-{n}), determine how many items have data
   const getNumberedGroupItemCount = (group: RepeatableGroup): number => {
@@ -3251,13 +4744,20 @@ function ComponentPropsRenderer({
   // Render standard (non-repeatable) props with half-width grouping
   const renderStandardProps = (propsToRender: typeof allSchemaProps) => {
     const propByKey = new Map(propsToRender.map((p) => [p.key, p]));
+    const allPropByKey = new Map(allSchemaProps.map((p) => [p.key, p]));
+    const resolvePropDef = (key: string) =>
+      propByKey.get(key) || allPropByKey.get(key);
     const getEffectivePropValue = (propKey: string) => {
-      const target = propByKey.get(propKey);
+      const target = resolvePropDef(propKey);
       if (!target) return compProps[propKey] || "";
       const isResp = !!target.responsive;
-      let resolved = compProps[propKey] || target.default || "";
+      let resolved = readScopedPropValue(propKey, target) || target.default || "";
       if (isResp && previewWidth === "mobile") {
-        resolved = compProps[`m:${propKey}`] || compProps[propKey] || target.default || "";
+        resolved =
+          readScopedPropValue(`m:${propKey}`, target) ||
+          readScopedPropValue(propKey, target) ||
+          target.default ||
+          "";
       }
 
       if (isCopyComponent && propKey === "body") {
@@ -3283,10 +4783,14 @@ function ComponentPropsRenderer({
     // Filter out props gated by conditionalOn when the referenced prop is falsy
     const visibleProps = propsToRender.filter(p => {
       if (!p.conditionalOn) return true;
-      const depVal = compProps[p.conditionalOn];
-      const depProp = allSchemaProps.find((candidate) => candidate.key === p.conditionalOn);
+      const depProp = allPropByKey.get(p.conditionalOn);
+      const depVal = depProp
+        ? readScopedPropValue(depProp.key, depProp)
+        : (compProps[p.conditionalOn] || "");
       if (depProp?.type === "toggle") return depVal === "true";
-      if (String(depVal || "").trim() === "") return false;
+      // Strip HTML tags and whitespace to detect truly empty content (e.g. lone <br>)
+      const stripped = String(depVal || "").replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, '').trim();
+      if (stripped === "") return false;
 
       return true;
     }).filter((p) => {
@@ -3298,6 +4802,7 @@ function ComponentPropsRenderer({
       return String(getEffectivePropValue(styleKey)).trim().toLowerCase() !== "none";
     }).filter((p) => {
       if (!isCopyComponent) return true;
+      if (p.key === "body") return false;
       return !COPY_PROP_KEYS_MOVED_TO_EDITOR.has(p.key);
     });
     // Helper: inline types show label beside the control (small widgets)
@@ -3308,14 +4813,16 @@ function ComponentPropsRenderer({
     // Resolve responsive prop key, value, placeholder
     const resolve = (prop: typeof allSchemaProps[0]) => {
       const isResp = !!prop.responsive;
-      const effectiveKey = (isResp && isMobile) ? `m:${prop.key}` : prop.key;
-      let value = compProps[effectiveKey] || '';
+      const baseEffectiveKey = (isResp && isMobile) ? `m:${prop.key}` : prop.key;
+      const effectiveKey = scopedPropKey(baseEffectiveKey, prop);
+      let value = readScopedPropValue(baseEffectiveKey, prop) || '';
       if (isCopyComponent && prop.key === "body") {
         value = getEffectivePropValue(prop.key);
       }
-      const desktopVal = compProps[prop.key] || '';
+      const desktopVal = readScopedPropValue(prop.key, prop) || '';
       const mobilePlaceholder = desktopVal || prop.default || '';
-      const hasMobileOverride = isResp && !!compProps[`m:${prop.key}`];
+      const mobileOverrideKey = scopedPropKey(`m:${prop.key}`, prop);
+      const hasMobileOverride = isResp && hasOwnProp(mobileOverrideKey);
       // For mobile editing, override placeholder and clear default so field shows empty when no override
       const propOverride = (isResp && isMobile)
         ? { ...prop, placeholder: mobilePlaceholder, default: undefined as string | undefined }
@@ -3357,11 +4864,13 @@ function ComponentPropsRenderer({
     };
 
     // Clear mobile override button
-    const ClearMobile = ({ propKey, isResp }: { propKey: string; isResp: boolean }) => {
-      if (!isResp || !isMobile || !compProps[`m:${propKey}`]) return null;
+    const ClearMobile = ({ prop, isResp }: { prop: SchemaPropDef; isResp: boolean }) => {
+      if (!isResp || !isMobile) return null;
+      const mobileKey = scopedPropKey(`m:${prop.key}`, prop);
+      if (!hasOwnProp(mobileKey)) return null;
       return (
         <button
-          onClick={() => onPropChange(`m:${propKey}`, '')}
+          onClick={() => onPropChange(mobileKey, '')}
           className="text-[9px] text-[var(--muted-foreground)] hover:text-red-400 ml-0.5 leading-none"
           title="Clear mobile override"
         >✕</button>
@@ -3369,9 +4878,10 @@ function ComponentPropsRenderer({
     };
 
     // Helper: generate onInsertVariable callback for eligible prop types
-    const varPickerFor = (p: { type: string }, effectiveKey: string, _currentVal: string) =>
+    const varPickerFor = (p: SchemaPropDef, effectiveKey: string, currentVal: string) =>
       VARIABLE_ELIGIBLE_TYPES.has(p.type) && onInsertVariable
-        ? (token: string) => onInsertVariable(effectiveKey, token)
+        ? (token: string) =>
+            handleStandardPropChange(p, effectiveKey, `${currentVal || ""}${token}`)
         : undefined;
 
     const elements: React.ReactNode[] = [];
@@ -3407,7 +4917,7 @@ function ComponentPropsRenderer({
                   <label className="text-[11px] text-[var(--muted-foreground)] flex-shrink-0 leading-tight whitespace-nowrap flex items-center gap-0.5">
                     {prop.label}
                     <RespIndicator isResp={r.isResp} hasMobileOverride={r.hasMobileOverride} />
-                    <ClearMobile propKey={prop.key} isResp={r.isResp} />
+                    <ClearMobile prop={prop} isResp={r.isResp} />
                   </label>
                   <div className="flex-shrink-0">
                     <PropField
@@ -3418,6 +4928,8 @@ function ComponentPropsRenderer({
                         onLiveStyle ? (val) => onLiveStyle(prop.key, val) : undefined
                       }
                       brandColors={brandColors}
+                      previewAsLabel={previewAsLabel}
+                      inlineVariableOptions={inlineVariableOptions}
                     />
                   </div>
                 </div>
@@ -3426,7 +4938,7 @@ function ComponentPropsRenderer({
                   <label className="text-[11px] text-[var(--muted-foreground)] mb-1 flex items-center">
                     {prop.label}
                     <RespIndicator isResp={r.isResp} hasMobileOverride={r.hasMobileOverride} />
-                    <ClearMobile propKey={prop.key} isResp={r.isResp} />
+                    <ClearMobile prop={prop} isResp={r.isResp} />
                   </label>
                   <PropField
                     prop={r.propOverride}
@@ -3437,11 +4949,13 @@ function ComponentPropsRenderer({
                     }
                     onBrowseMedia={
                       prop.type === "image" && onBrowseMedia
-                        ? () => onBrowseMedia(prop.key)
+                        ? () => onBrowseMedia(r.effectiveKey)
                         : undefined
                     }
                     onInsertVariable={varPickerFor(prop, r.effectiveKey, r.value)}
                     brandColors={brandColors}
+                    previewAsLabel={previewAsLabel}
+                    inlineVariableOptions={inlineVariableOptions}
                   />
                 </>
               )}
@@ -3452,7 +4966,7 @@ function ComponentPropsRenderer({
                   <label className="text-[11px] text-[var(--muted-foreground)] flex-shrink-0 leading-tight whitespace-nowrap flex items-center gap-0.5">
                     {nextProp.label}
                     <RespIndicator isResp={rNext.isResp} hasMobileOverride={rNext.hasMobileOverride} />
-                    <ClearMobile propKey={nextProp.key} isResp={rNext.isResp} />
+                    <ClearMobile prop={nextProp} isResp={rNext.isResp} />
                   </label>
                   <div className="flex-shrink-0">
                     <PropField
@@ -3465,6 +4979,8 @@ function ComponentPropsRenderer({
                           : undefined
                       }
                       brandColors={brandColors}
+                      previewAsLabel={previewAsLabel}
+                      inlineVariableOptions={inlineVariableOptions}
                     />
                   </div>
                 </div>
@@ -3473,7 +4989,7 @@ function ComponentPropsRenderer({
                   <label className="text-[11px] text-[var(--muted-foreground)] mb-1 flex items-center">
                     {nextProp.label}
                     <RespIndicator isResp={rNext.isResp} hasMobileOverride={rNext.hasMobileOverride} />
-                    <ClearMobile propKey={nextProp.key} isResp={rNext.isResp} />
+                    <ClearMobile prop={nextProp} isResp={rNext.isResp} />
                   </label>
                   <PropField
                     prop={rNext.propOverride}
@@ -3486,11 +5002,13 @@ function ComponentPropsRenderer({
                     }
                     onBrowseMedia={
                       nextProp.type === "image" && onBrowseMedia
-                        ? () => onBrowseMedia(nextProp.key)
+                        ? () => onBrowseMedia(rNext.effectiveKey)
                         : undefined
                     }
                     onInsertVariable={varPickerFor(nextProp, rNext.effectiveKey, rNext.value)}
                     brandColors={brandColors}
+                    previewAsLabel={previewAsLabel}
+                    inlineVariableOptions={inlineVariableOptions}
                   />
                 </>
               )}
@@ -3505,7 +5023,7 @@ function ComponentPropsRenderer({
             <label className="text-[11px] text-[var(--muted-foreground)] flex-shrink-0 leading-tight whitespace-nowrap flex items-center gap-0.5">
               {prop.label}
               <RespIndicator isResp={r.isResp} hasMobileOverride={r.hasMobileOverride} />
-              <ClearMobile propKey={prop.key} isResp={r.isResp} />
+              <ClearMobile prop={prop} isResp={r.isResp} />
             </label>
             <div className="flex-shrink-0">
               <PropField
@@ -3516,6 +5034,8 @@ function ComponentPropsRenderer({
                   onLiveStyle ? (val) => onLiveStyle(prop.key, val) : undefined
                 }
                 brandColors={brandColors}
+                previewAsLabel={previewAsLabel}
+                inlineVariableOptions={inlineVariableOptions}
               />
             </div>
           </div>,
@@ -3540,7 +5060,7 @@ function ComponentPropsRenderer({
             <label className="text-[11px] text-[var(--muted-foreground)] mb-1 flex items-center">
               Logo
               <RespIndicator isResp={r.isResp} hasMobileOverride={r.hasMobileOverride} />
-              <ClearMobile propKey={prop.key} isResp={r.isResp} />
+              <ClearMobile prop={prop} isResp={r.isResp} />
             </label>
             {available.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
@@ -3585,7 +5105,7 @@ function ComponentPropsRenderer({
               {onBrowseMedia && (
                 <button
                   type="button"
-                  onClick={() => onBrowseMedia(prop.key)}
+                  onClick={() => onBrowseMedia(r.effectiveKey)}
                   className="flex-shrink-0 p-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)] transition-colors"
                   title="Browse media library"
                 >
@@ -3603,7 +5123,7 @@ function ComponentPropsRenderer({
             <label className="text-[11px] text-[var(--muted-foreground)] mb-1 flex items-center">
               {prop.label}
               <RespIndicator isResp={r.isResp} hasMobileOverride={r.hasMobileOverride} />
-              <ClearMobile propKey={prop.key} isResp={r.isResp} />
+              <ClearMobile prop={prop} isResp={r.isResp} />
             </label>
             <PropField
               prop={r.propOverride}
@@ -3614,11 +5134,13 @@ function ComponentPropsRenderer({
               }
               onBrowseMedia={
                 prop.type === "image" && onBrowseMedia
-                  ? () => onBrowseMedia(prop.key)
+                  ? () => onBrowseMedia(r.effectiveKey)
                   : undefined
               }
               onInsertVariable={varPickerFor(prop, r.effectiveKey, r.value)}
               brandColors={brandColors}
+              previewAsLabel={previewAsLabel}
+              inlineVariableOptions={inlineVariableOptions}
             />
           </div>,
         );
@@ -3722,6 +5244,8 @@ function ComponentPropsRenderer({
                       : undefined
                   }
                   brandColors={brandColors}
+                  previewAsLabel={previewAsLabel}
+                  inlineVariableOptions={inlineVariableOptions}
                 />
               </div>
               <button
@@ -3815,7 +5339,28 @@ function ComponentPropsRenderer({
 
   // Render grouped standard props
   for (const groupName of sortedGroupNames) {
-    const groupProps = propsByGroup[groupName];
+    if (isCopyComponent && groupName === "text") continue;
+    const groupProps = isSplitComponent && groupName === "layout"
+      ? propsByGroup[groupName].filter((p) => p.key !== "image-side")
+      : propsByGroup[groupName];
+    if (groupProps.length === 0) continue;
+    const groupPropByKey = new Map(groupProps.map((p) => [p.key, p]));
+    const sideAwareGroupValues =
+      isSplitComponent && SPLIT_SIDE_EDITABLE_GROUPS.has(groupName)
+        ? groupProps.reduce<Record<string, string>>((acc, prop) => {
+            acc[prop.key] = readScopedPropValue(prop.key, prop);
+            if (prop.responsive) {
+              acc[`m:${prop.key}`] = readScopedPropValue(`m:${prop.key}`, prop);
+            }
+            return acc;
+          }, { ...compProps })
+        : compProps;
+    const handleGroupPropChange = (rawKey: string, val: string) => {
+      const propDef =
+        groupPropByKey.get(rawKey) ||
+        (rawKey.startsWith("m:") ? groupPropByKey.get(rawKey.slice(2)) : undefined);
+      onPropChange(scopedPropKey(rawKey, propDef), val);
+    };
     const config = GROUP_CONFIG[groupName];
     const groupLabel =
       schema.name === "header" && groupName === "background"
@@ -3840,8 +5385,8 @@ function ComponentPropsRenderer({
               return (
                 <BorderSideEditor
                   props={groupProps}
-                  values={compProps}
-                  onChange={onPropChange}
+                  values={sideAwareGroupValues}
+                  onChange={handleGroupPropChange}
                   onLiveStyle={onLiveStyle ? (key, val) => onLiveStyle(key, val) : undefined}
                   brandColors={brandColors}
                 />
@@ -3854,7 +5399,16 @@ function ComponentPropsRenderer({
           // Button/tracking groups with primary/secondary tabs
           (() => {
             const isHeroTrackingGroup = groupName === "tracking" && schema.name === "hero";
-            const hasSecondaryButton = String(compProps["secondary-button-text"] || "").trim() !== "";
+            const secondaryButtonProp = allSchemaProps.find(
+              (prop) => prop.key === "secondary-button-text",
+            );
+            const hasSecondaryButton =
+              String(
+                readScopedPropValue(
+                  "secondary-button-text",
+                  secondaryButtonProp,
+                ) || "",
+              ).trim() !== "";
             const trackingTabs = hasSecondaryButton
               ? (["primary", "secondary"] as ("primary" | "secondary")[])
               : (["primary"] as ("primary" | "secondary")[]);
@@ -3894,8 +5448,8 @@ function ComponentPropsRenderer({
             return (
               <HeroBackgroundEditor
                 props={groupProps}
-                values={compProps}
-                onChange={onPropChange}
+                values={sideAwareGroupValues}
+                onChange={handleGroupPropChange}
                 onBrowseMedia={onBrowseMedia}
                 previewWidth={previewWidth}
               />
@@ -3908,8 +5462,8 @@ function ComponentPropsRenderer({
               {hasGradient && gradientPropsList.length > 0 && (
                 <GradientEditor
                   props={gradientPropsList}
-                  values={compProps}
-                  onChange={onPropChange}
+                  values={sideAwareGroupValues}
+                  onChange={handleGroupPropChange}
                 />
               )}
             </>
@@ -3934,7 +5488,58 @@ function ComponentPropsRenderer({
     }
   }
 
-  return <div className="[&>*:first-child]:border-t-0">{sections}</div>;
+  return (
+    <div className="space-y-2">
+      {isCopyComponent && copyBodyProp && (
+        <div className="pb-2 border-b border-[var(--border)]">
+          <label className="text-xs text-[var(--muted-foreground)] mb-1 block">
+            {copyBodyProp.label}
+          </label>
+          <PropField
+            prop={copyBodyProp}
+            value={mergeCopyGreetingIntoBody(compProps.greeting || "", compProps.body || "")}
+            onChange={(val) => {
+              onPropChange("body", normalizeRichTextValue(val || ""));
+              if (compProps.greeting) onPropChange("greeting", "");
+            }}
+            onInsertVariable={
+              VARIABLE_ELIGIBLE_TYPES.has(copyBodyProp.type) && onInsertVariable
+                ? (token: string) => onInsertVariable(copyBodyProp.key, token)
+                : undefined
+            }
+            brandColors={brandColors}
+            previewAsLabel={previewAsLabel}
+            richTextBaseFontFamily={componentBaseFontFamily}
+            inlineVariableOptions={inlineVariableOptions}
+          />
+        </div>
+      )}
+      {isSplitComponent && (
+        <div className="pb-2 border-b border-[var(--border)]">
+          <div className="flex rounded-lg border border-[var(--border)] overflow-hidden">
+            {(["left", "right"] as const).map((side) => {
+              const isActive = activeSplitSide === side;
+              return (
+                <button
+                  key={side}
+                  type="button"
+                  onClick={() => setActiveSplitSide(side)}
+                  className={`flex-1 py-1.5 text-[11px] font-medium transition-colors ${
+                    isActive
+                      ? "bg-[var(--primary)] text-white"
+                      : "bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  {splitSideLabel[side]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div className="[&>*:first-child]:border-t-0">{sections}</div>
+    </div>
+  );
 }
 
 // Settings field definition type
@@ -4101,6 +5706,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
 ];
 
 // Helper to serialize a single component into lines
+function escapeTemplateAttrValue(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;");
+}
+
 function serializeComponent(
   comp: { type: string; props: Record<string, string>; content?: string },
   indent: string,
@@ -4108,7 +5719,9 @@ function serializeComponent(
   const lines: string[] = [];
   const propEntries = Object.entries(comp.props);
   if (propEntries.length <= 2) {
-    const attrStr = propEntries.map(([k, v]) => `${k}="${v}"`).join(" ");
+    const attrStr = propEntries
+      .map(([k, v]) => `${k}="${escapeTemplateAttrValue(String(v ?? ""))}"`)
+      .join(" ");
     if (comp.content) {
       lines.push(
         `${indent}<x-core.${comp.type} ${attrStr}>${comp.content}</x-core.${comp.type}>`,
@@ -4119,7 +5732,9 @@ function serializeComponent(
   } else {
     lines.push(`${indent}<x-core.${comp.type}`);
     for (const [key, value] of propEntries) {
-      lines.push(`${indent}  ${key}="${value}"`);
+      lines.push(
+        `${indent}  ${key}="${escapeTemplateAttrValue(String(value ?? ""))}"`,
+      );
     }
     if (comp.content) {
       lines[lines.length - 1] += ">";
@@ -4146,8 +5761,6 @@ const PROP_CSS_MAP: Record<string, string> = {
   "link-color": "color",
   "dealer-name-color": "color",
   "phone-color": "color",
-  "divider-color": "background-color",
-  "icon-color": "color",
   "copyright-color": "color",
   "card-background": "background-color",
   "card-bg-color": "background-color",
@@ -4255,6 +5868,31 @@ function injectLiveStyle(
   }
 }
 
+function injectFooterIconColor(
+  iframe: HTMLIFrameElement | null,
+  componentIndex: number,
+  value: string,
+) {
+  if (!iframe) return;
+  try {
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+
+    const trs = doc.querySelectorAll(`tr[data-loomi="${componentIndex}"]`);
+    if (trs.length === 0) return;
+
+    trs.forEach((tr) => {
+      const svgs = tr.querySelectorAll("svg");
+      svgs.forEach((svg) => {
+        svg.setAttribute("fill", value);
+        (svg as SVGElement).style.setProperty("fill", value);
+      });
+    });
+  } catch {
+    // iframe cross-origin or other error, silently fail
+  }
+}
+
 // Inject a live style for base layout props (body-bg, content-bg) which are on wrapper elements
 function injectLiveBaseStyle(
   iframe: HTMLIFrameElement | null,
@@ -4305,13 +5943,13 @@ function serializeTemplateForPreview(
   lines.push("");
   if (Object.keys(template.baseProps).length <= 2) {
     const inlineStr = Object.entries(template.baseProps)
-      .map(([k, v]) => `${k}="${v}"`)
+      .map(([k, v]) => `${k}="${escapeTemplateAttrValue(String(v ?? ""))}"`)
       .join(" ");
     lines.push(`<x-base ${inlineStr}>`);
   } else {
     lines.push(`<x-base`);
     for (const [k, v] of Object.entries(template.baseProps)) {
-      lines.push(`  ${k}="${v}"`);
+      lines.push(`  ${k}="${escapeTemplateAttrValue(String(v ?? ""))}"`);
     }
     lines.push(`>`);
   }
@@ -4397,13 +6035,13 @@ function serializeTemplateClient(template: ParsedTemplate): string {
   lines.push("");
   if (Object.keys(template.baseProps).length <= 2) {
     const inlineStr = Object.entries(template.baseProps)
-      .map(([k, v]) => `${k}="${v}"`)
+      .map(([k, v]) => `${k}="${escapeTemplateAttrValue(String(v ?? ""))}"`)
       .join(" ");
     lines.push(`<x-base ${inlineStr}>`);
   } else {
     lines.push(`<x-base`);
     for (const [k, v] of Object.entries(template.baseProps)) {
-      lines.push(`  ${k}="${v}"`);
+      lines.push(`  ${k}="${escapeTemplateAttrValue(String(v ?? ""))}"`);
     }
     lines.push(`>`);
   }
@@ -4435,11 +6073,28 @@ export default function TemplateEditorPage() {
   const { isAdmin, isAccount, accountKey, accountData, accounts } = useAccount();
   const { markClean, markDirty } = useUnsavedChanges();
   // Track account key from loaded ESP template (may not be in URL)
-  const [espAccountKey, setEspAccountKey] = useState("");
-  const effectiveAccountKey = accountKeyParam || espAccountKey || accountKey;
+  const [espAccountKey, setEspAccountKey] = useState(accountKeyParam || "");
+  const effectiveAccountKey = espAccountKey || accountKeyParam || accountKey;
   const effectiveAccountData = useMemo(
     () => (effectiveAccountKey ? accounts[effectiveAccountKey] || null : accountData),
     [effectiveAccountKey, accounts, accountData],
+  );
+  const availableAccountOptions = useMemo(
+    () =>
+      Object.entries(accounts)
+        .map(([key, data]) => ({
+          key,
+          dealer: (data?.dealer || key).trim(),
+          location: [data?.city, data?.state].filter(Boolean).join(", "),
+          storefrontImage: data?.storefrontImage || null,
+          logos: data?.logos || null,
+        }))
+        .sort((a, b) => a.dealer.localeCompare(b.dealer)),
+    [accounts],
+  );
+  const selectedAssignedAccountOption = useMemo(
+    () => availableAccountOptions.find((opt) => opt.key === effectiveAccountKey) || null,
+    [availableAccountOptions, effectiveAccountKey],
   );
   // Parse branding safely — may arrive as a JSON string from the API
   const parsedBranding = useMemo(() => {
@@ -4461,6 +6116,42 @@ export default function TemplateEditorPage() {
     if (colors.text) entries.push({ label: "Text", value: colors.text });
     return entries.length > 0 ? entries : undefined;
   }, [parsedBranding?.colors]);
+  const inlineVariableOptions = useMemo<InlineVariableOption[]>(() => {
+    const byToken = new Map<string, InlineVariableOption>();
+    for (const option of BASE_INLINE_VARIABLE_OPTIONS) {
+      byToken.set(option.token.toLowerCase(), option);
+    }
+
+    const raw = effectiveAccountData?.customValues;
+    if (!raw) return Array.from(byToken.values());
+
+    let parsed: Record<string, { name?: string; value?: string }> | null = null;
+    if (typeof raw === "string") {
+      try {
+        parsed = JSON.parse(raw) as Record<string, { name?: string; value?: string }>;
+      } catch {
+        parsed = null;
+      }
+    } else if (typeof raw === "object") {
+      parsed = raw as Record<string, { name?: string; value?: string }>;
+    }
+    if (!parsed) return Array.from(byToken.values());
+
+    for (const [fieldKey, def] of Object.entries(parsed)) {
+      const token = `{{custom_values.${fieldKey}}}`;
+      const key = token.toLowerCase();
+      const existing = byToken.get(key);
+      byToken.set(key, {
+        token,
+        label: (def?.name || existing?.label || fieldKey).trim(),
+        description: def?.value
+          ? `Current: ${def.value}`
+          : existing?.description || "Account custom value",
+      });
+    }
+
+    return Array.from(byToken.values());
+  }, [effectiveAccountData?.customValues]);
   // Parse logos safely — may also be a JSON string
   const accountLogos = useMemo(() => {
     const raw = effectiveAccountData?.logos;
@@ -4496,6 +6187,10 @@ export default function TemplateEditorPage() {
   const previewKeyRef = useRef(0);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [accountAssignmentSaving, setAccountAssignmentSaving] = useState(false);
+  const [storeAssignmentOpen, setStoreAssignmentOpen] = useState(false);
+  const [storeAssignmentSearch, setStoreAssignmentSearch] = useState("");
+  const storeAssignmentDropdownRef = useRef<HTMLDivElement | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copied, setCopied] = useState(false);
   const [showCopyDropdown, setShowCopyDropdown] = useState(false);
@@ -4520,6 +6215,17 @@ export default function TemplateEditorPage() {
   const [editTitleValue, setEditTitleValue] = useState("");
   const [aiMetaLoading, setAiMetaLoading] = useState(false);
   const [aiMetaField, setAiMetaField] = useState<"subject" | "previewText" | null>(null);
+  const filteredStoreAssignmentOptions = useMemo(() => {
+    const query = storeAssignmentSearch.trim().toLowerCase();
+    if (!query) return availableAccountOptions;
+    return availableAccountOptions.filter((opt) => {
+      return (
+        opt.dealer.toLowerCase().includes(query) ||
+        opt.key.toLowerCase().includes(query) ||
+        opt.location.toLowerCase().includes(query)
+      );
+    });
+  }, [availableAccountOptions, storeAssignmentSearch]);
   const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -4573,6 +6279,19 @@ export default function TemplateEditorPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const codeRef = useRef(code);
   const previewCacheRef = useRef(new Map<string, string>());
+  const splitPaneRef = useRef<HTMLDivElement>(null);
+  const splitResizeStartRef = useRef<{ x: number; width: number } | null>(null);
+  const [editorPanelWidth, setEditorPanelWidth] = useState(EDITOR_PANEL_DEFAULT_WIDTH);
+  const [isResizingPanels, setIsResizingPanels] = useState(false);
+  const effectiveTemplateFont = useMemo(() => {
+    const explicitTemplateFont = parsed?.components
+      .find((component) => (component.props.font || "").trim())
+      ?.props.font?.trim();
+    if (explicitTemplateFont) return explicitTemplateFont;
+    const brandedDefaultFont = parsedBranding?.fonts?.body?.trim();
+    if (brandedDefaultFont) return brandedDefaultFont;
+    return FALLBACK_FONT_FAMILY;
+  }, [parsed, parsedBranding?.fonts?.body]);
 
   // Media picker state
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
@@ -4617,11 +6336,107 @@ export default function TemplateEditorPage() {
     setCanRedo(false);
   }, []);
 
+  const clampEditorPanelWidth = useCallback((desiredWidth: number) => {
+    const containerWidth = splitPaneRef.current?.getBoundingClientRect().width;
+    if (!containerWidth || Number.isNaN(containerWidth)) {
+      return Math.max(EDITOR_PANEL_MIN_WIDTH, Math.round(desiredWidth));
+    }
+
+    const reservedAiWidth = showAiAssistant ? AI_PANEL_WIDTH + SPLIT_GAP_PX : 0;
+    const maxWidth =
+      containerWidth -
+      reservedAiWidth -
+      PREVIEW_PANEL_MIN_WIDTH -
+      SPLIT_GAP_PX * 2 -
+      SPLITTER_WIDTH_PX;
+    const boundedMax = Math.max(
+      EDITOR_PANEL_MIN_WIDTH,
+      Math.min(Math.floor(maxWidth), EDITOR_PANEL_MAX_WIDTH),
+    );
+
+    return Math.round(
+      Math.min(Math.max(desiredWidth, EDITOR_PANEL_MIN_WIDTH), boundedMax),
+    );
+  }, [showAiAssistant]);
+
+  const beginPanelResize = useCallback((clientX: number) => {
+    splitResizeStartRef.current = { x: clientX, width: editorPanelWidth };
+    setIsResizingPanels(true);
+  }, [editorPanelWidth]);
+
+  const handlePanelResizerMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    beginPanelResize(e.clientX);
+  }, [beginPanelResize]);
+
+  const adjustEditorPanelWidth = useCallback((delta: number) => {
+    setEditorPanelWidth((prev) => clampEditorPanelWidth(prev + delta));
+  }, [clampEditorPanelWidth]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncWidth = () => {
+      setEditorPanelWidth((prev) => clampEditorPanelWidth(prev));
+    };
+    syncWidth();
+    window.addEventListener("resize", syncWidth);
+    return () => window.removeEventListener("resize", syncWidth);
+  }, [clampEditorPanelWidth]);
+
+  useEffect(() => {
+    if (!isResizingPanels || typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const start = splitResizeStartRef.current;
+      if (!start) return;
+      const nextWidth = start.width + (e.clientX - start.x);
+      setEditorPanelWidth(clampEditorPanelWidth(nextWidth));
+    };
+
+    const stopResizing = () => {
+      splitResizeStartRef.current = null;
+      setIsResizingPanels(false);
+    };
+
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", stopResizing);
+    window.addEventListener("blur", stopResizing);
+
+    return () => {
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", stopResizing);
+      window.removeEventListener("blur", stopResizing);
+    };
+  }, [clampEditorPanelWidth, isResizingPanels]);
+
   const selectedPreviewContact = useMemo(
     () =>
       previewContacts.find((c) => c.id === selectedPreviewContactId) || null,
     [previewContacts, selectedPreviewContactId],
   );
+  const previewAsLabel = useMemo(() => {
+    if (selectedPreviewContactId === "__sample__" || !selectedPreviewContact) {
+      return "Sample";
+    }
+    return (
+      selectedPreviewContact.fullName ||
+      [selectedPreviewContact.firstName, selectedPreviewContact.lastName]
+        .filter(Boolean)
+        .join(" ") ||
+      selectedPreviewContact.email ||
+      selectedPreviewContact.id
+    );
+  }, [selectedPreviewContact, selectedPreviewContactId]);
 
   const previewVariableMap = useMemo(
     () => buildPreviewVariableMap(effectiveAccountData, selectedPreviewContact),
@@ -4800,6 +6615,35 @@ export default function TemplateEditorPage() {
 
   // Load template + ESP variables
   useEffect(() => {
+    const applyResolvedFontDefaults = (template: ParsedTemplate): ParsedTemplate => {
+      if (!template.components.length) return template;
+      const firstExplicitFont = template.components.find(
+        (component) => (component.props.font || "").trim(),
+      )?.props.font;
+      const fallbackFont =
+        (firstExplicitFont || parsedBranding?.fonts?.body || "").trim();
+      if (!fallbackFont) return template;
+
+      const hasMissingFont = template.components.some(
+        (component) => !(component.props.font || "").trim(),
+      );
+      if (!hasMissingFont) return template;
+
+      return {
+        ...template,
+        components: template.components.map((component) => {
+          if ((component.props.font || "").trim()) return component;
+          return {
+            ...component,
+            props: {
+              ...component.props,
+              font: fallbackFont,
+            },
+          };
+        }),
+      };
+    };
+
     // ── ESP template: load by ID ──
     if (espTemplateId) {
       setEspMode(true);
@@ -4829,19 +6673,28 @@ export default function TemplateEditorPage() {
             raw = t.source || t.html || "";
           }
 
-          setCode(raw);
-          setOriginalCode(raw);
           // Prefer frontmatter title over DB name for display
           const parsedRaw = parseTemplate(raw);
+          const parsedWithFontDefaults = parsedRaw?.frontmatter
+            ? applyResolvedFontDefaults(parsedRaw)
+            : parsedRaw;
+          const visualRaw = parsedWithFontDefaults?.frontmatter
+            ? serializeTemplateClient(parsedWithFontDefaults)
+            : raw;
+          const shouldUseCodeMode =
+            t.editorType === "code" || (!t.source && !isLibRef);
+          const initialSource = shouldUseCodeMode ? raw : visualRaw;
+          setCode(initialSource);
+          setOriginalCode(initialSource);
           const fmTitle = parsedRaw?.frontmatter?.title;
           setEspTemplateName(fmTitle || t.name || "");
-          if (t.editorType === "code" || (!t.source && !isLibRef)) {
+          if (shouldUseCodeMode) {
             setEditorMode("code");
             compilePreview(raw);
           } else {
-            if (parsedRaw?.frontmatter) {
-              setParsed(parsedRaw);
-              compilePreview(serializeTemplateForPreview(parsedRaw, new Set()));
+            if (parsedWithFontDefaults?.frontmatter) {
+              setParsed(parsedWithFontDefaults);
+              compilePreview(serializeTemplateForPreview(parsedWithFontDefaults, new Set()));
             } else {
               compilePreview(raw);
             }
@@ -4855,18 +6708,6 @@ export default function TemplateEditorPage() {
     if (accountKeyParam && !design) {
       setEspMode(true);
       if (modeParam === "code") setEditorMode("code");
-      // Apply branding font to all components in a parsed template
-      const applyBrandingFont = (p: ParsedTemplate): ParsedTemplate => {
-        const brandFont = parsedBranding?.fonts?.body;
-        if (!brandFont || !p.components.length) return p;
-        // Only apply if no component already has an explicit font set
-        const hasExplicitFont = p.components.some((c) => c.props.font);
-        if (hasExplicitFont) return p;
-        return {
-          ...p,
-          components: p.components.map((c) => ({ ...c, props: { ...c.props, font: brandFont } })),
-        };
-      };
       // If starting from a library template, load its source
       if (libraryTemplateSlug) {
         fetch(`/api/templates?design=${libraryTemplateSlug}&type=template&format=raw`)
@@ -4875,7 +6716,7 @@ export default function TemplateEditorPage() {
             if (rawData.raw) {
               const p = parseTemplate(rawData.raw);
               if (p?.frontmatter) {
-                const withFont = applyBrandingFont(p);
+                const withFont = applyResolvedFontDefaults(p);
                 const serialized = serializeTemplateClient(withFont);
                 setCode(serialized);
                 setOriginalCode(rawData.raw);
@@ -4894,7 +6735,7 @@ export default function TemplateEditorPage() {
         const blank = getStarterTemplate(modeParam === "code" ? "code" : "visual");
         const p = parseTemplate(blank);
         if (p?.frontmatter) {
-          const withFont = applyBrandingFont(p);
+          const withFont = applyResolvedFontDefaults(p);
           const serialized = serializeTemplateClient(withFont);
           setCode(serialized);
           setOriginalCode(blank);
@@ -4927,9 +6768,10 @@ export default function TemplateEditorPage() {
           setOriginalCode(rawData.raw);
         }
         if (parsedData.frontmatter) {
-          setParsed(parsedData);
+          const parsedWithFontDefaults = applyResolvedFontDefaults(parsedData);
+          setParsed(parsedWithFontDefaults);
           const previewCode = serializeTemplateForPreview(
-            parsedData,
+            parsedWithFontDefaults,
             new Set(),
           );
           compilePreview(previewCode);
@@ -4939,7 +6781,7 @@ export default function TemplateEditorPage() {
       })
       .catch((err) => console.error("Error loading template:", err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [design, templateName, espTemplateId, accountKeyParam, libraryTemplateSlug]);
+  }, [design, templateName, espTemplateId, accountKeyParam, libraryTemplateSlug, parsedBranding?.fonts?.body]);
 
   useEffect(() => {
     setHasChanges(code !== originalCode);
@@ -4998,6 +6840,7 @@ export default function TemplateEditorPage() {
               source: code,
               html: previewHtml || undefined,
               editorType: editorMode,
+              accountKey: effectiveAccountKey || undefined,
             }),
           });
           if (res.ok) {
@@ -5148,7 +6991,7 @@ export default function TemplateEditorPage() {
     if (!currentParsed) return;
     const newComponents = [...currentParsed.components];
     const newProps = { ...newComponents[compIndex].props };
-    if (!value && key.startsWith('m:')) {
+    if (!value && (key.startsWith('m:') || key.includes('-m:'))) {
       // Clear mobile override — remove the key entirely
       delete newProps[key];
     } else {
@@ -5669,6 +7512,54 @@ export default function TemplateEditorPage() {
     syncVisualToCode(newParsed);
   };
 
+  const handleStoreAssignmentChange = useCallback(async (nextAccountKey: string) => {
+    const next = nextAccountKey.trim();
+    const prev = espAccountKey;
+    if (!next) return;
+    if (next === effectiveAccountKey) {
+      setStoreAssignmentOpen(false);
+      setStoreAssignmentSearch("");
+      return;
+    }
+    setStoreAssignmentOpen(false);
+    setStoreAssignmentSearch("");
+    setEspAccountKey(next);
+
+    if (!espMode) return;
+
+    if (!espRecordId) {
+      setMessage("Store assignment updated");
+      setTimeout(() => setMessage(""), 2000);
+      return;
+    }
+
+    setAccountAssignmentSaving(true);
+    try {
+      const res = await fetch(`/api/esp/templates/${espRecordId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountKey: next }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setEspAccountKey(prev);
+        toast.error(data?.error || "Failed to update assigned store");
+        return;
+      }
+      const savedKey = data?.template?.accountKey;
+      if (typeof savedKey === "string" && savedKey.trim()) {
+        setEspAccountKey(savedKey.trim());
+      }
+      setMessage("Store assignment updated");
+      setTimeout(() => setMessage(""), 2000);
+    } catch {
+      setEspAccountKey(prev);
+      toast.error("Failed to update assigned store");
+    } finally {
+      setAccountAssignmentSaving(false);
+    }
+  }, [effectiveAccountKey, espAccountKey, espMode, espRecordId]);
+
   const handleSave = async (): Promise<boolean> => {
     setSaving(true);
     setMessage("");
@@ -5685,6 +7576,7 @@ export default function TemplateEditorPage() {
             source: code,
             html: previewHtml || undefined,
             editorType: editorMode,
+            accountKey: effectiveAccountKey || undefined,
           }),
         });
       } else if (espMode && !espRecordId && effectiveAccountKey) {
@@ -6124,6 +8016,10 @@ export default function TemplateEditorPage() {
           setShowCopyDropdown(false);
           return;
         }
+        if (storeAssignmentOpen) {
+          setStoreAssignmentOpen(false);
+          return;
+        }
       }
     };
     window.addEventListener("keydown", handler);
@@ -6138,7 +8034,23 @@ export default function TemplateEditorPage() {
     showAiAssistant,
     showMissingVars,
     showCopyDropdown,
+    storeAssignmentOpen,
   ]);
+
+  useEffect(() => {
+    if (!storeAssignmentOpen) {
+      setStoreAssignmentSearch("");
+      return;
+    }
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!storeAssignmentDropdownRef.current?.contains(target)) {
+        setStoreAssignmentOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [storeAssignmentOpen]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -6702,9 +8614,12 @@ export default function TemplateEditorPage() {
       </div>
 
       {/* Main split pane */}
-      <div className="flex gap-4 flex-1 min-h-0">
+      <div ref={splitPaneRef} className="flex gap-4 flex-1 min-h-0">
         {/* Left panel — Editor */}
-        <div className="w-[480px] flex-shrink-0 flex flex-col border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--card)]">
+        <div
+          className="flex-shrink-0 flex flex-col border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--card)]"
+          style={{ width: `${editorPanelWidth}px` }}
+        >
           {/* Tabs */}
           <div className="flex items-center border-b border-[var(--border)] bg-[var(--muted)] flex-shrink-0">
             <button
@@ -6750,8 +8665,123 @@ export default function TemplateEditorPage() {
             </div>
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <div className="p-4 space-y-2">
+              <div className="p-4 space-y-8">
                 {/* Settings sub-tab */}
+                {visualTab === "settings" && espMode && (
+                  <div>
+                    <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
+                      Template Assignment
+                    </h3>
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--muted)]/35 p-3 space-y-2.5">
+                      <label className="text-xs text-[var(--muted-foreground)] block">
+                        Assigned Store
+                      </label>
+                      <div
+                        ref={storeAssignmentDropdownRef}
+                        className="relative"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setStoreAssignmentOpen((prev) => !prev)}
+                          disabled={accountAssignmentSaving || availableAccountOptions.length === 0}
+                          className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)] px-2.5 py-2.5 text-left transition-colors hover:bg-[var(--muted)] disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {selectedAssignedAccountOption ? (
+                              <AccountAvatar
+                                name={selectedAssignedAccountOption.dealer}
+                                accountKey={selectedAssignedAccountOption.key}
+                                storefrontImage={selectedAssignedAccountOption.storefrontImage}
+                                logos={selectedAssignedAccountOption.logos}
+                                size={30}
+                                className="w-8 h-8 rounded-md border border-[var(--border)] flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-md border border-[var(--border)] bg-[var(--muted)] flex items-center justify-center flex-shrink-0">
+                                <UserCircleIcon className="w-4 h-4 text-[var(--muted-foreground)]" />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-[var(--foreground)] truncate">
+                                {selectedAssignedAccountOption?.dealer || "Select store"}
+                              </p>
+                              <p className="text-[11px] text-[var(--muted-foreground)] truncate">
+                                {selectedAssignedAccountOption
+                                  ? `${selectedAssignedAccountOption.key}${selectedAssignedAccountOption.location ? ` · ${selectedAssignedAccountOption.location}` : ""}`
+                                  : "Choose the sub-account this template is assigned to"}
+                              </p>
+                            </div>
+                            <ChevronUpDownIcon className="w-4 h-4 text-[var(--muted-foreground)] flex-shrink-0" />
+                          </div>
+                        </button>
+
+                        {storeAssignmentOpen && (
+                          <div className="absolute left-0 right-0 top-full mt-2 z-[60]">
+                            <div className="glass-dropdown rounded-xl shadow-lg overflow-hidden border border-[var(--border)]">
+                              <div className="p-2 border-b border-[var(--border)]">
+                                <div className="relative">
+                                  <MagnifyingGlassIcon className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                                  <input
+                                    type="text"
+                                    value={storeAssignmentSearch}
+                                    onChange={(e) => setStoreAssignmentSearch(e.target.value)}
+                                    placeholder="Search stores..."
+                                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
+                                  />
+                                </div>
+                              </div>
+                              <div className="max-h-72 overflow-y-auto p-1.5 space-y-1">
+                                {filteredStoreAssignmentOptions.length === 0 ? (
+                                  <p className="text-xs text-[var(--muted-foreground)] text-center py-4">
+                                    No stores match your search
+                                  </p>
+                                ) : (
+                                  filteredStoreAssignmentOptions.map((opt) => {
+                                    const isSelected = opt.key === effectiveAccountKey;
+                                    return (
+                                      <button
+                                        key={opt.key}
+                                        type="button"
+                                        onClick={() => handleStoreAssignmentChange(opt.key)}
+                                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors ${isSelected ? "bg-[var(--primary)]/12" : "hover:bg-[var(--muted)]"}`}
+                                      >
+                                        <AccountAvatar
+                                          name={opt.dealer}
+                                          accountKey={opt.key}
+                                          storefrontImage={opt.storefrontImage}
+                                          logos={opt.logos}
+                                          size={28}
+                                          className="w-7 h-7 rounded-md border border-[var(--border)] flex-shrink-0"
+                                        />
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-xs font-medium text-[var(--foreground)] truncate">
+                                            {opt.dealer}
+                                          </p>
+                                          <p className="text-[10px] text-[var(--muted-foreground)] truncate leading-tight">
+                                            {opt.key}
+                                            {opt.location ? ` · ${opt.location}` : ""}
+                                          </p>
+                                        </div>
+                                        {isSelected && (
+                                          <CheckIcon className="w-3.5 h-3.5 text-[var(--primary)] flex-shrink-0" />
+                                        )}
+                                      </button>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {accountAssignmentSaving && (
+                        <p className="text-[11px] text-[var(--muted-foreground)]">
+                          Updating store assignment...
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {visualTab === "settings" && espMode && (
                   <div>
                     <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
@@ -6846,8 +8876,13 @@ export default function TemplateEditorPage() {
                               val = parsed.frontmatter[fKey] || "";
                             } else if (f.target === "allComponentsFont") {
                               // Read font from the first component that has one
-                              const firstWithFont = parsed.components.find((c) => c.props.font);
-                              val = firstWithFont?.props.font || "";
+                              const firstWithFont = parsed.components.find(
+                                (c) => (c.props.font || "").trim(),
+                              );
+                              val =
+                                firstWithFont?.props.font ||
+                                parsedBranding?.fonts?.body ||
+                                "";
                             } else if (f.target === "ctaComponents") {
                               const firstButtonComp = parsed.components.find(
                                 (c) => c.type === "cta" || c.type === "hero",
@@ -6881,7 +8916,9 @@ export default function TemplateEditorPage() {
                               if (f.target === "frontmatter")
                                 updateFrontmatter(fKey, v);
                               else if (f.target === "allComponentsFont")
-                                updateAllComponentsFont(v);
+                                updateAllComponentsFont(
+                                  v || parsedBranding?.fonts?.body || "",
+                                );
                               else if (f.target === "ctaComponents")
                                 updateCtaComponents(fKey, v);
                               else updateBaseProp(fKey, v);
@@ -6955,6 +8992,8 @@ export default function TemplateEditorPage() {
                                           : undefined
                                       }
                                       brandColors={brandColors}
+                                      previewAsLabel={previewAsLabel}
+                                      inlineVariableOptions={inlineVariableOptions}
                                     />
                                   </div>
                                   <div className="flex-1 min-w-0">
@@ -6972,6 +9011,8 @@ export default function TemplateEditorPage() {
                                           : undefined
                                       }
                                       brandColors={brandColors}
+                                      previewAsLabel={previewAsLabel}
+                                      inlineVariableOptions={inlineVariableOptions}
                                     />
                                   </div>
                                 </div>,
@@ -6995,6 +9036,8 @@ export default function TemplateEditorPage() {
                                         : undefined
                                     }
                                     brandColors={brandColors}
+                                    previewAsLabel={previewAsLabel}
+                                    inlineVariableOptions={inlineVariableOptions}
                                   />
                                 </div>,
                               );
@@ -7264,7 +9307,7 @@ export default function TemplateEditorPage() {
                             </div>
 
                             {isExpanded && (
-                              <div className="px-3 pb-3">
+                              <div className="p-3">
                                 {schema ? (
                                   <ComponentPropsRenderer
                                     schema={schema}
@@ -7275,6 +9318,14 @@ export default function TemplateEditorPage() {
                                       updateComponentProp(index, key, val)
                                     }
                                     onLiveStyle={(key, val) => {
+                                      if (key === "icon-color") {
+                                        injectFooterIconColor(
+                                          iframeRef.current,
+                                          index,
+                                          val,
+                                        );
+                                        return;
+                                      }
                                       const cssProp = PROP_CSS_MAP[key];
                                       if (cssProp)
                                         injectLiveStyle(
@@ -7291,6 +9342,9 @@ export default function TemplateEditorPage() {
                                       updateComponentProp(index, propKey, (comp.props[propKey] || '') + token)
                                     }
                                     brandColors={brandColors}
+                                    previewAsLabel={previewAsLabel}
+                                    defaultFontFamily={effectiveTemplateFont}
+                                    inlineVariableOptions={inlineVariableOptions}
                                     accountLogos={accountLogos}
                                   />
                                 ) : (
@@ -7334,6 +9388,38 @@ export default function TemplateEditorPage() {
               </div>
             </div>
           )}
+        </div>
+
+        <div
+          role="separator"
+          aria-label="Resize editor and preview panes"
+          aria-orientation="vertical"
+          aria-valuenow={editorPanelWidth}
+          aria-valuemin={EDITOR_PANEL_MIN_WIDTH}
+          aria-valuemax={EDITOR_PANEL_MAX_WIDTH}
+          tabIndex={0}
+          onMouseDown={handlePanelResizerMouseDown}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") {
+              e.preventDefault();
+              adjustEditorPanelWidth(-PANEL_WIDTH_STEP_PX);
+            } else if (e.key === "ArrowRight") {
+              e.preventDefault();
+              adjustEditorPanelWidth(PANEL_WIDTH_STEP_PX);
+            }
+          }}
+          className={`group flex-shrink-0 self-stretch w-2 -mx-1 rounded cursor-col-resize transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)] ${
+            isResizingPanels ? "bg-[var(--primary)]/15" : "hover:bg-[var(--muted)]"
+          }`}
+          title="Drag to resize editor and preview panes"
+        >
+          <span
+            className={`mx-auto block h-full w-[2px] rounded-full transition-colors ${
+              isResizingPanels
+                ? "bg-[var(--primary)]"
+                : "bg-[var(--border)] group-hover:bg-[var(--primary)]"
+            }`}
+          />
         </div>
 
         {/* Right panel — Preview */}
@@ -7567,7 +9653,10 @@ export default function TemplateEditorPage() {
         </div>
 
         {showAiAssistant && (
-          <div className="relative w-[360px] flex-shrink-0 flex flex-col rounded-xl overflow-hidden ai-ed-panel animate-slide-in-right">
+          <div
+            data-ai-assistant-pane="true"
+            className="relative w-[360px] flex-shrink-0 flex flex-col rounded-xl overflow-hidden ai-ed-panel animate-slide-in-right"
+          >
             <div className="pointer-events-none absolute inset-0 ai-ed-glow" />
             <div className="relative z-10 flex h-full flex-col">
               {/* Header */}

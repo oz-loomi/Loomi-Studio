@@ -1,4 +1,4 @@
-export type FieldType = 'text' | 'textarea' | 'color' | 'url' | 'image' | 'select' | 'toggle' | 'number' | 'padding' | 'radius' | 'unit';
+export type FieldType = 'text' | 'textarea' | 'color' | 'url' | 'image' | 'select' | 'toggle' | 'number' | 'padding' | 'radius' | 'unit' | 'range';
 
 export interface PropSchema {
   key: string;
@@ -16,6 +16,9 @@ export interface PropSchema {
   buttonSet?: 'primary' | 'secondary'; // Which button tab this prop belongs to
   responsive?: boolean; // Allow mobile-specific override via m: prefix
   separator?: boolean; // Render a visual divider line before this prop
+  sideScoped?: boolean; // false to exclude from split side-scoping (default: true if group is in SPLIT_SIDE_EDITABLE_GROUPS)
+  min?: number; // Minimum value for range type
+  max?: number; // Maximum value for range type
 }
 
 export interface RepeatableGroup {
@@ -351,6 +354,7 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       { key: 'accent-color', label: 'Accent', type: 'color', default: '#111111', half: true, group: 'background' },
       ...gradientProps(),
       // ── Layout ──
+      { key: 'align', label: 'Alignment', type: 'select', default: 'left', group: 'layout', options: ALIGN_OPTIONS },
       { key: 'radius', label: 'Border Radius', type: 'radius', default: '0', group: 'border', responsive: true },
       { key: 'padding', label: 'Padding', type: 'padding', default: '0 48px', group: 'layout', responsive: true },
       // ── Border ──
@@ -562,21 +566,33 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       { key: 'eyebrow', label: 'Eyebrow', type: 'text', default: 'Service Spotlight', group: 'text' },
       { key: 'headline', label: 'Headline', type: 'text', required: true, default: 'Keep Your Vehicle Ready for Every Mile', group: 'text' },
       { key: 'description', label: 'Description', type: 'textarea', default: 'Our certified team is here to deliver fast, transparent, and high-quality service tailored to your vehicle.', group: 'text' },
-      { key: 'eyebrow-size', label: 'Eyebrow Size', separator: true, type: 'unit', half: true, group: 'text', responsive: true },
-      { key: 'eyebrow-color', label: 'Eyebrow Color', type: 'color', default: '#6b7280', half: true, group: 'text' },
-      { key: 'headline-size', label: 'Headline Size', type: 'unit', half: true, group: 'text', responsive: true },
-      { key: 'headline-color', label: 'Headline Color', type: 'color', default: '#111111', half: true, group: 'text' },
-      { key: 'description-size', label: 'Desc Size', type: 'unit', half: true, group: 'text', responsive: true },
-      { key: 'description-color', label: 'Desc Color', type: 'color', default: '#4b5563', half: true, group: 'text' },
+      { key: 'eyebrow-size', label: 'Eyebrow Size', separator: true, type: 'unit', half: true, group: 'text', responsive: true, conditionalOn: 'eyebrow' },
+      { key: 'eyebrow-color', label: 'Eyebrow Color', type: 'color', default: '#6b7280', half: true, group: 'text', conditionalOn: 'eyebrow' },
+      { key: 'headline-size', label: 'Headline Size', type: 'unit', half: true, group: 'text', responsive: true, conditionalOn: 'headline' },
+      { key: 'headline-color', label: 'Headline Color', type: 'color', default: '#111111', half: true, group: 'text', conditionalOn: 'headline' },
+      { key: 'description-size', label: 'Desc Size', type: 'unit', half: true, group: 'text', responsive: true, conditionalOn: 'description' },
+      { key: 'description-color', label: 'Desc Color', type: 'color', default: '#4b5563', half: true, group: 'text', conditionalOn: 'description' },
       // ── Background ──
       { key: 'image', label: 'Image', type: 'image', required: true, default: 'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=1200', group: 'background' },
       { key: 'image-alt', label: 'Image Alt Text', type: 'text', default: 'Service bay', group: 'background' },
       { key: 'image-fit', label: 'Image Fit', type: 'select', group: 'background', options: [
         { label: 'Auto', value: 'auto' }, { label: 'Cover', value: 'cover' },
       ], default: 'cover' },
-      { key: 'image-position', label: 'Image Position', type: 'text', default: 'center center', placeholder: 'center center', group: 'background' },
-      { key: 'bg-color', label: 'Section Background', type: 'color', default: '#ffffff', half: true, group: 'background' },
-      { key: 'text-bg-color', label: 'Text Column BG', type: 'color', default: '#f9fafb', half: true, group: 'background' },
+      { key: 'image-position', label: 'Image Position', type: 'select', default: 'center center', group: 'background', options: [
+        { label: 'Center', value: 'center center' },
+        { label: 'Top', value: 'center top' },
+        { label: 'Bottom', value: 'center bottom' },
+        { label: 'Left', value: 'left center' },
+        { label: 'Right', value: 'right center' },
+        { label: 'Top Left', value: 'left top' },
+        { label: 'Top Right', value: 'right top' },
+        { label: 'Bottom Left', value: 'left bottom' },
+        { label: 'Bottom Right', value: 'right bottom' },
+      ] },
+      { key: 'overlay-color', label: 'Overlay Color', type: 'color', default: '#000000', half: true, group: 'background', conditionalOn: 'image' },
+      { key: 'overlay-opacity', label: 'Overlay', type: 'range', default: '0', group: 'background', min: 0, max: 100, conditionalOn: 'image' },
+      { key: 'bg-color', label: 'Section Background', type: 'color', default: '#ffffff', half: true, group: 'background', sideScoped: false },
+      { key: 'text-bg-color', label: 'Column Background', type: 'color', default: '#f9fafb', half: true, group: 'background' },
       // ── Buttons ──
       ...buttonProps('primary-button', 'primary', {
         text: 'Schedule Service',
@@ -607,9 +623,6 @@ export const componentSchemas: Record<string, ComponentSchema> = {
         textTransform: 'uppercase',
       }),
       // ── Layout ──
-      { key: 'image-side', label: 'Image Side', type: 'select', group: 'layout', options: [
-        { label: 'Left', value: 'left' }, { label: 'Right', value: 'right' },
-      ], default: 'left' },
       { key: 'text-align', label: 'Text Align', type: 'select', default: 'left', group: 'layout', options: ALIGN_OPTIONS, responsive: true },
       { key: 'content-valign', label: 'Vertical Align', type: 'select', group: 'layout', options: [
         { label: 'Top', value: 'top' }, { label: 'Middle', value: 'middle' }, { label: 'Bottom', value: 'bottom' },
@@ -654,41 +667,32 @@ export const componentSchemas: Record<string, ComponentSchema> = {
     name: 'footer',
     label: 'Footer',
     icon: 'FooterIcon',
-    repeatableGroups: [
-      {
-        key: 'social',
-        label: 'Social Link',
-        maxItems: 6,
-        propsPerItem: ['facebook-url', 'instagram-url', 'youtube-url', 'linkedin-url', 'tiktok-url', 'x-url'],
-      },
-    ],
     props: [
-      // ── Text ──
-      { key: 'dealer-name', label: 'Business Name', type: 'text', default: '{{location.name}}', group: 'text' },
-      { key: 'text-color', label: 'Text Color', type: 'color', default: '#bdbdbd', half: true, group: 'text' },
-      { key: 'dealer-name-color', label: 'Name Color', type: 'color', default: '#ffffff', half: true, group: 'text' },
-      { key: 'link-color', label: 'Link Color', type: 'color', default: '#bdbdbd', half: true, group: 'text' },
-      { key: 'phone-color', label: 'Phone Color', type: 'color', default: '#ffffff', half: true, group: 'text' },
-      { key: 'copyright-color', label: 'Copyright Color', separator: true, type: 'color', default: 'rgba(255,255,255,0.4)', group: 'text' },
-      // ── Background ──
-      { key: 'logo-url', label: 'Logo', type: 'image', default: '{{custom_values.logo_url}}', group: 'background' },
-      { key: 'bg-color', label: 'Background', type: 'color', default: '#111111', half: true, group: 'background' },
-      { key: 'icon-color', label: 'Icon Color', type: 'color', default: '#bdbdbd', half: true, group: 'background' },
+      // ── Logo & Background ──
+      { key: 'logo-url', label: 'Logo', type: 'image', default: '{{custom_values.logo_url}}', group: 'footer-logo-bg' },
+      { key: 'logo-width', label: 'Logo Width', type: 'unit', default: '220px', group: 'footer-logo-bg', responsive: true },
+      { key: 'bg-color', label: 'Background', type: 'color', default: '#111111', group: 'footer-logo-bg' },
+      // ── Business Details ──
+      { key: 'dealer-name', label: 'Business Name', type: 'text', default: '{{location.name}}', group: 'footer-business' },
+      { key: 'text-color', label: 'Text Color', type: 'color', default: '#bdbdbd', half: true, group: 'footer-business' },
+      { key: 'dealer-name-color', label: 'Business Name Color', type: 'color', default: '#ffffff', half: true, group: 'footer-business' },
+      { key: 'phone-color', label: 'Phone Color', type: 'color', default: '#ffffff', group: 'footer-business' },
+      // ── Socials ──
+      { key: 'icon-color', label: 'Social Icon Color', type: 'color', default: '#bdbdbd', group: 'footer-socials' },
+      { key: 'facebook-url', label: 'Facebook', type: 'url', group: 'footer-socials' },
+      { key: 'instagram-url', label: 'Instagram', type: 'url', group: 'footer-socials' },
+      { key: 'youtube-url', label: 'YouTube', type: 'url', group: 'footer-socials' },
+      { key: 'linkedin-url', label: 'LinkedIn', type: 'url', group: 'footer-socials' },
+      { key: 'tiktok-url', label: 'TikTok', type: 'url', group: 'footer-socials' },
+      { key: 'x-url', label: 'X (Twitter)', type: 'url', group: 'footer-socials' },
+      // ── Legal ──
+      { key: 'link-color', label: 'Legal Link Color', type: 'color', default: '#bdbdbd', group: 'footer-legal' },
+      { key: 'copyright-color', label: 'Copyright Color', type: 'color', default: 'rgba(255,255,255,0.4)', group: 'footer-legal' },
       // ── Layout ──
-      { key: 'variant', label: 'Style', type: 'select', group: 'layout', options: [
-        { label: 'Dealer', value: 'dealer' }, { label: 'Brand', value: 'brand' },
-      ], default: 'dealer' },
-      { key: 'logo-width', label: 'Logo Width', type: 'unit', default: '220px', group: 'layout', responsive: true },
       { key: 'container-padding', label: 'Padding', type: 'padding', default: '48px 40px', group: 'layout', responsive: true },
+      { key: 'container-margin', label: 'Margin', type: 'padding', default: '0', group: 'layout', responsive: true },
       // ── Border ──
-      { key: 'divider-color', label: 'Divider Color', type: 'color', default: '#2a2a2a', group: 'border' },
-      // ── Repeatable (no group) ──
-      { key: 'facebook-url', label: 'Facebook', type: 'url', default: '{{custom_values.facebook}}', repeatableGroup: 'social' },
-      { key: 'instagram-url', label: 'Instagram', type: 'url', default: '{{custom_values.instagram}}', repeatableGroup: 'social' },
-      { key: 'youtube-url', label: 'YouTube', type: 'url', default: '{{custom_values.youtube}}', repeatableGroup: 'social' },
-      { key: 'linkedin-url', label: 'LinkedIn', type: 'url', repeatableGroup: 'social' },
-      { key: 'tiktok-url', label: 'TikTok', type: 'url', default: '{{custom_values.tiktok}}', repeatableGroup: 'social' },
-      { key: 'x-url', label: 'X (Twitter)', type: 'url', default: '{{custom_values.x}}', repeatableGroup: 'social' },
+      ...borderProps(),
     ],
   },
 
