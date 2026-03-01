@@ -1166,6 +1166,22 @@ interface GhlBulkLinkResult {
   error?: string;
 }
 
+interface RemoteCustomValueRow {
+  id: string;
+  name: string;
+  fieldKey: string;
+  value: string;
+}
+
+interface RemoteCustomFieldRow {
+  id: string;
+  name: string;
+  fieldKey: string;
+  dataType: string;
+  model: string;
+  raw: Record<string, unknown>;
+}
+
 function CustomValuesTab() {
   const { accounts } = useAccount();
   const { markClean } = useUnsavedChanges();
@@ -1204,6 +1220,16 @@ function CustomValuesTab() {
     failed: number;
     results: GhlBulkLinkResult[];
   } | null>(null);
+  const [remoteAccountKey, setRemoteAccountKey] = useState('');
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteMutating, setRemoteMutating] = useState(false);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
+  const [remoteCustomValues, setRemoteCustomValues] = useState<RemoteCustomValueRow[]>([]);
+  const [remoteCustomFields, setRemoteCustomFields] = useState<RemoteCustomFieldRow[]>([]);
+  const [newRemoteValueName, setNewRemoteValueName] = useState('');
+  const [newRemoteValueValue, setNewRemoteValueValue] = useState('');
+  const [newRemoteFieldName, setNewRemoteFieldName] = useState('');
+  const [newRemoteFieldType, setNewRemoteFieldType] = useState('TEXT');
 
   // Industry defaults loader
   const [selectedIndustry, setSelectedIndustry] = useState('');
@@ -1326,6 +1352,40 @@ function CustomValuesTab() {
     });
 
     return rows;
+  }
+
+  function normalizeRemoteCustomValueRows(payload: unknown): RemoteCustomValueRow[] {
+    if (!Array.isArray(payload)) return [];
+    return payload.map((entry) => {
+      const row =
+        entry && typeof entry === 'object' && !Array.isArray(entry)
+          ? (entry as Record<string, unknown>)
+          : {};
+      return {
+        id: String(row.id || row._id || ''),
+        name: String(row.name || ''),
+        fieldKey: String(row.fieldKey || ''),
+        value: String(row.value || ''),
+      };
+    });
+  }
+
+  function normalizeRemoteCustomFieldRows(payload: unknown): RemoteCustomFieldRow[] {
+    if (!Array.isArray(payload)) return [];
+    return payload.map((entry) => {
+      const row =
+        entry && typeof entry === 'object' && !Array.isArray(entry)
+          ? (entry as Record<string, unknown>)
+          : {};
+      return {
+        id: String(row.id || row._id || ''),
+        name: String(row.name || row.label || ''),
+        fieldKey: String(row.fieldKey || row.key || row.objectKey || ''),
+        dataType: String(row.dataType || row.type || ''),
+        model: String(row.model || row.fieldFor || row.object || ''),
+        raw: row,
+      };
+    });
   }
 
   function handlePreviewBulkLinks() {
@@ -1601,6 +1661,8 @@ function CustomValuesTab() {
     try {
       const res = await fetch(`/api/custom-values/${encodeURIComponent(accountKey)}/sync`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deleteManaged: true }),
       });
       const data = await res.json();
 
@@ -1661,7 +1723,7 @@ function CustomValuesTab() {
       const res = await fetch('/api/custom-values/sync-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountKeys: connectedKeys }),
+        body: JSON.stringify({ accountKeys: connectedKeys, deleteManaged: true }),
       });
       const data = await res.json();
       const results = data.results || {};
@@ -1698,6 +1760,276 @@ function CustomValuesTab() {
     setBulkSyncing(false);
     setBulkProgress(null);
     setSelectedKeys(new Set());
+  }
+
+  const ghlReadyAccounts = accountStatuses.filter(
+    (status) => status.provider === 'ghl' && status.readyForSync,
+  );
+
+  useEffect(() => {
+    if (ghlReadyAccounts.length === 0) {
+      setRemoteAccountKey('');
+      setRemoteCustomValues([]);
+      setRemoteCustomFields([]);
+      setRemoteError(null);
+      return;
+    }
+
+    if (!ghlReadyAccounts.some((status) => status.key === remoteAccountKey)) {
+      setRemoteAccountKey(ghlReadyAccounts[0].key);
+    }
+  }, [ghlReadyAccounts, remoteAccountKey]);
+
+  async function refreshRemoteManager(accountKey = remoteAccountKey) {
+    const selected = accountKey.trim();
+    if (!selected) return;
+
+    setRemoteLoading(true);
+    setRemoteError(null);
+    try {
+      const [valuesRes, fieldsRes] = await Promise.all([
+        fetch(`/api/custom-values/${encodeURIComponent(selected)}/remote`),
+        fetch(`/api/custom-fields/${encodeURIComponent(selected)}?model=contact`),
+      ]);
+
+      const valuesData = await valuesRes.json().catch(() => ({}));
+      const fieldsData = await fieldsRes.json().catch(() => ({}));
+
+      if (!valuesRes.ok || !fieldsRes.ok) {
+        const valueErr = typeof valuesData?.error === 'string' ? valuesData.error : '';
+        const fieldErr = typeof fieldsData?.error === 'string' ? fieldsData.error : '';
+        const message = valueErr || fieldErr || 'Failed to load remote GHL data';
+        throw new Error(message);
+      }
+
+      setRemoteCustomValues(normalizeRemoteCustomValueRows(valuesData?.values));
+      setRemoteCustomFields(normalizeRemoteCustomFieldRows(fieldsData?.fields));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load remote GHL data';
+      setRemoteError(message);
+      setRemoteCustomValues([]);
+      setRemoteCustomFields([]);
+    } finally {
+      setRemoteLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!remoteAccountKey) return;
+    void refreshRemoteManager(remoteAccountKey);
+  }, [remoteAccountKey]);
+
+  async function handleCreateRemoteValue() {
+    const accountKey = remoteAccountKey.trim();
+    const name = newRemoteValueName.trim();
+    if (!accountKey) return;
+    if (!name) {
+      toast.error('Custom value name is required');
+      return;
+    }
+
+    setRemoteMutating(true);
+    try {
+      const res = await fetch(`/api/custom-values/${encodeURIComponent(accountKey)}/remote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          value: newRemoteValueValue,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to create custom value');
+      }
+
+      setNewRemoteValueName('');
+      setNewRemoteValueValue('');
+      await refreshRemoteManager(accountKey);
+      toast.success('Custom value created in GHL');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create custom value');
+    } finally {
+      setRemoteMutating(false);
+    }
+  }
+
+  async function handleUpdateRemoteValue(row: RemoteCustomValueRow) {
+    const accountKey = remoteAccountKey.trim();
+    if (!accountKey || !row.id) return;
+
+    const nextName = prompt('Custom value name', row.name);
+    if (nextName === null) return;
+    const nextValue = prompt('Custom value value', row.value);
+    if (nextValue === null) return;
+    if (!nextName.trim()) {
+      toast.error('Name is required');
+      return;
+    }
+
+    setRemoteMutating(true);
+    try {
+      const res = await fetch(
+        `/api/custom-values/${encodeURIComponent(accountKey)}/remote/${encodeURIComponent(row.id)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: nextName.trim(),
+            value: nextValue,
+          }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to update custom value');
+      }
+
+      await refreshRemoteManager(accountKey);
+      toast.success('Custom value updated in GHL');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update custom value');
+    } finally {
+      setRemoteMutating(false);
+    }
+  }
+
+  async function handleDeleteRemoteValue(row: RemoteCustomValueRow) {
+    const accountKey = remoteAccountKey.trim();
+    if (!accountKey || !row.id) return;
+    if (!confirm(`Delete custom value "${row.name || row.fieldKey || row.id}" from GHL?`)) {
+      return;
+    }
+
+    setRemoteMutating(true);
+    try {
+      const res = await fetch(
+        `/api/custom-values/${encodeURIComponent(accountKey)}/remote/${encodeURIComponent(row.id)}`,
+        { method: 'DELETE' },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to delete custom value');
+      }
+
+      await refreshRemoteManager(accountKey);
+      toast.success('Custom value deleted from GHL');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete custom value');
+    } finally {
+      setRemoteMutating(false);
+    }
+  }
+
+  async function handleCreateRemoteField() {
+    const accountKey = remoteAccountKey.trim();
+    const name = newRemoteFieldName.trim();
+    if (!accountKey) return;
+    if (!name) {
+      toast.error('Custom field name is required');
+      return;
+    }
+
+    setRemoteMutating(true);
+    try {
+      const res = await fetch(`/api/custom-fields/${encodeURIComponent(accountKey)}?model=contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          dataType: newRemoteFieldType.trim() || 'TEXT',
+          model: 'contact',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to create custom field');
+      }
+
+      setNewRemoteFieldName('');
+      setNewRemoteFieldType('TEXT');
+      await refreshRemoteManager(accountKey);
+      toast.success('Custom field created in GHL');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create custom field');
+    } finally {
+      setRemoteMutating(false);
+    }
+  }
+
+  async function handleEditRemoteField(row: RemoteCustomFieldRow) {
+    const accountKey = remoteAccountKey.trim();
+    if (!accountKey || !row.id) return;
+
+    const draft = JSON.stringify(row.raw || {}, null, 2);
+    const nextPayload = prompt(
+      'Edit custom field JSON payload (sent directly to GHL PUT /customFields/:id)',
+      draft,
+    );
+    if (nextPayload === null) return;
+
+    let parsed: Record<string, unknown>;
+    try {
+      const parsedRaw = JSON.parse(nextPayload) as unknown;
+      if (!parsedRaw || typeof parsedRaw !== 'object' || Array.isArray(parsedRaw)) {
+        toast.error('Payload must be a JSON object');
+        return;
+      }
+      parsed = parsedRaw as Record<string, unknown>;
+    } catch {
+      toast.error('Invalid JSON');
+      return;
+    }
+
+    setRemoteMutating(true);
+    try {
+      const res = await fetch(
+        `/api/custom-fields/${encodeURIComponent(accountKey)}/${encodeURIComponent(row.id)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(parsed),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to update custom field');
+      }
+
+      await refreshRemoteManager(accountKey);
+      toast.success('Custom field updated in GHL');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update custom field');
+    } finally {
+      setRemoteMutating(false);
+    }
+  }
+
+  async function handleDeleteRemoteField(row: RemoteCustomFieldRow) {
+    const accountKey = remoteAccountKey.trim();
+    if (!accountKey || !row.id) return;
+    if (!confirm(`Delete custom field "${row.name || row.fieldKey || row.id}" from GHL?`)) {
+      return;
+    }
+
+    setRemoteMutating(true);
+    try {
+      const res = await fetch(
+        `/api/custom-fields/${encodeURIComponent(accountKey)}/${encodeURIComponent(row.id)}`,
+        { method: 'DELETE' },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to delete custom field');
+      }
+
+      await refreshRemoteManager(accountKey);
+      toast.success('Custom field deleted from GHL');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete custom field');
+    } finally {
+      setRemoteMutating(false);
+    }
   }
 
   const connectedAccounts = accountStatuses.filter(a => a.readyForSync);
@@ -2353,6 +2685,226 @@ function CustomValuesTab() {
               >
                 Last
               </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── Section 3: Direct GHL Remote CRUD ── */}
+      <section className={sectionCardClass}>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">Direct GHL Remote Manager</h3>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+              Create, update, and delete GHL custom values and custom fields directly per sub-account.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={remoteAccountKey}
+              onChange={(event) => setRemoteAccountKey(event.target.value)}
+              className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)] min-w-[240px]"
+              disabled={ghlReadyAccounts.length === 0}
+            >
+              {ghlReadyAccounts.length === 0 && (
+                <option value="">No ready GHL accounts</option>
+              )}
+              {ghlReadyAccounts.map((status) => (
+                <option key={status.key} value={status.key}>
+                  {status.dealer} ({status.key})
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => void refreshRemoteManager()}
+              disabled={!remoteAccountKey || remoteLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-40"
+            >
+              <ArrowPathIcon className={`w-3.5 h-3.5 ${remoteLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {ghlReadyAccounts.length === 0 ? (
+          <p className="text-xs text-[var(--muted-foreground)]">
+            No connected GHL sub-accounts are ready for direct remote management.
+          </p>
+        ) : remoteError ? (
+          <p className="text-xs text-red-400">{remoteError}</p>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4 space-y-3">
+              <div>
+                <p className="text-xs font-semibold text-[var(--foreground)]">Remote Custom Values</p>
+                <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                  Writes directly to GHL custom values for the selected sub-account.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                <input
+                  type="text"
+                  value={newRemoteValueName}
+                  onChange={(event) => setNewRemoteValueName(event.target.value)}
+                  placeholder="Name (e.g. Sales Phone)"
+                  className={inputClass}
+                />
+                <input
+                  type="text"
+                  value={newRemoteValueValue}
+                  onChange={(event) => setNewRemoteValueValue(event.target.value)}
+                  placeholder="Value"
+                  className={inputClass}
+                />
+                <button
+                  onClick={() => void handleCreateRemoteValue()}
+                  disabled={!remoteAccountKey || remoteMutating}
+                  className="justify-center inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                >
+                  <PlusIcon className="w-3.5 h-3.5" />
+                  Create in GHL
+                </button>
+              </div>
+
+              <div className="max-h-80 overflow-y-auto border border-[var(--border)] rounded-lg">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                      <th className="text-left px-3 py-2 text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Name</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Field Key</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Value</th>
+                      <th className="w-20 px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {remoteCustomValues.map((row) => (
+                      <tr key={row.id || `${row.fieldKey}-${row.name}`} className="border-b border-[var(--border)] last:border-b-0">
+                        <td className="px-3 py-2 text-xs text-[var(--foreground)]">{row.name || '—'}</td>
+                        <td className="px-3 py-2 text-[10px] font-mono text-[var(--muted-foreground)]">{row.fieldKey || '—'}</td>
+                        <td className="px-3 py-2 text-xs text-[var(--foreground)] break-all">{row.value || '—'}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => void handleUpdateRemoteValue(row)}
+                              disabled={remoteMutating}
+                              className="p-1 rounded border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-40"
+                              title="Edit"
+                            >
+                              <PencilSquareIcon className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => void handleDeleteRemoteValue(row)}
+                              disabled={remoteMutating}
+                              className="p-1 rounded border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
+                              title="Delete"
+                            >
+                              <TrashIcon className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {remoteCustomValues.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-4 text-xs text-center text-[var(--muted-foreground)]">
+                          {remoteLoading ? 'Loading...' : 'No custom values found'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4 space-y-3">
+              <div>
+                <p className="text-xs font-semibold text-[var(--foreground)]">Remote Custom Fields</p>
+                <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                  Contact-model custom fields from GHL. Use edit to send an advanced JSON payload.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                <input
+                  type="text"
+                  value={newRemoteFieldName}
+                  onChange={(event) => setNewRemoteFieldName(event.target.value)}
+                  placeholder="Field name"
+                  className={inputClass}
+                />
+                <select
+                  value={newRemoteFieldType}
+                  onChange={(event) => setNewRemoteFieldType(event.target.value)}
+                  className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]"
+                >
+                  <option value="TEXT">TEXT</option>
+                  <option value="LARGE_TEXT">LARGE_TEXT</option>
+                  <option value="NUMERICAL">NUMERICAL</option>
+                  <option value="PHONE">PHONE</option>
+                  <option value="MONETORY">MONETORY</option>
+                  <option value="SINGLE_OPTIONS">SINGLE_OPTIONS</option>
+                  <option value="MULTIPLE_OPTIONS">MULTIPLE_OPTIONS</option>
+                  <option value="DATE">DATE</option>
+                </select>
+                <button
+                  onClick={() => void handleCreateRemoteField()}
+                  disabled={!remoteAccountKey || remoteMutating}
+                  className="sm:col-span-2 justify-center inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                >
+                  <PlusIcon className="w-3.5 h-3.5" />
+                  Create Field in GHL
+                </button>
+              </div>
+
+              <div className="max-h-80 overflow-y-auto border border-[var(--border)] rounded-lg">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                      <th className="text-left px-3 py-2 text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Name</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Key</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wider">Type</th>
+                      <th className="w-20 px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {remoteCustomFields.map((row) => (
+                      <tr key={row.id || `${row.fieldKey}-${row.name}`} className="border-b border-[var(--border)] last:border-b-0">
+                        <td className="px-3 py-2 text-xs text-[var(--foreground)]">{row.name || '—'}</td>
+                        <td className="px-3 py-2 text-[10px] font-mono text-[var(--muted-foreground)]">{row.fieldKey || '—'}</td>
+                        <td className="px-3 py-2 text-xs text-[var(--foreground)]">{row.dataType || '—'}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => void handleEditRemoteField(row)}
+                              disabled={remoteMutating}
+                              className="p-1 rounded border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-40"
+                              title="Edit JSON"
+                            >
+                              <PencilSquareIcon className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => void handleDeleteRemoteField(row)}
+                              disabled={remoteMutating}
+                              className="p-1 rounded border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
+                              title="Delete"
+                            >
+                              <TrashIcon className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {remoteCustomFields.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-4 text-xs text-center text-[var(--muted-foreground)]">
+                          {remoteLoading ? 'Loading...' : 'No custom fields found'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
