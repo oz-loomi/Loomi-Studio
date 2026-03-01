@@ -241,7 +241,7 @@ export async function getEspConnectionsStatus(accountKey: string): Promise<EspCo
       oauthConnected,
       locationId: oauthConnection?.locationId || accountProviderLink?.locationId || undefined,
       locationName: oauthConnection?.locationName || accountProviderLink?.locationName || undefined,
-      scopes: parseScopes(oauthConnection?.scopes || providerCredential?.scopes),
+      scopes: parseScopes(providerCredential?.scopes || oauthConnection?.scopes),
       installedAt:
         oauthConnection?.installedAt?.toISOString()
         || accountProviderLink?.linkedAt?.toISOString(),
