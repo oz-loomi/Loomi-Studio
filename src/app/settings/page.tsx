@@ -1220,6 +1220,7 @@ function CustomValuesTab() {
   const [ghlAgencyStatus, setGhlAgencyStatus] = useState<GhlAgencyStatus | null>(null);
   const [ghlAgencyLoading, setGhlAgencyLoading] = useState(false);
   const [ghlAgencyDisconnecting, setGhlAgencyDisconnecting] = useState(false);
+  const [ghlAgencyRefreshing, setGhlAgencyRefreshing] = useState(false);
   const [ghlAgencyError, setGhlAgencyError] = useState<string | null>(null);
   const [showBulkLinkAssistant, setShowBulkLinkAssistant] = useState(false);
   const [bulkLinkInput, setBulkLinkInput] = useState('');
@@ -1527,6 +1528,34 @@ function CustomValuesTab() {
       toast.error(message);
     } finally {
       setGhlAgencyDisconnecting(false);
+    }
+  }
+
+  async function handleForceRefreshGhlAgency() {
+    setGhlAgencyRefreshing(true);
+    setGhlAgencyError(null);
+    try {
+      const res = await fetch('/api/esp/connections/ghl/agency', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Token refresh failed');
+      }
+
+      if (data.allScopesGranted) {
+        toast.success(`Agency token refreshed — all ${data.scopes?.length || 0} scopes granted!`);
+      } else {
+        const missing = data.missingRequiredScopes?.length || 0;
+        toast.warning(`Token refreshed but ${missing} required scope${missing !== 1 ? 's' : ''} still missing. A full re-authorization may be needed.`);
+      }
+
+      await loadGhlAgencyStatus();
+      setAccountStatusRefreshNonce((prev) => prev + 1);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Token refresh failed';
+      setGhlAgencyError(message);
+      toast.error(message);
+    } finally {
+      setGhlAgencyRefreshing(false);
     }
   }
 
@@ -2337,13 +2366,23 @@ function CustomValuesTab() {
                   Refresh
                 </button>
                 {ghlAgencyStatus?.connected ? (
-                  <button
-                    onClick={() => void handleDisconnectGhlAgency()}
-                    disabled={ghlAgencyDisconnecting}
-                    className="px-2.5 py-1.5 text-[11px] rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                  >
-                    {ghlAgencyDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => void handleForceRefreshGhlAgency()}
+                      disabled={ghlAgencyRefreshing}
+                      className="px-2.5 py-1.5 text-[11px] rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+                      title="Force-refresh the agency token to pick up new scopes"
+                    >
+                      {ghlAgencyRefreshing ? 'Refreshing Token...' : 'Refresh Token'}
+                    </button>
+                    <button
+                      onClick={() => void handleDisconnectGhlAgency()}
+                      disabled={ghlAgencyDisconnecting}
+                      className="px-2.5 py-1.5 text-[11px] rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    >
+                      {ghlAgencyDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                    </button>
+                  </>
                 ) : (
                   <a
                     href={ghlAgencyStatus?.connectUrl || '/api/esp/connections/authorize?provider=ghl&mode=agency'}

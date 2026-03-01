@@ -7,6 +7,24 @@ import * as accountService from '@/lib/services/accounts';
 
 const GHL_AGENCY_ACCOUNT_KEY = '__ghl_agency__';
 
+/**
+ * Best-effort extraction of accountKey from an OAuth state string without
+ * full cryptographic verification.  Used only to determine redirect target
+ * when the signed verification itself has failed (e.g. expired state).
+ */
+function peekAccountKeyFromState(state: string | null | undefined): string {
+  try {
+    const raw = (state || '').trim();
+    if (!raw) return '';
+    const payloadB64 = raw.split('.')[0];
+    if (!payloadB64) return '';
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    return typeof payload?.accountKey === 'string' ? payload.accountKey.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
 function resolveAppBaseUrl(req: NextRequest): string {
   const fromEnv = (process.env.NEXTAUTH_URL || '').trim();
   if (fromEnv) {
@@ -105,37 +123,57 @@ export async function completeEspOAuthCallback(
   const accountKey = statePayload?.accountKey || '';
   const isAgencyFlow = provider === 'ghl' && accountKey === GHL_AGENCY_ACCOUNT_KEY;
 
+  // For error/missing-param paths where statePayload is null, peek into the
+  // raw state to determine if this was an agency flow so we redirect correctly.
+  const fallbackIsAgency = () => {
+    if (isAgencyFlow) return true;
+    const peeked = peekAccountKeyFromState(state);
+    return provider === 'ghl' && peeked === GHL_AGENCY_ACCOUNT_KEY;
+  };
+
   if (errorParam) {
     const desc = req.nextUrl.searchParams.get('error_description') || errorParam;
+    const agency = fallbackIsAgency();
     console.error(`[esp-oauth] ${provider} callback error from provider:`, {
       error: errorParam,
       description: desc,
-      isAgencyFlow,
+      isAgencyFlow: agency,
       hasState: Boolean(state),
       stateValid: Boolean(statePayload),
     });
-    return isAgencyFlow
+    return agency
       ? redirectSettingsError(req, provider, desc)
       : redirectAccountsError(req, provider, desc);
   }
 
   if (!code || !state) {
+    const agency = fallbackIsAgency();
     console.error(`[esp-oauth] ${provider} callback missing params:`, {
       hasCode: Boolean(code),
       hasState: Boolean(state),
-      isAgencyFlow,
+      isAgencyFlow: agency,
     });
-    return isAgencyFlow
+    return agency
       ? redirectSettingsError(req, provider, 'Missing authorization code')
       : redirectAccountsError(req, provider, 'Missing authorization code');
   }
 
   if (!statePayload) {
+    // State verification failed — detect agency flow from raw payload so we
+    // redirect to /settings (not /subaccounts) for agency re-auth attempts.
+    const peekedAccountKey = peekAccountKeyFromState(state);
+    const looksLikeAgencyFlow = provider === 'ghl' && peekedAccountKey === GHL_AGENCY_ACCOUNT_KEY;
+
     console.error(`[esp-oauth] ${provider} callback state verification failed:`, {
       stateLength: state?.length,
-      isAgencyFlow,
+      peekedAccountKey: looksLikeAgencyFlow ? '(agency)' : peekedAccountKey || '(empty)',
+      looksLikeAgencyFlow,
     });
-    return redirectAccountsError(req, provider, 'Invalid or expired state parameter');
+
+    const errorMessage = 'Invalid or expired state parameter — please try again';
+    return looksLikeAgencyFlow
+      ? redirectSettingsError(req, provider, errorMessage)
+      : redirectAccountsError(req, provider, errorMessage);
   }
 
   try {
