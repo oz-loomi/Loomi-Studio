@@ -497,10 +497,11 @@ async function mintLocationToken(
       const suffix = text ? `: ${text.slice(0, 220)}` : '';
       // 401 with "user type is not yet supported" means the agency token is
       // Location-scoped instead of Company-scoped. The GHL marketplace app's
-      // "Target User" must be set to "Agency" and the user must re-authorize.
+      // "Who can install" must be set to "Agency only" and the user must
+      // re-authorize while logged in as the agency admin.
       const isUserTypeError = res.status === 401 && text.includes('user type');
       const hint = isUserTypeError
-        ? ' [Hint: The stored agency token has userType "Location" — change the GHL app Target User to "Agency" and re-authorize]'
+        ? ' [Hint: The stored agency token has userType "Location" — set "Who can install" to "Agency only" in GHL app settings and re-authorize as agency admin]'
         : '';
       throw new Error(`Location token mint failed (${res.status})${suffix}${hint}`);
     }

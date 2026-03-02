@@ -1491,11 +1491,11 @@ function AgencyIntegrationsTab() {
                 {' '}→ open your app → Settings
               </li>
               <li>
-                Change <strong className="text-[var(--foreground)]">&quot;Target User&quot;</strong> from{' '}
-                <span className="font-mono text-red-400">&quot;Sub-Account&quot;</span> to{' '}
-                <span className="font-mono text-emerald-400">&quot;Agency&quot;</span>
+                Set <strong className="text-[var(--foreground)]">&quot;Who can install&quot;</strong> to{' '}
+                <span className="font-mono text-emerald-400">&quot;Agency only&quot;</span>{' '}
+                <span className="text-[var(--muted-foreground)]">(keep Target User as Sub-Account — that preserves your scopes)</span>
               </li>
-              <li>Save the app settings, then come back here and click <strong className="text-[var(--foreground)]">&quot;Re-authorize&quot;</strong></li>
+              <li>Save, then come back here and click <strong className="text-[var(--foreground)]">&quot;Re-authorize&quot;</strong> while logged into GHL as the <strong className="text-[var(--foreground)]">agency admin</strong></li>
             </ol>
           </div>
         )}

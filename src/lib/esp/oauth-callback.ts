@@ -201,21 +201,22 @@ export async function completeEspOAuthCallback(
     });
 
     // Agency flow requires a Company-level token. If GHL returned a Location-type
-    // token, it means the marketplace app's "Target User" is set to Sub-Account
-    // instead of Agency. Block the bad credential and tell the user what to fix.
+    // token, the app's "Who can install" may need to be "Agency only", or the
+    // user may have been logged in as a sub-account user instead of agency admin.
     if (isAgencyFlow && tokens.userType && tokens.userType !== 'Company') {
       console.error(`[esp-oauth] Agency OAuth received wrong token type:`, {
         expected: 'Company',
         received: tokens.userType,
         companyId: tokens.companyId || '(not set)',
         locationId: locationId || '(none)',
-        hint: 'Change the GHL marketplace app "Target User" from "Sub-Account" to "Agency"',
+        hint: 'Set "Who can install" to "Agency only" in GHL app settings, then re-authorize while logged in as agency admin',
       });
 
       return redirectSettingsError(
         req,
         provider,
-        `Wrong token type: "${tokens.userType}" instead of "Company". Change your GHL app's Target User to "Agency" and re-authorize.`,
+        `Wrong token type: "${tokens.userType}" instead of "Company". `
+        + `In your GHL app settings, set "Who can install" to "Agency only" and re-authorize while logged in as the agency admin.`,
       );
     }
 
