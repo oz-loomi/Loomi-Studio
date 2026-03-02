@@ -15,14 +15,18 @@ export async function resolveGhlCredentials(accountKey: string): Promise<{
 } | null> {
   try {
     const oauthToken = await getValidToken(accountKey);
-    if (oauthToken) {
-      const connection = await getConnection(accountKey);
-      if (connection?.locationId) {
-        return { token: oauthToken, locationId: connection.locationId };
-      }
+    if (!oauthToken) {
+      console.warn(`[ghl] resolveCredentials("${accountKey}"): getValidToken returned null`);
+      return null;
     }
+    const connection = await getConnection(accountKey);
+    if (!connection?.locationId) {
+      console.warn(`[ghl] resolveCredentials("${accountKey}"): getConnection returned no locationId`);
+      return null;
+    }
+    return { token: oauthToken, locationId: connection.locationId };
   } catch (err) {
-    console.warn(`Failed to resolve OAuth credentials for "${accountKey}"`, err);
+    console.warn(`[ghl] resolveCredentials("${accountKey}"): threw`, err);
   }
 
   return null;
