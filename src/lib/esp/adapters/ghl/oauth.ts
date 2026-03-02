@@ -122,6 +122,8 @@ export function verifyState(state: string): { accountKey: string } | null {
 
 /** Scopes required by the app — used for authorization and mismatch detection. */
 export const REQUIRED_SCOPES = [
+  'oauth.readonly',
+  'oauth.write',
   'locations.readonly',
   'locations/customValues.readonly',
   'locations/customValues.write',
