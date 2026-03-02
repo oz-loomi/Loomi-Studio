@@ -201,6 +201,8 @@ export async function completeEspOAuthCallback(
       isAgencyFlow,
       accountKey: isAgencyFlow ? '(agency)' : accountKey,
       locationId: locationId || '(none)',
+      userType: tokens.userType || '(not set)',
+      companyId: tokens.companyId || '(not set)',
       grantedScopesCount: grantedScopes.length,
       grantedScopes,
     });

@@ -25,6 +25,7 @@ export interface OAuthTokenSet {
   locationId?: string;
   companyId?: string;
   userId?: string;
+  userType?: string;
 }
 
 // ── Auth Capabilities ──

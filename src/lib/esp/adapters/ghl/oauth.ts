@@ -58,6 +58,7 @@ export interface TokenSet {
   locationId?: string;
   companyId?: string;
   userId?: string;
+  userType?: string;
 }
 
 // ── Encryption (delegates to shared module) ──
@@ -178,6 +179,7 @@ export async function exchangeCodeForTokens(code: string): Promise<TokenSet> {
       grant_type: 'authorization_code',
       code,
       redirect_uri: redirectUri,
+      user_type: 'Company',
     }).toString(),
   });
 
@@ -206,6 +208,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenSet
       client_secret: clientSecret,
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
+      user_type: 'Company',
     }).toString(),
   });
 
