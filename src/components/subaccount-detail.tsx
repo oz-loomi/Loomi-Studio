@@ -1457,7 +1457,14 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                           >
                             Learn More
                           </button>
-                          {provider.oauthSupported ? (
+                          {provider.oauthSupported && provider.oauthMode === 'agency' ? (
+                            <button
+                              onClick={() => setIntegrationModal(providerId)}
+                              className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${providerTheme.connectButtonClassName || 'bg-[var(--primary)] text-white hover:opacity-90'}`}
+                            >
+                              Link Location
+                            </button>
+                          ) : provider.oauthSupported ? (
                             <a
                               href={buildAuthorizeHref({
                                 provider: providerId,
