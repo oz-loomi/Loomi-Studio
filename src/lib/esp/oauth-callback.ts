@@ -61,7 +61,7 @@ function redirectSettingsConnected(req: NextRequest, provider: EspProvider): Nex
   url.searchParams.set('esp_connected', 'true');
   url.searchParams.set('esp_provider', provider);
   url.searchParams.set('esp_auth_mode', 'agency');
-  url.searchParams.set('tab', 'custom-values');
+  url.searchParams.set('tab', 'integrations');
   return NextResponse.redirect(url);
 }
 
@@ -70,7 +70,7 @@ function redirectSettingsError(req: NextRequest, provider: EspProvider, message:
   url.searchParams.set('esp_error', message);
   url.searchParams.set('esp_provider', provider);
   url.searchParams.set('esp_auth_mode', 'agency');
-  url.searchParams.set('tab', 'custom-values');
+  url.searchParams.set('tab', 'integrations');
   return NextResponse.redirect(url);
 }
 
