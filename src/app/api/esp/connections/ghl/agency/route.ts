@@ -76,9 +76,13 @@ export async function POST() {
     const newScopes = refreshed.scope ? refreshed.scope.split(' ').filter(Boolean) : [];
     const newScopesJson = JSON.stringify(newScopes);
 
+    // Encode the refreshed token's userType into subjectType for diagnostics
+    const refreshedUserType = refreshed.userType || 'unknown';
+    const updatedSubjectType = `agency:${refreshedUserType}`;
+
     await upsertProviderOAuthCredential({
       provider: 'ghl',
-      subjectType: credential.subjectType || 'agency',
+      subjectType: updatedSubjectType,
       subjectId: credential.subjectId,
       accessToken: encryptToken(refreshed.access_token),
       refreshToken: encryptToken(refreshed.refresh_token),

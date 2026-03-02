@@ -333,9 +333,15 @@ export async function getValidAgencyToken(): Promise<{
     const nextExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000);
     const refreshedScopes = JSON.stringify(splitScopes(refreshed.scope));
 
+    // Update the subjectType to reflect the refreshed token's userType.
+    // If the GHL app's Target User was changed and user re-authorized, the
+    // refreshed token may now have the correct userType.
+    const refreshedUserType = refreshed.userType || 'unknown';
+    const updatedSubjectType = `agency:${refreshedUserType}`;
+
     await upsertProviderOAuthCredential({
       provider: 'ghl',
-      subjectType: credential.subjectType || 'agency',
+      subjectType: updatedSubjectType,
       subjectId: credential.subjectId,
       accessToken: encryptToken(refreshed.access_token),
       refreshToken: encryptToken(refreshed.refresh_token),
@@ -489,7 +495,14 @@ async function mintLocationToken(
     if (!res.ok) {
       const text = await res.text();
       const suffix = text ? `: ${text.slice(0, 220)}` : '';
-      throw new Error(`Location token mint failed (${res.status})${suffix}`);
+      // 401 with "user type is not yet supported" means the agency token is
+      // Location-scoped instead of Company-scoped. The GHL marketplace app's
+      // "Target User" must be set to "Agency" and the user must re-authorize.
+      const isUserTypeError = res.status === 401 && text.includes('user type');
+      const hint = isUserTypeError
+        ? ' [Hint: The stored agency token has userType "Location" — change the GHL app Target User to "Agency" and re-authorize]'
+        : '';
+      throw new Error(`Location token mint failed (${res.status})${suffix}${hint}`);
     }
 
     const data = await res.json().catch(() => ({}));
@@ -607,10 +620,18 @@ export async function storeAgencyCredential(input: {
   subjectType?: string;
   subjectId?: string | null;
 }): Promise<void> {
-  const { tokens, subjectType = 'agency', subjectId } = input;
+  const { tokens, subjectId } = input;
   if (!tokens.access_token || !tokens.refresh_token) {
     throw new Error('Agency OAuth credential requires access_token and refresh_token');
   }
+
+  // Encode the GHL userType into subjectType so we can detect misconfigured tokens.
+  // Expected: "agency:Company" — indicates a proper Company-level agency token.
+  // Bad:      "agency:Location" — indicates the GHL app needs Target User set to Agency.
+  const tokenUserType = tokens.userType || 'unknown';
+  const subjectType = input.subjectType
+    ? `${input.subjectType}:${tokenUserType}`
+    : `agency:${tokenUserType}`;
 
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
   const scopes = JSON.stringify(splitScopes(tokens.scope));
@@ -786,6 +807,8 @@ export interface GhlAgencyConnectionStatus {
   mode: GhlOAuthMode;
   subjectType?: string | null;
   subjectId?: string | null;
+  /** The GHL userType from the token response (Company, Location, etc.) */
+  tokenUserType?: string | null;
   scopes: string[];
   tokenExpiresAt?: Date | null;
   installedAt?: Date | null;
@@ -798,12 +821,18 @@ export async function getAgencyConnectionStatus(): Promise<GhlAgencyConnectionSt
   try {
     const credential = await getProviderOAuthCredential('ghl');
     if (credential) {
+      // subjectType is stored as "agency:Company" or "agency:Location" — extract the userType
+      const tokenUserType = credential.subjectType?.includes(':')
+        ? credential.subjectType.split(':').slice(1).join(':')
+        : null;
+
       return {
         connected: true,
         source: 'oauth',
         mode,
         subjectType: credential.subjectType,
         subjectId: credential.subjectId,
+        tokenUserType,
         scopes: parseStoredScopes(credential.scopes),
         tokenExpiresAt: credential.tokenExpiresAt,
         installedAt: credential.installedAt,

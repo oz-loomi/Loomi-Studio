@@ -1131,6 +1131,8 @@ interface GhlAgencyStatus {
   scopes: string[];
   connectUrl?: string;
   warning?: string;
+  /** GHL userType from the stored token — must be 'Company' for agency mode to work. */
+  tokenUserType?: string | null;
 }
 
 interface GhlBulkLinkDraftRow {
@@ -1247,6 +1249,7 @@ function AgencyIntegrationsTab() {
         scopes: Array.isArray(data.scopes) ? data.scopes.map(String) : [],
         connectUrl: typeof data.connectUrl === 'string' ? data.connectUrl : undefined,
         warning: typeof data.warning === 'string' ? data.warning : undefined,
+        tokenUserType: typeof data.tokenUserType === 'string' ? data.tokenUserType : null,
       });
     } catch (err) {
       setGhlAgencyStatus(null);
@@ -1466,6 +1469,34 @@ function AgencyIntegrationsTab() {
             {missingScopes.length > 0
               ? <span className="text-amber-400 ml-1">· {missingScopes.length} missing</span>
               : <span className="text-[var(--muted-foreground)] ml-1">· all required scopes present</span>}
+          </div>
+        )}
+
+        {/* Wrong token type warning — critical blocker */}
+        {ghlAgencyStatus?.connected && ghlAgencyStatus.tokenUserType && ghlAgencyStatus.tokenUserType !== 'Company' && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 space-y-2">
+            <p className="text-[12px] font-semibold text-red-400">⚠ Wrong Token Type — Agency Mode Will Not Work</p>
+            <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
+              The stored token has type <span className="font-mono text-red-400">&quot;{ghlAgencyStatus.tokenUserType}&quot;</span> but
+              agency mode requires <span className="font-mono text-emerald-400">&quot;Company&quot;</span>.
+              This means GHL cannot mint sub-account tokens, so campaigns, contacts, and other data will not load.
+            </p>
+            <p className="text-[12px] font-medium text-[var(--foreground)]">To fix this:</p>
+            <ol className="list-decimal list-inside text-[11px] text-[var(--muted-foreground)] space-y-1">
+              <li>
+                Go to the{' '}
+                <a href="https://marketplace.gohighlevel.com/apps" target="_blank" rel="noopener noreferrer" className="text-[var(--primary)] underline hover:no-underline">
+                  GHL Developer Marketplace
+                </a>
+                {' '}→ open your app → Settings
+              </li>
+              <li>
+                Change <strong className="text-[var(--foreground)]">&quot;Target User&quot;</strong> from{' '}
+                <span className="font-mono text-red-400">&quot;Sub-Account&quot;</span> to{' '}
+                <span className="font-mono text-emerald-400">&quot;Agency&quot;</span>
+              </li>
+              <li>Save the app settings, then come back here and click <strong className="text-[var(--foreground)]">&quot;Re-authorize&quot;</strong></li>
+            </ol>
           </div>
         )}
 

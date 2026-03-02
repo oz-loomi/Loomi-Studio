@@ -189,13 +189,6 @@ export async function completeEspOAuthCallback(
       }
     }
 
-    await adapter.oauth.storeConnection({
-      accountKey,
-      locationId: locationId || '',
-      locationName,
-      tokens,
-    });
-
     const grantedScopes = tokens.scope ? tokens.scope.split(' ').filter(Boolean) : [];
     console.info(`[esp-oauth] ${provider} OAuth success:`, {
       isAgencyFlow,
@@ -205,6 +198,32 @@ export async function completeEspOAuthCallback(
       companyId: tokens.companyId || '(not set)',
       grantedScopesCount: grantedScopes.length,
       grantedScopes,
+    });
+
+    // Agency flow requires a Company-level token. If GHL returned a Location-type
+    // token, it means the marketplace app's "Target User" is set to Sub-Account
+    // instead of Agency. Block the bad credential and tell the user what to fix.
+    if (isAgencyFlow && tokens.userType && tokens.userType !== 'Company') {
+      console.error(`[esp-oauth] Agency OAuth received wrong token type:`, {
+        expected: 'Company',
+        received: tokens.userType,
+        companyId: tokens.companyId || '(not set)',
+        locationId: locationId || '(none)',
+        hint: 'Change the GHL marketplace app "Target User" from "Sub-Account" to "Agency"',
+      });
+
+      return redirectSettingsError(
+        req,
+        provider,
+        `Wrong token type: "${tokens.userType}" instead of "Company". Change your GHL app's Target User to "Agency" and re-authorize.`,
+      );
+    }
+
+    await adapter.oauth.storeConnection({
+      accountKey,
+      locationId: locationId || '',
+      locationName,
+      tokens,
     });
 
     if (isAgencyFlow) {
