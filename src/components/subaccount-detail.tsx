@@ -1104,7 +1104,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                             Missing a rep in this list?
                           </span>
                           <span className="mt-1 block text-[10px] leading-4 text-[var(--muted-foreground)]">
-                            Go to Users, open that user, and assign this sub-account to them first.
+                            Account reps come from users with Admin or Super Admin roles.
                           </span>
                           <Link
                             href="/settings/users"
@@ -1120,17 +1120,16 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                   {(() => {
                     const assignedUsers = allUsers.filter(
                       (u) =>
-                        // Always include the currently-selected rep so the UI stays consistent
-                        // even if their role/assignment no longer matches normal eligibility.
+                        // Show all eligible rep roles regardless of account assignment.
+                        // Keep the current selection visible as a fallback for legacy data.
                         u.id === accountRepId ||
-                        (u.role !== 'developer' &&
-                          (u.accountKeys?.includes(key) ||
-                            (u.role === 'super_admin' && (!u.accountKeys || u.accountKeys.length === 0)))),
+                        u.role === 'admin' ||
+                        u.role === 'super_admin',
                     );
                     if (assignedUsers.length === 0) {
                       return (
                         <p className="text-xs text-[var(--muted-foreground)] italic py-2">
-                          No users assigned to this sub-account
+                          No admin or super admin users available
                         </p>
                       );
                     }
