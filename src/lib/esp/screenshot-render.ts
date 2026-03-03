@@ -1,4 +1,4 @@
-import puppeteerCore, { type Browser } from 'puppeteer-core';
+import puppeteerCore, { type Browser, type Page } from 'puppeteer-core';
 import sharp from 'sharp';
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -33,6 +33,48 @@ async function launchBrowser(): Promise<Browser> {
   }) as unknown as Promise<Browser>;
 }
 
+/**
+ * Extract an iframe src URL from wrapper HTML.
+ * GHL's preview API often returns a small wrapper page that loads the actual
+ * email content inside an <iframe>. Puppeteer can't load cross-origin iframes
+ * when the page is loaded via setContent (about:blank origin), so we need to
+ * navigate directly to the iframe src instead.
+ */
+function extractIframeSrc(html: string): string | null {
+  const match = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Load the email content into Puppeteer. If the HTML is a wrapper page with
+ * an iframe (common with GHL previews), navigate directly to the iframe src.
+ * Otherwise, set the HTML content directly.
+ */
+async function loadEmailContent(page: Page, html: string): Promise<void> {
+  const iframeSrc = extractIframeSrc(html);
+
+  if (iframeSrc) {
+    console.log(`[screenshot-render] Wrapper HTML detected with iframe src — navigating directly to iframe URL`);
+    try {
+      await page.goto(iframeSrc, {
+        waitUntil: ['networkidle0', 'domcontentloaded'],
+        timeout: 20000,
+      });
+      return;
+    } catch (err) {
+      console.warn(
+        `[screenshot-render] Failed to navigate to iframe src: ${err instanceof Error ? err.message : err}` +
+        ` — falling back to setContent`,
+      );
+    }
+  }
+
+  await page.setContent(html, {
+    waitUntil: ['networkidle0', 'domcontentloaded'],
+    timeout: 15000,
+  });
+}
+
 export async function renderCampaignScreenshotFromHtml(params: {
   html: string;
   filename?: string;
@@ -49,10 +91,7 @@ export async function renderCampaignScreenshotFromHtml(params: {
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 2 });
-    await page.setContent(html, {
-      waitUntil: ['networkidle0', 'domcontentloaded'],
-      timeout: 15000,
-    });
+    await loadEmailContent(page, html);
 
     // Prevent vh/percentage-based layouts from stretching; measure true content height.
     // Email CSS often sets `html, body { height: 100% !important }` which constrains
@@ -94,27 +133,9 @@ export async function renderCampaignScreenshotFromHtml(params: {
       setTimeout(function () { resolve({ total: total, loaded: loaded, failed: failed }); }, 5000);
     })`) as { total: number; loaded: number; failed: number };
 
-    // Log image load results and URLs for debugging
-    const imgDebug = await page.evaluate(`(function () {
-      var imgs = Array.from(document.querySelectorAll('img'));
-      var urls = imgs.slice(0, 10).map(function (img) {
-        return { src: (img.src || '').slice(0, 120), ok: img.naturalWidth > 0 };
-      });
-      var bgCount = 0;
-      document.querySelectorAll('*').forEach(function (el) {
-        var bg = getComputedStyle(el).backgroundImage;
-        if (bg && bg !== 'none') bgCount++;
-      });
-      return { urls: urls, bgImageElements: bgCount };
-    })()`) as { urls: { src: string; ok: boolean }[]; bgImageElements: number };
-
     console.log(
-      `[screenshot-render] Images: ${imgStats.loaded} loaded, ${imgStats.failed} failed, ${imgStats.total} total` +
-      ` | CSS background-image elements: ${imgDebug.bgImageElements}`,
+      `[screenshot-render] Images: ${imgStats.loaded} loaded, ${imgStats.failed} failed, ${imgStats.total} total`,
     );
-    if (imgDebug.urls.length > 0) {
-      console.log(`[screenshot-render] Image URLs:`, JSON.stringify(imgDebug.urls));
-    }
 
     if (imgStats.failed > 0) {
       console.warn(
@@ -130,7 +151,6 @@ export async function renderCampaignScreenshotFromHtml(params: {
       var docH = document.documentElement.scrollHeight;
       var bodyH = document.body.scrollHeight;
       var bodyOH = document.body.offsetHeight;
-      // Also check wrapper elements (first two levels of body children)
       var maxChild = 0;
       var children = document.body.children;
       for (var i = 0; i < children.length; i++) {
