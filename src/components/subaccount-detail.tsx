@@ -1120,9 +1120,12 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                   {(() => {
                     const assignedUsers = allUsers.filter(
                       (u) =>
-                        u.role !== 'developer' &&
-                        (u.accountKeys?.includes(key) ||
-                          (u.role === 'super_admin' && (!u.accountKeys || u.accountKeys.length === 0))),
+                        // Always include the currently-selected rep so the UI stays consistent
+                        // even if their role/assignment no longer matches normal eligibility.
+                        u.id === accountRepId ||
+                        (u.role !== 'developer' &&
+                          (u.accountKeys?.includes(key) ||
+                            (u.role === 'super_admin' && (!u.accountKeys || u.accountKeys.length === 0)))),
                     );
                     if (assignedUsers.length === 0) {
                       return (

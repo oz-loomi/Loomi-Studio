@@ -25,11 +25,12 @@ jobs:
             RELEASES_DIR="$APP_ROOT/releases"
             SHARED_DIR="$APP_ROOT/shared"
             SHARED_ENV="$SHARED_DIR/.env.local"
+            SHARED_AVATARS_DIR="$SHARED_DIR/avatars"
             ACTIVE_PORT_FILE="$APP_ROOT/.active-port"
             CURRENT_LINK="$APP_ROOT/current"
             NGINX_UPSTREAM_CONF=/etc/nginx/conf.d/loomi-upstream.conf
 
-            mkdir -p "$RELEASES_DIR" "$SHARED_DIR"
+            mkdir -p "$RELEASES_DIR" "$SHARED_DIR" "$SHARED_AVATARS_DIR"
 
             # Ensure nginx allows uploads up to 10MB (default is 1MB)
             if [ ! -f /etc/nginx/conf.d/client-max-body-size.conf ]; then
@@ -68,6 +69,19 @@ jobs:
             mkdir -p "$NEW_RELEASE"
             git archive "$NEW_SHA" | tar -x -C "$NEW_RELEASE"
             cp "$SHARED_ENV" "$NEW_RELEASE/.env.local"
+
+            # Keep user avatars across releases by storing them in shared storage.
+            # The app writes to process.cwd()/data/avatars, so each release needs
+            # that path to resolve to a shared directory.
+            if [ -d "$CURRENT_LINK/data/avatars" ]; then
+              cp -an "$CURRENT_LINK/data/avatars/." "$SHARED_AVATARS_DIR/" || true
+            fi
+            if [ -d "$APP_ROOT/public/avatars" ]; then
+              cp -an "$APP_ROOT/public/avatars/." "$SHARED_AVATARS_DIR/" || true
+            fi
+            mkdir -p "$NEW_RELEASE/data"
+            rm -rf "$NEW_RELEASE/data/avatars"
+            ln -sfn "$SHARED_AVATARS_DIR" "$NEW_RELEASE/data/avatars"
 
             cd "$NEW_RELEASE"
 
