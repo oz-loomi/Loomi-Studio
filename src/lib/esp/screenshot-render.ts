@@ -94,6 +94,28 @@ export async function renderCampaignScreenshotFromHtml(params: {
       setTimeout(function () { resolve({ total: total, loaded: loaded, failed: failed }); }, 5000);
     })`) as { total: number; loaded: number; failed: number };
 
+    // Log image load results and URLs for debugging
+    const imgDebug = await page.evaluate(`(function () {
+      var imgs = Array.from(document.querySelectorAll('img'));
+      var urls = imgs.slice(0, 10).map(function (img) {
+        return { src: (img.src || '').slice(0, 120), ok: img.naturalWidth > 0 };
+      });
+      var bgCount = 0;
+      document.querySelectorAll('*').forEach(function (el) {
+        var bg = getComputedStyle(el).backgroundImage;
+        if (bg && bg !== 'none') bgCount++;
+      });
+      return { urls: urls, bgImageElements: bgCount };
+    })()`) as { urls: { src: string; ok: boolean }[]; bgImageElements: number };
+
+    console.log(
+      `[screenshot-render] Images: ${imgStats.loaded} loaded, ${imgStats.failed} failed, ${imgStats.total} total` +
+      ` | CSS background-image elements: ${imgDebug.bgImageElements}`,
+    );
+    if (imgDebug.urls.length > 0) {
+      console.log(`[screenshot-render] Image URLs:`, JSON.stringify(imgDebug.urls));
+    }
+
     if (imgStats.failed > 0) {
       console.warn(
         `[screenshot-render] ${imgStats.failed}/${imgStats.total} images failed to load` +

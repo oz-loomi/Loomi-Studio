@@ -1605,6 +1605,13 @@ export async function fetchCampaignPreviewHtml(
       const payload = await res.json().catch(() => null);
       const record = asRecord(payload) ?? {};
       const data = asRecord(record.data) ?? {};
+
+      // Log response structure for debugging screenshot issues
+      console.log(
+        `[ghl-campaigns] Preview JSON response keys: top=[${Object.keys(record).join(',')}]` +
+        ` data=[${Object.keys(data).join(',')}]`,
+      );
+
       const html =
         firstString(record, ['html', 'previewHtml', 'preview']) ||
         firstString(data, ['html', 'previewHtml', 'preview']) ||
@@ -1612,6 +1619,15 @@ export async function fetchCampaignPreviewHtml(
       if (!html) {
         throw new Error('Campaign preview response did not include HTML');
       }
+
+      console.log(
+        `[ghl-campaigns] Preview HTML length=${html.length}` +
+        ` hasDoctype=${html.toLowerCase().includes('<!doctype')}` +
+        ` imgTags=${(html.match(/<img[\s>]/gi) || []).length}` +
+        ` iframes=${(html.match(/<iframe[\s>]/gi) || []).length}` +
+        ` snippet=${JSON.stringify(html.slice(0, 300))}`,
+      );
+
       return { previewUrl, html };
     }
 
@@ -1619,6 +1635,15 @@ export async function fetchCampaignPreviewHtml(
     if (!html.trim()) {
       throw new Error('Campaign preview response was empty');
     }
+
+    console.log(
+      `[ghl-campaigns] Preview HTML (text) length=${html.length}` +
+      ` hasDoctype=${html.toLowerCase().includes('<!doctype')}` +
+      ` imgTags=${(html.match(/<img[\s>]/gi) || []).length}` +
+      ` iframes=${(html.match(/<iframe[\s>]/gi) || []).length}` +
+      ` snippet=${JSON.stringify(html.slice(0, 300))}`,
+    );
+
     return { previewUrl, html };
   }
 
