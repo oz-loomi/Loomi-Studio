@@ -133,14 +133,9 @@ export async function renderCampaignScreenshotFromHtml(params: {
       setTimeout(function () { resolve({ total: total, loaded: loaded, failed: failed }); }, 5000);
     })`) as { total: number; loaded: number; failed: number };
 
-    console.log(
-      `[screenshot-render] Images: ${imgStats.loaded} loaded, ${imgStats.failed} failed, ${imgStats.total} total`,
-    );
-
     if (imgStats.failed > 0) {
       console.warn(
-        `[screenshot-render] ${imgStats.failed}/${imgStats.total} images failed to load` +
-        ` — email content may appear incomplete`,
+        `[screenshot-render] ${imgStats.failed}/${imgStats.total} images failed to load`,
       );
     }
 
