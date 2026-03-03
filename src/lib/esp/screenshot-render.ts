@@ -56,44 +56,79 @@ export async function renderCampaignScreenshotFromHtml(params: {
 
     // Prevent vh/percentage-based layouts from stretching; measure true content height.
     // Email CSS often sets `html, body { height: 100% !important }` which constrains
-    // scrollHeight to the viewport. Inject a <style> tag with !important overrides
-    // and use setProperty to ensure inline styles also use !important.
+    // scrollHeight to the viewport. Override height/overflow on html, body, AND common
+    // wrapper elements (direct children of body, tables, etc.) so nested containers
+    // with overflow:hidden or fixed heights don't clip email content.
     await page.evaluate(`(function () {
       var s = document.createElement('style');
-      s.textContent = 'html, body { height: auto !important; min-height: 0 !important; overflow: visible !important; }';
+      s.textContent = [
+        'html, body { height: auto !important; min-height: 0 !important; overflow: visible !important; }',
+        'body > *, body > * > * { max-height: none !important; overflow: visible !important; }',
+        'table, tr, td, th { overflow: visible !important; }',
+      ].join('\\n');
       document.head.appendChild(s);
       document.documentElement.style.setProperty('height', 'auto', 'important');
       document.body.style.setProperty('height', 'auto', 'important');
       document.body.style.setProperty('overflow', 'visible', 'important');
     })()`);
 
-    // Wait for images to load
-    await page.evaluate(`new Promise(function (resolve) {
+    // Wait for images to load and track failures
+    const imgStats = await page.evaluate(`new Promise(function (resolve) {
       var imgs = Array.from(document.querySelectorAll('img'));
-      if (imgs.length === 0) { resolve(); return; }
+      if (imgs.length === 0) { resolve({ total: 0, loaded: 0, failed: 0 }); return; }
       var loaded = 0;
-      function check() { if (++loaded >= imgs.length) resolve(); }
+      var failed = 0;
+      var total = imgs.length;
+      function check() {
+        if ((loaded + failed) >= total) resolve({ total: total, loaded: loaded, failed: failed });
+      }
       imgs.forEach(function (img) {
-        if (img.complete) check();
-        else {
-          img.addEventListener('load', check);
-          img.addEventListener('error', check);
+        if (img.complete) {
+          if (img.naturalWidth > 0) loaded++; else failed++;
+          check();
+        } else {
+          img.addEventListener('load', function () { loaded++; check(); });
+          img.addEventListener('error', function () { failed++; check(); });
         }
       });
-      setTimeout(resolve, 3000);
-    })`);
+      setTimeout(function () { resolve({ total: total, loaded: loaded, failed: failed }); }, 5000);
+    })`) as { total: number; loaded: number; failed: number };
+
+    if (imgStats.failed > 0) {
+      console.warn(
+        `[screenshot-render] ${imgStats.failed}/${imgStats.total} images failed to load` +
+        ` — email content may appear incomplete`,
+      );
+    }
 
     await new Promise((r) => setTimeout(r, 300));
 
+    // Measure true content height using multiple methods
+    const contentHeight = await page.evaluate(`(function () {
+      var docH = document.documentElement.scrollHeight;
+      var bodyH = document.body.scrollHeight;
+      var bodyOH = document.body.offsetHeight;
+      // Also check wrapper elements (first two levels of body children)
+      var maxChild = 0;
+      var children = document.body.children;
+      for (var i = 0; i < children.length; i++) {
+        var rect = children[i].getBoundingClientRect();
+        var bottom = rect.top + rect.height;
+        if (bottom > maxChild) maxChild = bottom;
+      }
+      return Math.max(docH, bodyH, bodyOH, Math.ceil(maxChild));
+    })()`) as number;
+
     // Resize viewport to match actual content height before capturing
-    const contentHeight = await page.evaluate(
-      `document.documentElement.scrollHeight`,
-    ) as number;
+    const finalHeight = Math.max(contentHeight, 800);
     await page.setViewport({
       width: 1280,
-      height: contentHeight,
+      height: finalHeight,
       deviceScaleFactor: 2,
     });
+
+    // Brief wait for re-layout after viewport resize
+    await new Promise((r) => setTimeout(r, 200));
 
     const rawScreenshot = await page.screenshot({
       type: 'png',
@@ -111,6 +146,7 @@ export async function renderCampaignScreenshotFromHtml(params: {
     const { width, height, channels } = info;
     const WHITE_THRESHOLD = 250;
 
+    // Scan from bottom to find the last row with non-white content
     let lastContentRow = height - 1;
     for (let y = height - 1; y >= 0; y--) {
       let rowHasContent = false;
@@ -130,7 +166,24 @@ export async function renderCampaignScreenshotFromHtml(params: {
       }
     }
 
-    const cropHeight = Math.min(lastContentRow + 33, height);
+    // Safety: never trim more than 40% of the image. If the trim would remove
+    // more, it likely means images failed to load and the email body appears as
+    // white space — return the full screenshot instead of a cropped header.
+    const trimRatio = 1 - (lastContentRow + 1) / height;
+    const MAX_TRIM_RATIO = 0.4;
+
+    let cropHeight: number;
+    if (trimRatio > MAX_TRIM_RATIO) {
+      console.warn(
+        `[screenshot-render] Trim would remove ${Math.round(trimRatio * 100)}% of the image` +
+        ` (lastContentRow=${lastContentRow}, height=${height})` +
+        ` — skipping trim to preserve full email content`,
+      );
+      cropHeight = height;
+    } else {
+      cropHeight = Math.min(lastContentRow + 33, height);
+    }
+
     const trimmed = await sharp(imgBuffer)
       .extract({ left: 0, top: 0, width, height: cropHeight })
       .toBuffer();
