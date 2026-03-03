@@ -323,12 +323,14 @@ export async function moveMedia(
   locationId: string,
   mediaId: string,
   targetFolderId?: string,
+  name?: string,
 ): Promise<void> {
   const body: Record<string, string> = {
     altType: 'location',
     altId: locationId,
   };
   if (targetFolderId) body.parentId = targetFolderId;
+  if (name) body.name = name;
 
   const res = await fetch(
     `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}`,

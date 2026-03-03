@@ -612,6 +612,7 @@ export interface MediaAdapter {
     locationId: string,
     mediaId: string,
     targetFolderId?: string,
+    name?: string,
   ): Promise<void>;
   deleteMedia?(
     token: string,

@@ -90,7 +90,7 @@ export async function PUT(
 
   const { id } = await params;
   const body = await req.json();
-  const { accountKey, targetFolderId } = body;
+  const { accountKey, targetFolderId, name } = body;
 
   if (!accountKey) {
     return NextResponse.json({ error: 'accountKey is required' }, { status: 400 });
@@ -134,6 +134,7 @@ export async function PUT(
       credentials.locationId,
       id,
       targetFolderId || undefined,
+      name || undefined,
     );
 
     return NextResponse.json({ moved: true });

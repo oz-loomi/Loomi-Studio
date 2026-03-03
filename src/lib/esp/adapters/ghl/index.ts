@@ -726,8 +726,9 @@ class GhlMediaAdapter implements MediaAdapter {
     locationId: string,
     mediaId: string,
     targetFolderId?: string,
+    name?: string,
   ): Promise<void> {
-    return moveGhlMedia(token, locationId, mediaId, targetFolderId);
+    return moveGhlMedia(token, locationId, mediaId, targetFolderId, name);
   }
 
   async deleteMedia(

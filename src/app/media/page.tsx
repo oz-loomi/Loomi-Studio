@@ -548,7 +548,7 @@ export default function MediaPage() {
 
   // Move modal
   const [showMoveModal, setShowMoveModal] = useState(false);
-  const [moveItems, setMoveItems] = useState<{ id: string; type: 'file' | 'folder' }[]>([]);
+  const [moveItems, setMoveItems] = useState<{ id: string; type: 'file' | 'folder'; name?: string }[]>([]);
   const [moveFolders, setMoveFolders] = useState<MediaFolder[]>([]);
   const [moveFolderPath, setMoveFolderPath] = useState<FolderBreadcrumb[]>([{ id: undefined, name: 'Root' }]);
   const [moveLoading, setMoveLoading] = useState(false);
@@ -1113,7 +1113,7 @@ export default function MediaPage() {
     setMoveLoading(false);
   };
 
-  const openMoveModal = (items: { id: string; type: 'file' | 'folder' }[]) => {
+  const openMoveModal = (items: { id: string; type: 'file' | 'folder'; name?: string }[]) => {
     setMoveItems(items);
     setMoveFolderPath([{ id: undefined, name: 'Root' }]);
     setShowMoveModal(true);
@@ -1135,6 +1135,7 @@ export default function MediaPage() {
           body: JSON.stringify({
             accountKey: effectiveAccountKey,
             targetFolderId: targetFolderId || null,
+            name: item.name,
           }),
         });
         if (res.ok) successCount++;
@@ -1159,7 +1160,10 @@ export default function MediaPage() {
   };
 
   const handleBulkMove = () => {
-    const items = Array.from(selectedIds).map(id => ({ id, type: 'file' as const }));
+    const items = Array.from(selectedIds).map(id => {
+      const file = files.find(f => f.id === id);
+      return { id, type: 'file' as const, name: file?.name };
+    });
     openMoveModal(items);
   };
 
@@ -1287,8 +1291,8 @@ export default function MediaPage() {
 
   // ── Drag-and-drop into folders ──
 
-  const handleDragStart = useCallback((e: React.DragEvent, id: string, type: 'file' | 'folder') => {
-    e.dataTransfer.setData('application/json', JSON.stringify({ id, type }));
+  const handleDragStart = useCallback((e: React.DragEvent, id: string, type: 'file' | 'folder', name: string) => {
+    e.dataTransfer.setData('application/json', JSON.stringify({ id, type, name }));
     e.dataTransfer.effectAllowed = 'move';
   }, []);
 
@@ -1303,7 +1307,7 @@ export default function MediaPage() {
 
     if (!effectiveAccountKey || !capabilities?.canMove) return;
 
-    let dragData: { id: string; type: 'file' | 'folder' } | null = null;
+    let dragData: { id: string; type: 'file' | 'folder'; name?: string } | null = null;
     try {
       dragData = JSON.parse(e.dataTransfer.getData('application/json'));
     } catch { return; }
@@ -1316,7 +1320,7 @@ export default function MediaPage() {
       const res = await fetch(`/api/esp/media/${encodeURIComponent(dragData.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountKey: effectiveAccountKey, targetFolderId }),
+        body: JSON.stringify({ accountKey: effectiveAccountKey, targetFolderId, name: dragData.name }),
       });
       const data = await res.json();
 
@@ -1888,9 +1892,9 @@ export default function MediaPage() {
                   key={folder.id}
                   className={`glass-card rounded-xl p-4 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up relative ${
                     capabilities?.canMove ? 'cursor-grab active:cursor-grabbing' : ''
-                  } ${dropTargetId === folder.id ? 'ring-2 ring-[var(--primary)] bg-[var(--primary)]/5' : ''}`}
+                  } ${dropTargetId === folder.id ? 'ring-2 ring-[var(--primary)] bg-[var(--primary)]/10 scale-[1.02] shadow-lg shadow-[var(--primary)]/20' : ''}`}
                   draggable={!!capabilities?.canMove}
-                  onDragStart={(e) => handleDragStart(e, folder.id, 'folder')}
+                  onDragStart={(e) => handleDragStart(e, folder.id, 'folder', folder.name)}
                   onDragOver={handleMoveDragOver}
                   onDragEnter={(e) => { e.preventDefault(); setDropTargetId(folder.id); }}
                   onDragLeave={(e) => {
@@ -1931,7 +1935,7 @@ export default function MediaPage() {
                         <div className="absolute right-0 top-full mt-1 z-50 w-40 glass-dropdown" onMouseDown={(e) => { e.stopPropagation(); menuClickRef.current = true; }}>
                           {capabilities?.canMove && (
                             <button
-                              onClick={() => { setFolderMenuId(null); openMoveModal([{ id: folder.id, type: 'folder' }]); }}
+                              onClick={() => { setFolderMenuId(null); openMoveModal([{ id: folder.id, type: 'folder', name: folder.name }]); }}
                               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                             >
                               <FolderArrowDownIcon className="w-4 h-4" /> Move
@@ -1973,13 +1977,13 @@ export default function MediaPage() {
                     capabilities={capabilities}
                     menuClickRef={menuClickRef}
                     draggable={!!capabilities?.canMove}
-                    onDragStart={(e) => handleDragStart(e, f.id, 'file')}
+                    onDragStart={(e) => handleDragStart(e, f.id, 'file', f.name)}
                     onMenuToggle={() => setOpenMenu(prev => prev === f.id ? null : f.id)}
                     onMenuClose={() => setOpenMenu(null)}
                     onSelect={() => toggleSelectFile(f.id)}
                     onPreview={() => setPreviewFile(f)}
                     onCopyUrl={() => copyUrl(f.url)}
-                    onMove={capabilities?.canMove ? () => openMoveModal([{ id: f.id, type: 'file' }]) : undefined}
+                    onMove={capabilities?.canMove ? () => openMoveModal([{ id: f.id, type: 'file', name: f.name }]) : undefined}
                     onRename={capabilities?.canRename ? () => { setRenameValue(f.name); setRenameFile(f); } : undefined}
                     onDelete={capabilities?.canDelete ? () => setDeleteFile(f) : undefined}
                   />
