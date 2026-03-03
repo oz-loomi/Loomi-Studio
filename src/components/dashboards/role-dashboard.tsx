@@ -1981,7 +1981,7 @@ function ManagementRoleDashboard({
           <section className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]">
-                Sub-Account Reps
+                Account Reps
               </p>
               <span className="text-[10px] text-[var(--sidebar-muted-foreground)] tabular-nums">
                 {selectedRepIds.length > 0 ? `${selectedRepIds.length} selected` : `${repScopeOptions.length} total`}

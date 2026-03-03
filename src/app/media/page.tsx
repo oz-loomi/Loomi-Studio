@@ -21,6 +21,8 @@ import {
   ArrowsPointingOutIcon,
   CheckIcon,
   FolderArrowDownIcon,
+  Squares2X2Icon,
+  ListBulletIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { safeJson } from '@/lib/safe-json';
@@ -196,13 +198,13 @@ function MediaCard({
 
   return (
     <div
-      className={`glass-card rounded-xl group animate-fade-in-up overflow-hidden ${isSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      className={`glass-card rounded-xl group animate-fade-in-up ${isSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
       draggable={draggable}
       onDragStart={onDragStart}
     >
       {/* Thumbnail */}
       <div
-        className="h-[140px] bg-[var(--muted)] relative overflow-hidden cursor-pointer"
+        className="h-[140px] bg-[var(--muted)] relative overflow-hidden rounded-t-xl cursor-pointer"
         onClick={() => selectMode ? onSelect() : onPreview()}
       >
         {isImage && f.url ? (
@@ -248,7 +250,7 @@ function MediaCard({
                   menuClickRef.current = true;
                   onMenuToggle();
                 }}
-                className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors opacity-0 group-hover:opacity-100"
+                className={`p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors ${isMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
               >
                 <EllipsisVerticalIcon className="w-4 h-4" />
               </button>
@@ -303,6 +305,127 @@ function MediaCard({
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MediaListRow({
+  f,
+  isMenuOpen,
+  isSelected,
+  selectMode,
+  provider: activeProvider,
+  capabilities: activeCaps,
+  menuClickRef,
+  draggable,
+  onDragStart,
+  onMenuToggle,
+  onMenuClose,
+  onSelect,
+  onPreview,
+  onCopyUrl,
+  onMove,
+  onRename,
+  onDelete,
+}: MediaCardProps) {
+  const isImage = f.type?.startsWith('image') || f.url?.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
+  const caps = f.source === 's3' ? S3_CAPABILITIES : activeCaps;
+
+  return (
+    <div
+      className={`glass-card rounded-lg group animate-fade-in-up flex items-center gap-3 px-3 py-2.5 ${isSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      draggable={draggable}
+      onDragStart={onDragStart}
+    >
+      {/* Select checkbox */}
+      {selectMode && (
+        <button onClick={onSelect} className="flex-shrink-0">
+          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+            isSelected
+              ? 'bg-[var(--primary)] border-[var(--primary)]'
+              : 'bg-[var(--muted)] border-[var(--border)] hover:border-[var(--primary)]'
+          }`}>
+            {isSelected && <CheckIcon className="w-3.5 h-3.5 text-white" />}
+          </div>
+        </button>
+      )}
+      {/* Thumbnail */}
+      <div
+        className="w-10 h-10 rounded-lg bg-[var(--muted)] overflow-hidden flex-shrink-0 cursor-pointer"
+        onClick={() => selectMode ? onSelect() : onPreview()}
+      >
+        {isImage && f.url ? (
+          <img src={f.thumbnailUrl || f.url} alt={f.name} className="w-full h-full object-cover" loading="lazy" />
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <PhotoIcon className="w-5 h-5 text-[var(--muted-foreground)] opacity-30" />
+          </div>
+        )}
+      </div>
+      {/* Name + meta */}
+      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => selectMode ? onSelect() : onPreview()}>
+        <p className="text-sm font-medium truncate">{f.name}</p>
+        <div className="flex items-center gap-2 mt-0.5">
+          {f.size != null && (
+            <span className="text-[10px] text-[var(--muted-foreground)]">{formatFileSize(f.size)}</span>
+          )}
+          <span className="text-[10px] text-[var(--muted-foreground)]">{timeAgo(f.createdAt)}</span>
+        </div>
+      </div>
+      {/* Provider */}
+      <div className="flex-shrink-0 hidden sm:block">
+        {f.source === 's3' ? <ProviderPill prov="s3" /> : activeProvider ? <ProviderPill prov={activeProvider} /> : null}
+      </div>
+      {/* Actions */}
+      {!selectMode && (
+        <div className="relative flex-shrink-0">
+          <button
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              menuClickRef.current = true;
+              onMenuToggle();
+            }}
+            className={`p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors ${isMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          >
+            <EllipsisVerticalIcon className="w-4 h-4" />
+          </button>
+          {isMenuOpen && (
+            <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onMouseDown={(e) => { e.stopPropagation(); menuClickRef.current = true; }}>
+              <button
+                onClick={() => { onMenuClose(); onCopyUrl(); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+              >
+                <Square2StackIcon className="w-4 h-4" /> Copy URL
+              </button>
+              {caps?.canMove && onMove && (
+                <button
+                  onClick={() => { onMenuClose(); onMove(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                >
+                  <FolderArrowDownIcon className="w-4 h-4" /> Move
+                </button>
+              )}
+              {caps?.canRename && onRename && (
+                <button
+                  onClick={() => { onMenuClose(); onRename(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                >
+                  <PencilSquareIcon className="w-4 h-4" /> Rename
+                </button>
+              )}
+              {caps?.canDelete && onDelete && (
+                <button
+                  onClick={() => { onMenuClose(); onDelete(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  <TrashIcon className="w-4 h-4" /> Delete
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -439,8 +562,29 @@ export default function MediaPage() {
   // Drag-and-drop
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
-  // Admin account filter
-  const [accountFilter, setAccountFilter] = useState<string>('all');
+  // View mode — persisted in localStorage
+  const [viewMode, setViewModeRaw] = useState<'grid' | 'list'>(() => {
+    if (typeof window === 'undefined') return 'grid';
+    return (localStorage.getItem('media-view-mode') as 'grid' | 'list') ?? 'grid';
+  });
+  const setViewMode = useCallback((mode: 'grid' | 'list') => {
+    setViewModeRaw(mode);
+    if (typeof window !== 'undefined') localStorage.setItem('media-view-mode', mode);
+  }, []);
+
+  // Admin account filter — persisted in sessionStorage so it survives
+  // unexpected component remounts (e.g. during session refreshes).
+  const [accountFilter, setAccountFilterRaw] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'all';
+    return sessionStorage.getItem('media-account-filter') ?? 'all';
+  });
+  const setAccountFilter = useCallback((value: string) => {
+    setAccountFilterRaw(value);
+    if (typeof window !== 'undefined') {
+      if (value === 'all') sessionStorage.removeItem('media-account-filter');
+      else sessionStorage.setItem('media-account-filter', value);
+    }
+  }, []);
 
   // ── Admin overview state ──
   const [overviewData, setOverviewData] = useState<Record<string, AccountMediaPreview>>({});
@@ -1307,27 +1451,39 @@ export default function MediaPage() {
           </div>
 
           {/* Action buttons in header */}
-          {effectiveAccountKey && (
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            {showOverview && (
               <button
-                onClick={() => { setUploadDestination('esp'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
+                onClick={() => { setUploadDestination('s3'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
                 disabled={uploading}
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
               >
                 <ArrowUpTrayIcon className="w-3.5 h-3.5" />
                 {uploading ? 'Uploading...' : 'Add Media'}
               </button>
-              {capabilities?.canCreateFolders && (
+            )}
+            {effectiveAccountKey && (
+              <>
                 <button
-                  onClick={() => setShowNewFolderInput(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                  onClick={() => { setUploadDestination('esp'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
+                  disabled={uploading}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
-                  <FolderPlusIcon className="w-3.5 h-3.5" />
-                  New Folder
+                  <ArrowUpTrayIcon className="w-3.5 h-3.5" />
+                  {uploading ? 'Uploading...' : 'Add Media'}
                 </button>
-              )}
-            </div>
-          )}
+                {capabilities?.canCreateFolders && (
+                  <button
+                    onClick={() => setShowNewFolderInput(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <FolderPlusIcon className="w-3.5 h-3.5" />
+                    New Folder
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1356,25 +1512,15 @@ export default function MediaPage() {
                 placeholder="Search..."
               />
             </div>
-            <div className="flex items-center gap-3">
-              {adminMediaFiles.length > 0 && !selectMode && (
-                <button
-                  onClick={() => { setSelectMode(true); setSelectedIds(new Set()); }}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
-                >
-                  <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                  Select
-                </button>
-              )}
+            {adminMediaFiles.length > 0 && !selectMode && (
               <button
-                onClick={() => { setUploadDestination('s3'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
-                disabled={uploading}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+                onClick={() => { setSelectMode(true); setSelectedIds(new Set()); }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
               >
-                <ArrowUpTrayIcon className="w-3.5 h-3.5" />
-                {uploading ? 'Uploading...' : 'Add Media'}
+                <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                Select
               </button>
-            </div>
+            )}
           </div>
 
           {/* Bulk selection toolbar (admin overview) */}
@@ -1559,6 +1705,23 @@ export default function MediaPage() {
                     {selectMode ? 'Cancel' : 'Select'}
                   </button>
                 )}
+                {/* View mode toggle */}
+                <div className="flex items-center rounded-lg border border-[var(--border)] overflow-hidden">
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-2 transition-colors ${viewMode === 'grid' ? 'bg-[var(--muted)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'}`}
+                    title="Grid view"
+                  >
+                    <Squares2X2Icon className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-2 transition-colors ${viewMode === 'list' ? 'bg-[var(--muted)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'}`}
+                    title="List view"
+                  >
+                    <ListBulletIcon className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
               <p className="text-xs text-[var(--muted-foreground)]">
                 {loading ? 'Loading...' : (
@@ -1760,7 +1923,7 @@ export default function MediaPage() {
                           menuClickRef.current = true;
                           setFolderMenuId(prev => prev === folder.id ? null : folder.id);
                         }}
-                        className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors opacity-0 group-hover:opacity-100"
+                        className={`p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors ${folderMenuId === folder.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
                       >
                         <EllipsisVerticalIcon className="w-4 h-4" />
                       </button>
@@ -1791,31 +1954,37 @@ export default function MediaPage() {
             </div>
           )}
 
-          {/* Media grid */}
+          {/* Media grid / list */}
           {!loading && filtered.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-              {filtered.map(f => (
-                <MediaCard
-                  key={f.id}
-                  f={f}
-                  isMenuOpen={openMenu === f.id}
-                  isSelected={selectedIds.has(f.id)}
-                  selectMode={selectMode}
-                  provider={provider}
-                  capabilities={capabilities}
-                  menuClickRef={menuClickRef}
-                  draggable={!!capabilities?.canMove}
-                  onDragStart={(e) => handleDragStart(e, f.id, 'file')}
-                  onMenuToggle={() => setOpenMenu(prev => prev === f.id ? null : f.id)}
-                  onMenuClose={() => setOpenMenu(null)}
-                  onSelect={() => toggleSelectFile(f.id)}
-                  onPreview={() => setPreviewFile(f)}
-                  onCopyUrl={() => copyUrl(f.url)}
-                  onMove={capabilities?.canMove ? () => openMoveModal([{ id: f.id, type: 'file' }]) : undefined}
-                  onRename={capabilities?.canRename ? () => { setRenameValue(f.name); setRenameFile(f); } : undefined}
-                  onDelete={capabilities?.canDelete ? () => setDeleteFile(f) : undefined}
-                />
-              ))}
+            <div className={viewMode === 'list'
+              ? 'flex flex-col gap-1.5'
+              : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3'
+            }>
+              {filtered.map(f => {
+                const ItemComponent = viewMode === 'list' ? MediaListRow : MediaCard;
+                return (
+                  <ItemComponent
+                    key={f.id}
+                    f={f}
+                    isMenuOpen={openMenu === f.id}
+                    isSelected={selectedIds.has(f.id)}
+                    selectMode={selectMode}
+                    provider={provider}
+                    capabilities={capabilities}
+                    menuClickRef={menuClickRef}
+                    draggable={!!capabilities?.canMove}
+                    onDragStart={(e) => handleDragStart(e, f.id, 'file')}
+                    onMenuToggle={() => setOpenMenu(prev => prev === f.id ? null : f.id)}
+                    onMenuClose={() => setOpenMenu(null)}
+                    onSelect={() => toggleSelectFile(f.id)}
+                    onPreview={() => setPreviewFile(f)}
+                    onCopyUrl={() => copyUrl(f.url)}
+                    onMove={capabilities?.canMove ? () => openMoveModal([{ id: f.id, type: 'file' }]) : undefined}
+                    onRename={capabilities?.canRename ? () => { setRenameValue(f.name); setRenameFile(f); } : undefined}
+                    onDelete={capabilities?.canDelete ? () => setDeleteFile(f) : undefined}
+                  />
+                );
+              })}
             </div>
           )}
 

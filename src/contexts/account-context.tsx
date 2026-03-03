@@ -179,8 +179,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const accountKey = account.mode === 'account' ? account.accountKey : null;
   const accountData = accountKey ? accounts[accountKey] || null : null;
 
-  // Don't render until session is resolved
-  if (status === 'loading') return null;
+  // Don't render until the very first session is resolved.
+  // After initialization, keep rendering children during session refreshes
+  // to avoid unmounting the entire app and losing page-level state.
+  if (status === 'loading' && !initialized) return null;
 
   return (
     <AccountContext.Provider

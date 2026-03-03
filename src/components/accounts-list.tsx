@@ -426,7 +426,7 @@ export function AccountsList({
 
                   {/* Account Rep picker */}
                   <div>
-                    <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Sub-Account Rep</label>
+                    <label className="text-xs text-[var(--muted-foreground)] mb-1 block">Account Rep</label>
                     <div className="flex items-center gap-2">
                       <UserPicker
                         value={newRepId}
@@ -514,7 +514,7 @@ export function AccountsList({
                 </th>
                 <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
                   <button type="button" onClick={() => toggleSort('rep')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
-                    Sub-Account Rep
+                    Account Rep
                     <span className="text-[10px]">{sortIndicator('rep')}</span>
                   </button>
                 </th>

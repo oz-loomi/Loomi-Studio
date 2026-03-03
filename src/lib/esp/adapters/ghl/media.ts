@@ -324,15 +324,22 @@ export async function moveMedia(
   mediaId: string,
   targetFolderId?: string,
 ): Promise<void> {
-  const params = new URLSearchParams({
+  const body: Record<string, string> = {
     altType: 'location',
     altId: locationId,
-  });
-  if (targetFolderId) params.set('parentId', targetFolderId);
+  };
+  if (targetFolderId) body.parentId = targetFolderId;
 
   const res = await fetch(
-    `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}/move?${params.toString()}`,
-    { method: 'PUT', headers: ghlHeaders(token) },
+    `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}`,
+    {
+      method: 'PUT',
+      headers: {
+        ...ghlHeaders(token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
   );
 
   if (!res.ok) {
