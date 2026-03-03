@@ -333,7 +333,7 @@ export async function moveMedia(
   const res = await fetch(
     `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}`,
     {
-      method: 'PUT',
+      method: 'POST',
       headers: {
         ...ghlHeaders(token),
         'Content-Type': 'application/json',
