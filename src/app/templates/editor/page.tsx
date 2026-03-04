@@ -6200,6 +6200,9 @@ export default function TemplateEditorPage() {
   const [espTemplateName, setEspTemplateName] = useState("");
   const [espSubject, setEspSubject] = useState("");
   const [espPreviewText, setEspPreviewText] = useState("");
+  const [originalEspTemplateName, setOriginalEspTemplateName] = useState("");
+  const [originalEspSubject, setOriginalEspSubject] = useState("");
+  const [originalEspPreviewText, setOriginalEspPreviewText] = useState("");
 
   const [code, setCode] = useState("");
   const [originalCode, setOriginalCode] = useState("");
@@ -6684,8 +6687,12 @@ export default function TemplateEditorPage() {
           if (data.error) { console.error(data.error); return; }
           const t = data.template;
           if (t.accountKey) setEspAccountKey(t.accountKey);
-          setEspSubject(t.subject || "");
-          setEspPreviewText(t.previewText || "");
+          const resolvedSubject = t.subject || "";
+          const resolvedPreviewText = t.previewText || "";
+          setEspSubject(resolvedSubject);
+          setEspPreviewText(resolvedPreviewText);
+          setOriginalEspSubject(resolvedSubject);
+          setOriginalEspPreviewText(resolvedPreviewText);
 
           // Resolve source — library: references need fetching from the library
           let raw = "";
@@ -6717,7 +6724,9 @@ export default function TemplateEditorPage() {
           setCode(initialSource);
           setOriginalCode(initialSource);
           const fmTitle = parsedRaw?.frontmatter?.title;
-          setEspTemplateName(fmTitle || t.name || "");
+          const resolvedTitle = fmTitle || t.name || "";
+          setEspTemplateName(resolvedTitle);
+          setOriginalEspTemplateName(resolvedTitle);
           if (shouldUseCodeMode) {
             setEditorMode("code");
             compilePreview(raw);
@@ -6737,6 +6746,10 @@ export default function TemplateEditorPage() {
     // ── New ESP template (no ID yet) ──
     if (accountKeyParam && !design) {
       setEspMode(true);
+      setEspSubject("");
+      setEspPreviewText("");
+      setOriginalEspSubject("");
+      setOriginalEspPreviewText("");
       if (modeParam === "code") setEditorMode("code");
       // If starting from a library template, load its source
       if (libraryTemplateSlug) {
@@ -6750,11 +6763,16 @@ export default function TemplateEditorPage() {
                 const serialized = serializeTemplateClient(withFont);
                 setCode(serialized);
                 setOriginalCode(rawData.raw);
+                const resolvedTitle = withFont.frontmatter?.title || "Untitled Template";
+                setEspTemplateName(resolvedTitle);
+                setOriginalEspTemplateName(resolvedTitle);
                 setParsed(withFont);
                 compilePreview(serializeTemplateForPreview(withFont, new Set()));
               } else {
                 setCode(rawData.raw);
                 setOriginalCode(rawData.raw);
+                setEspTemplateName("Untitled Template");
+                setOriginalEspTemplateName("Untitled Template");
                 compilePreview(rawData.raw);
               }
             }
@@ -6770,12 +6788,14 @@ export default function TemplateEditorPage() {
           setCode(serialized);
           setOriginalCode(blank);
           setEspTemplateName("Untitled Template");
+          setOriginalEspTemplateName("Untitled Template");
           setParsed(withFont);
           compilePreview(serializeTemplateForPreview(withFont, new Set()));
         } else {
           setCode(blank);
           setOriginalCode(blank);
           setEspTemplateName("Untitled Template");
+          setOriginalEspTemplateName("Untitled Template");
           compilePreview(blank);
         }
       }
@@ -6814,8 +6834,26 @@ export default function TemplateEditorPage() {
   }, [design, templateName, espTemplateId, accountKeyParam, libraryTemplateSlug, parsedBranding?.fonts?.body]);
 
   useEffect(() => {
-    setHasChanges(code !== originalCode);
-  }, [code, originalCode]);
+    const hasCodeChanges = code !== originalCode;
+    const hasMetaChanges =
+      espMode &&
+      (
+        espTemplateName !== originalEspTemplateName ||
+        espSubject !== originalEspSubject ||
+        espPreviewText !== originalEspPreviewText
+      );
+    setHasChanges(hasCodeChanges || hasMetaChanges);
+  }, [
+    code,
+    originalCode,
+    espMode,
+    espTemplateName,
+    espSubject,
+    espPreviewText,
+    originalEspTemplateName,
+    originalEspSubject,
+    originalEspPreviewText,
+  ]);
 
   useEffect(() => {
     if (hasChanges) {
@@ -6852,7 +6890,7 @@ export default function TemplateEditorPage() {
 
   // ── Auto-save (3s after last change) ──
   useEffect(() => {
-    if (code === originalCode || saving) return;
+    if (!hasChanges || saving) return;
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(async () => {
       setSaving(true);
@@ -6875,6 +6913,9 @@ export default function TemplateEditorPage() {
           });
           if (res.ok) {
             setOriginalCode(code);
+            setOriginalEspTemplateName(espTemplateName);
+            setOriginalEspSubject(espSubject);
+            setOriginalEspPreviewText(espPreviewText);
             setMessage("Saved");
             setTimeout(() => setMessage(""), 2000);
           }
@@ -6898,6 +6939,9 @@ export default function TemplateEditorPage() {
             espRecordIdRef.current = data.template.id;
             setEspRecordId(data.template.id);
             setOriginalCode(code);
+            setOriginalEspTemplateName(espTemplateName);
+            setOriginalEspSubject(espSubject);
+            setOriginalEspPreviewText(espPreviewText);
             setMessage("Saved");
             setTimeout(() => setMessage(""), 2000);
           }
@@ -6921,7 +6965,7 @@ export default function TemplateEditorPage() {
     }, 3000);
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, originalCode, design, templateName, espMode, espRecordId, effectiveAccountKey, espTemplateName, espSubject, espPreviewText]);
+  }, [hasChanges, code, design, templateName, espMode, espRecordId, effectiveAccountKey, espTemplateName, espSubject, espPreviewText, saving]);
 
   useEffect(() => {
     if (isHtmlOnlyBuilder) {
@@ -7042,6 +7086,9 @@ export default function TemplateEditorPage() {
   };
 
   const updateFrontmatter = (key: string, value: string) => {
+    if (espMode && key === "title") {
+      setEspTemplateName(value);
+    }
     if (!parsed) return;
     const newParsed = {
       ...parsed,
@@ -7640,6 +7687,11 @@ export default function TemplateEditorPage() {
         const data = await res.json().catch(() => ({}));
         if (data.slug && data.slug !== design) setDesign(data.slug);
         setOriginalCode(code);
+        if (espMode) {
+          setOriginalEspTemplateName(espTemplateName);
+          setOriginalEspSubject(espSubject);
+          setOriginalEspPreviewText(espPreviewText);
+        }
         setMessage("Saved");
         setTimeout(() => setMessage(""), 3000);
         return true;
@@ -8597,7 +8649,7 @@ export default function TemplateEditorPage() {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
   const designLabel = (espMode || espTemplateId)
-    ? (espTemplateName || "Loading...")
+    ? (espTemplateName || parsed?.frontmatter?.title || "Untitled Template")
     : (parsed?.frontmatter?.title || slugLabel);
   const lineCount = code.split("\n").length;
   const backHref = espMode ? "/templates" : isAccount ? "/emails" : "/templates/library";
@@ -8622,11 +8674,12 @@ export default function TemplateEditorPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     const trimmed = editTitleValue.trim();
-                    if (trimmed && espMode) {
-                      setEspTemplateName(trimmed);
-                      if (parsed) updateFrontmatter("title", trimmed);
-                    } else if (trimmed && !espMode && parsed) {
-                      updateFrontmatter("title", trimmed);
+                    if (trimmed) {
+                      if (parsed) {
+                        updateFrontmatter("title", trimmed);
+                      } else if (espMode) {
+                        setEspTemplateName(trimmed);
+                      }
                     }
                     setIsEditingTitle(false);
                   } else if (e.key === "Escape") {
@@ -8635,11 +8688,12 @@ export default function TemplateEditorPage() {
                 }}
                 onBlur={() => {
                   const trimmed = editTitleValue.trim();
-                  if (trimmed && espMode) {
-                    setEspTemplateName(trimmed);
-                    if (parsed) updateFrontmatter("title", trimmed);
-                  } else if (trimmed && !espMode && parsed) {
-                    updateFrontmatter("title", trimmed);
+                  if (trimmed) {
+                    if (parsed) {
+                      updateFrontmatter("title", trimmed);
+                    } else if (espMode) {
+                      setEspTemplateName(trimmed);
+                    }
                   }
                   setIsEditingTitle(false);
                 }}
@@ -8651,7 +8705,7 @@ export default function TemplateEditorPage() {
                 <h2 className="text-lg font-bold capitalize truncate">{designLabel}</h2>
                 <button
                   onClick={() => {
-                    setEditTitleValue(espMode ? espTemplateName : (parsed?.frontmatter?.title || designLabel));
+                    setEditTitleValue(espMode ? (espTemplateName || parsed?.frontmatter?.title || designLabel) : (parsed?.frontmatter?.title || designLabel));
                     setIsEditingTitle(true);
                   }}
                   className="p-1 rounded text-[var(--muted-foreground)] opacity-0 group-hover/title:opacity-100 hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-all"
@@ -8969,6 +9023,28 @@ export default function TemplateEditorPage() {
                       Email Meta
                     </h3>
                     <div className="space-y-3">
+                      {/* Template Title */}
+                      <div>
+                        <div className="flex items-center gap-1 mb-1">
+                          <label className="text-xs text-[var(--muted-foreground)]">
+                            Template Title
+                          </label>
+                        </div>
+                        <input
+                          type="text"
+                          value={espTemplateName}
+                          onChange={(e) => {
+                            const nextTitle = e.target.value;
+                            if (parsed) {
+                              updateFrontmatter("title", nextTitle);
+                            } else {
+                              setEspTemplateName(nextTitle);
+                            }
+                          }}
+                          placeholder="Enter template title..."
+                          className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
+                        />
+                      </div>
                       {/* Subject Line */}
                       <div>
                         <div className="flex items-center gap-1 mb-1">
