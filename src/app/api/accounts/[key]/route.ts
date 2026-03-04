@@ -146,6 +146,22 @@ export async function PATCH(
     const saved = await accountService.updateAccount(key, updatePayload);
 
     // ── Provider sync: push business details/custom values when supported ──
+    const normalizeComparable = (value: unknown) =>
+      value === null || value === undefined ? '' : String(value).trim();
+    const businessDetailsChanged =
+      normalizeComparable(existing.dealer) !== normalizeComparable(saved.dealer) ||
+      normalizeComparable(existing.email) !== normalizeComparable(saved.email) ||
+      normalizeComparable(existing.phone) !== normalizeComparable(saved.phone) ||
+      normalizeComparable(existing.address) !== normalizeComparable(saved.address) ||
+      normalizeComparable(existing.city) !== normalizeComparable(saved.city) ||
+      normalizeComparable(existing.state) !== normalizeComparable(saved.state) ||
+      normalizeComparable(existing.postalCode) !== normalizeComparable(saved.postalCode) ||
+      normalizeComparable(existing.website) !== normalizeComparable(saved.website) ||
+      normalizeComparable(existing.timezone) !== normalizeComparable(saved.timezone);
+    const deleteManaged = body._deleteManaged === true;
+    const customValuesChanged =
+      normalizeComparable(existing.customValues) !== normalizeComparable(saved.customValues);
+
     let syncWarning: string | undefined;
     let adapter: Awaited<ReturnType<typeof getAdapterForAccount>> | null = null;
     let resolvedCredentials: EspCredentials | null | undefined;
@@ -172,7 +188,7 @@ export async function PATCH(
       return resolvedCredentials;
     };
 
-    if (adapter?.accountDetailsSync) {
+    if (adapter?.accountDetailsSync && businessDetailsChanged) {
       const credentials = await resolveAdapterCredentials();
       const locationId = credentials?.locationId || '';
 
@@ -202,8 +218,7 @@ export async function PATCH(
     const customValues = saved.customValues
       ? (JSON.parse(saved.customValues) as Record<string, { name: string; value: string }>)
       : null;
-    const deleteManaged = body._deleteManaged === true;
-    if (customValues && adapter?.capabilities.customValues && adapter.customValues) {
+    if ((customValuesChanged || deleteManaged) && customValues && adapter?.capabilities.customValues && adapter.customValues) {
       try {
         const credentials = await resolveAdapterCredentials();
 
