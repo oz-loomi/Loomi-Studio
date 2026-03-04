@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: deploy-production-main
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -85,7 +89,7 @@ jobs:
 
             cd "$NEW_RELEASE"
 
-            npm install --legacy-peer-deps
+            npm ci --legacy-peer-deps --no-audit --no-fund
 
             # Load env vars for build/runtime (Prisma needs DATABASE_URL, etc.)
             set -a && source .env.local && set +a
