@@ -108,6 +108,16 @@ function hasRenderablePreview(html: string | null | undefined): boolean {
   );
 }
 
+function getLatestRenderableHtml(template: Pick<EspTemplateRecord, 'source' | 'html'>): string {
+  if (hasRenderablePreview(template.source)) {
+    return (template.source || '').trim();
+  }
+  if (hasRenderablePreview(template.html)) {
+    return (template.html || '').trim();
+  }
+  return '';
+}
+
 function hasVisualTemplateScaffold(raw: string | null | undefined): boolean {
   const source = (raw || '').trimStart();
   return /^---\r?\n[\s\S]*?\r?\n---/.test(source) && /<x-base\b/i.test(source);
@@ -364,7 +374,8 @@ function TemplateCard({
   const normStatus = displayStatus(t.status);
   const sc = statusColors[normStatus];
   const templateTypeLabel = getTemplateTypeLabel(t);
-  const hasLiveHtmlPreview = hasRenderablePreview(t.html);
+  const previewHtml = getLatestRenderableHtml(t);
+  const hasLiveHtmlPreview = previewHtml.length > 0;
 
   return (
     <div className={`glass-card rounded-xl group animate-fade-in-up relative ${isMenuOpen ? 'z-10' : ''}`}>
@@ -377,7 +388,7 @@ function TemplateCard({
         onClick={() => selectMode ? onSelect(t.id) : onPreview(t)}
       >
         {hasLiveHtmlPreview ? (
-          <EspHtmlPreview html={t.html} height={160} />
+          <EspHtmlPreview html={previewHtml} height={160} />
         ) : t.thumbnailUrl ? (
           <div className="h-[160px] bg-[var(--muted)]">
             <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
@@ -1081,6 +1092,11 @@ export default function TemplatesPage() {
   const [createMode, setCreateMode] = useState<'visual' | 'code' | null>(null);
   const [createName, setCreateName] = useState('');
   const [creating, setCreating] = useState(false);
+  const previewTemplateHtml = useMemo(
+    () => (previewTemplate ? getLatestRenderableHtml(previewTemplate) : ''),
+    [previewTemplate],
+  );
+  const hasPreviewTemplateHtml = previewTemplateHtml.length > 0;
 
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const accountDropdownRef = useRef<HTMLDivElement>(null);
@@ -1943,8 +1959,8 @@ export default function TemplatesPage() {
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={() => openHtmlInNewTab(previewTemplate.html, previewTemplate.name)}
-                  disabled={!hasRenderablePreview(previewTemplate.html)}
+                  onClick={() => openHtmlInNewTab(previewTemplateHtml, previewTemplate.name)}
+                  disabled={!hasPreviewTemplateHtml}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--foreground)] border border-[var(--border)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Preview in New Tab
@@ -1961,9 +1977,9 @@ export default function TemplatesPage() {
               </div>
             </div>
             <div className="flex-1 min-h-0 bg-[var(--muted)]">
-              {hasRenderablePreview(previewTemplate.html) ? (
+              {hasPreviewTemplateHtml ? (
                 <iframe
-                  srcDoc={previewTemplate.html}
+                  srcDoc={previewTemplateHtml}
                   className="w-full h-full border-0"
                   style={{ minHeight: '500px' }}
                   title={`Preview: ${previewTemplate.name}`}
