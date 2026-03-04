@@ -14,6 +14,11 @@ function extractFrontmatterTitle(content: string): string | undefined {
   return normalized || undefined;
 }
 
+function hasVisualTemplateScaffold(content: string): boolean {
+  const source = content.trimStart();
+  return /^---\r?\n[\s\S]*?\r?\n---/.test(source) && /<x-base\b/i.test(source);
+}
+
 export async function GET(req: NextRequest) {
   const { error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
@@ -48,6 +53,7 @@ export async function GET(req: NextRequest) {
       id: t.id,
       design: t.slug,
       name: extractFrontmatterTitle(t.content) || t.title,
+      editorType: hasVisualTemplateScaffold(t.content) ? 'visual' : 'code',
       type: t.type,
       category: t.category,
       updatedAt: t.updatedAt.toISOString(),

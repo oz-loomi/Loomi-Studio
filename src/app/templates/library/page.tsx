@@ -40,6 +40,7 @@ import PrimaryButton from '@/components/primary-button';
 interface TemplateEntry {
   design: string;
   name: string;
+  editorType?: 'code' | 'visual' | string | null;
   updatedAt?: string;
   createdBy?: string | null;
   createdByAvatar?: string | null;
@@ -68,6 +69,10 @@ function formatDesign(d: string) {
   return d
     .replace(/-/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function getLibraryTemplateTypeLabel(template: Pick<TemplateEntry, 'editorType'>): 'HTML' | 'Drag & Drop' {
+  return template.editorType === 'visual' ? 'Drag & Drop' : 'HTML';
 }
 
 function sanitizeFileName(value: string): string {
@@ -600,6 +605,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
             const isOpen = menuOpen === t.design;
             const isSelected = selectedDesigns.has(t.design);
             const isDownloading = downloadingDesign === t.design;
+            const templateTypeLabel = getLibraryTemplateTypeLabel(t);
             return (
               <div
                 key={t.design}
@@ -702,6 +708,12 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                         )}
                       </div>
                     )}
+                  </div>
+
+                  <div className="mt-1.5">
+                    <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                      {templateTypeLabel}
+                    </span>
                   </div>
 
                   {tags.length > 0 && (
@@ -917,6 +929,7 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {filtered.map((t) => {
             const tags = tagData.assignments[t.design] || [];
+            const templateTypeLabel = getLibraryTemplateTypeLabel(t);
             return (
               <div
                 key={t.design}
@@ -946,6 +959,11 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                   <p className="text-sm font-medium truncate">
                     {t.name || formatDesign(t.design)}
                   </p>
+                  <div className="mt-1.5">
+                    <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                      {templateTypeLabel}
+                    </span>
+                  </div>
                   {tags.length > 0 && (
                     <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                       {tags.map((tag) => (

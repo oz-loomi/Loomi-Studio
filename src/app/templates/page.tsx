@@ -46,6 +46,7 @@ interface EspTemplateRecord {
   subject: string | null;
   previewText: string | null;
   html: string;
+  source?: string | null;
   status: string;
   editorType: string | null;
   thumbnailUrl: string | null;
@@ -107,6 +108,17 @@ function hasRenderablePreview(html: string | null | undefined): boolean {
   );
 }
 
+function hasVisualTemplateScaffold(raw: string | null | undefined): boolean {
+  const source = (raw || '').trimStart();
+  return /^---\r?\n[\s\S]*?\r?\n---/.test(source) && /<x-base\b/i.test(source);
+}
+
+function getTemplateTypeLabel(template: Pick<EspTemplateRecord, 'editorType' | 'source'>): 'HTML' | 'Drag & Drop' {
+  if (template.editorType === 'code') return 'HTML';
+  if (template.editorType === 'visual') return 'Drag & Drop';
+  return hasVisualTemplateScaffold(template.source) ? 'Drag & Drop' : 'HTML';
+}
+
 function sanitizeFileName(value: string): string {
   const trimmed = value.trim().toLowerCase();
   const safe = trimmed
@@ -133,6 +145,7 @@ async function downloadTemplateScreenshot(
   fileBaseName: string,
 ): Promise<void> {
   const params = new URLSearchParams({ accountKey, templateId });
+  params.set('ts', String(Date.now()));
   const res = await fetch(`/api/esp/templates/screenshot?${params.toString()}`);
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -350,6 +363,8 @@ function TemplateCard({
 }: TemplateCardProps) {
   const normStatus = displayStatus(t.status);
   const sc = statusColors[normStatus];
+  const templateTypeLabel = getTemplateTypeLabel(t);
+  const hasLiveHtmlPreview = hasRenderablePreview(t.html);
 
   return (
     <div className={`glass-card rounded-xl group animate-fade-in-up relative ${isMenuOpen ? 'z-10' : ''}`}>
@@ -361,12 +376,16 @@ function TemplateCard({
         className="rounded-t-xl cursor-pointer relative overflow-hidden"
         onClick={() => selectMode ? onSelect(t.id) : onPreview(t)}
       >
-        {t.thumbnailUrl ? (
+        {hasLiveHtmlPreview ? (
+          <EspHtmlPreview html={t.html} height={160} />
+        ) : t.thumbnailUrl ? (
           <div className="h-[160px] bg-[var(--muted)]">
             <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
           </div>
         ) : (
-          <EspHtmlPreview html={t.html} height={160} />
+          <div className="h-[160px] bg-[var(--muted)] flex items-center justify-center">
+            <EnvelopeIcon className="w-10 h-10 text-[var(--muted-foreground)] opacity-30" />
+          </div>
         )}
         {/* Selection overlay */}
         {selectMode && (
@@ -447,6 +466,9 @@ function TemplateCard({
           {t.name}
         </h3>
         <div className="flex items-center gap-2 mt-2">
+          <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+            {templateTypeLabel}
+          </span>
           <span
             className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full"
             style={{ backgroundColor: sc.bg, color: sc.text }}
@@ -496,6 +518,7 @@ function TemplateRow({
 }: TemplateRowProps) {
   const normStatus = displayStatus(t.status);
   const sc = statusColors[normStatus];
+  const templateTypeLabel = getTemplateTypeLabel(t);
 
   return (
     <div
@@ -538,6 +561,9 @@ function TemplateRow({
       ) : (
         <ProviderLogoCircle provider={t.provider} />
       )}
+      <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)] flex-shrink-0">
+        {templateTypeLabel}
+      </span>
       <span
         className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0"
         style={{ backgroundColor: sc.bg, color: sc.text }}
@@ -1059,6 +1085,7 @@ export default function TemplatesPage() {
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const accountDropdownRef = useRef<HTMLDivElement>(null);
   const menuClickRef = useRef(false);
+  const lastTemplatesRefreshAtRef = useRef(0);
 
   // Bulk selection
   const [selectMode, setSelectMode] = useState(false);
@@ -1117,6 +1144,32 @@ export default function TemplatesPage() {
   useEffect(() => {
     setLoading(true);
     loadTemplates();
+  }, [loadTemplates]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const refresh = () => {
+      const now = Date.now();
+      if (now - lastTemplatesRefreshAtRef.current < 800) return;
+      lastTemplatesRefreshAtRef.current = now;
+      loadTemplates();
+    };
+
+    const onFocus = () => refresh();
+    const onPageShow = () => refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('pageshow', onPageShow);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('pageshow', onPageShow);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [loadTemplates]);
 
   // ── Grouped data for admin overview ──

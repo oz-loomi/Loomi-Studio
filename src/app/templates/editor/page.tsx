@@ -6905,6 +6905,7 @@ export default function TemplateEditorPage() {
     autoSaveTimerRef.current = setTimeout(async () => {
       setSaving(true);
       setMessage("");
+      const htmlForSave = editorMode === "code" ? code : (previewHtml || undefined);
       try {
         if (espMode && espRecordId) {
           // Save to ESP template record
@@ -6916,7 +6917,7 @@ export default function TemplateEditorPage() {
               subject: espSubject || undefined,
               previewText: espPreviewText || undefined,
               source: code,
-              html: previewHtml || undefined,
+              html: htmlForSave,
               editorType: editorMode,
               accountKey: effectiveAccountKey || undefined,
             }),
@@ -6940,7 +6941,7 @@ export default function TemplateEditorPage() {
               subject: espSubject || null,
               previewText: espPreviewText || null,
               source: code,
-              html: previewHtml || code,
+              html: htmlForSave || "",
               editorType: editorMode,
             }),
           });
@@ -7663,6 +7664,7 @@ export default function TemplateEditorPage() {
   const handleSave = async (): Promise<boolean> => {
     setSaving(true);
     setMessage("");
+    const htmlForSave = editorMode === "code" ? code : (previewHtml || undefined);
     try {
       let res: Response;
       if (espMode && espRecordId) {
@@ -7674,7 +7676,7 @@ export default function TemplateEditorPage() {
             subject: espSubject || undefined,
             previewText: espPreviewText || undefined,
             source: code,
-            html: previewHtml || undefined,
+            html: htmlForSave,
             editorType: editorMode,
             accountKey: effectiveAccountKey || undefined,
           }),
@@ -7689,7 +7691,7 @@ export default function TemplateEditorPage() {
             subject: espSubject || null,
             previewText: espPreviewText || null,
             source: code,
-            html: previewHtml || code,
+            html: htmlForSave || "",
             editorType: editorMode,
           }),
         });
@@ -8673,6 +8675,13 @@ export default function TemplateEditorPage() {
   const designLabel = (espMode || espTemplateId)
     ? (espTemplateName || parsed?.frontmatter?.title || "Untitled Template")
     : (parsed?.frontmatter?.title || slugLabel);
+  const isDragDropTemplate = useMemo(
+    () => hasVisualTemplateScaffold(code),
+    [code],
+  );
+  const templateTypeLabel = code.trim()
+    ? (isDragDropTemplate ? "Drag & Drop" : "HTML")
+    : null;
   const lineCount = code.split("\n").length;
   const backHref = espMode ? "/templates" : isAccount ? "/emails" : "/templates/library";
 
@@ -8725,6 +8734,11 @@ export default function TemplateEditorPage() {
             ) : (
               <div className="group/title flex items-center gap-1.5">
                 <h2 className="text-lg font-bold capitalize truncate">{designLabel}</h2>
+                {templateTypeLabel && (
+                  <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                    {templateTypeLabel}
+                  </span>
+                )}
                 <button
                   onClick={() => {
                     setEditTitleValue(espMode ? (espTemplateName || parsed?.frontmatter?.title || designLabel) : (parsed?.frontmatter?.title || designLabel));

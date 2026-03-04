@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { renderCampaignScreenshotFromHtml } from '@/lib/esp/screenshot-render';
+import { maizzleRender } from '@/lib/maizzle-render';
 
 function sanitizeFileName(value: string): string {
   const trimmed = value.trim().toLowerCase();
@@ -10,6 +11,15 @@ function sanitizeFileName(value: string): string {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
   return safe || 'template';
+}
+
+function isMaizzleSource(source: string): boolean {
+  const normalized = source.trimStart();
+  return (
+    (/^---\r?\n[\s\S]*?\r?\n---/.test(normalized) && /<x-base\b/i.test(normalized)) ||
+    /<x-core\./i.test(normalized) ||
+    /<x-base\b/i.test(normalized)
+  );
 }
 
 /**
@@ -42,18 +52,42 @@ export async function GET(req: NextRequest) {
 
   const template = await prisma.espTemplate.findFirst({
     where: { id: templateId, accountKey },
-    select: { id: true, name: true, html: true },
+    select: { id: true, name: true, html: true, source: true },
   });
   if (!template) {
     return NextResponse.json({ error: 'Template not found' }, { status: 404 });
   }
-  if (!template.html?.trim()) {
+
+  let resolvedHtml = template.html?.trim() || '';
+  const source = template.source?.trim() || '';
+
+  try {
+    if (source) {
+      if (isMaizzleSource(source)) {
+        resolvedHtml = await maizzleRender.renderTemplate(source, {
+          prettify: false,
+          css: false,
+        });
+      } else {
+        // HTML/code templates: source is the freshest representation.
+        resolvedHtml = source;
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '';
+    return NextResponse.json(
+      { error: `Failed to compile latest template source${message ? `: ${message}` : ''}` },
+      { status: 500 },
+    );
+  }
+
+  if (!resolvedHtml.trim()) {
     return NextResponse.json({ error: 'Template HTML is empty' }, { status: 400 });
   }
 
   try {
     const screenshot = await renderCampaignScreenshotFromHtml({
-      html: template.html,
+      html: resolvedHtml,
       filename: `${sanitizeFileName(template.name || 'template')}.png`,
     });
 
