@@ -6085,6 +6085,11 @@ function serializeTemplateClient(template: ParsedTemplate): string {
   return lines.join("\n");
 }
 
+function hasVisualTemplateScaffold(raw: string): boolean {
+  const source = raw.trimStart();
+  return /^---\r?\n[\s\S]*?\r?\n---/.test(source) && /<x-base\b/i.test(source);
+}
+
 export default function TemplateEditorPage() {
   const searchParams = useSearchParams();
   const designParam = searchParams.get("design") || "";
@@ -6679,6 +6684,7 @@ export default function TemplateEditorPage() {
     // ── ESP template: load by ID ──
     if (espTemplateId) {
       setEspMode(true);
+      setParsed(null);
       espRecordIdRef.current = espTemplateId;
       setEspRecordId(espTemplateId);
       fetch(`/api/esp/templates/${espTemplateId}`)
@@ -6710,16 +6716,16 @@ export default function TemplateEditorPage() {
             raw = t.source || t.html || "";
           }
 
-          // Prefer frontmatter title over DB name for display
-          const parsedRaw = parseTemplate(raw);
-          const parsedWithFontDefaults = parsedRaw?.frontmatter
+          const visualSource = hasVisualTemplateScaffold(raw);
+          const parsedRaw = visualSource ? parseTemplate(raw) : null;
+          const parsedWithFontDefaults = parsedRaw
             ? applyResolvedFontDefaults(parsedRaw)
-            : parsedRaw;
-          const visualRaw = parsedWithFontDefaults?.frontmatter
+            : null;
+          const visualRaw = parsedWithFontDefaults
             ? serializeTemplateClient(parsedWithFontDefaults)
             : raw;
           const shouldUseCodeMode =
-            t.editorType === "code" || (!t.source && !isLibRef);
+            t.editorType === "code" || (!t.source && !isLibRef) || !visualSource;
           const initialSource = shouldUseCodeMode ? raw : visualRaw;
           setCode(initialSource);
           setOriginalCode(initialSource);
@@ -6728,10 +6734,11 @@ export default function TemplateEditorPage() {
           setEspTemplateName(resolvedTitle);
           setOriginalEspTemplateName(resolvedTitle);
           if (shouldUseCodeMode) {
+            setParsed(null);
             setEditorMode("code");
             compilePreview(raw);
           } else {
-            if (parsedWithFontDefaults?.frontmatter) {
+            if (parsedWithFontDefaults) {
               setParsed(parsedWithFontDefaults);
               compilePreview(serializeTemplateForPreview(parsedWithFontDefaults, new Set()));
             } else {
@@ -6757,8 +6764,9 @@ export default function TemplateEditorPage() {
           .then((r) => r.json())
           .then((rawData) => {
             if (rawData.raw) {
-              const p = parseTemplate(rawData.raw);
-              if (p?.frontmatter) {
+              const visualSource = hasVisualTemplateScaffold(rawData.raw);
+              if (visualSource) {
+                const p = parseTemplate(rawData.raw);
                 const withFont = applyResolvedFontDefaults(p);
                 const serialized = serializeTemplateClient(withFont);
                 setCode(serialized);
@@ -6769,6 +6777,8 @@ export default function TemplateEditorPage() {
                 setParsed(withFont);
                 compilePreview(serializeTemplateForPreview(withFont, new Set()));
               } else {
+                setParsed(null);
+                setEditorMode("code");
                 setCode(rawData.raw);
                 setOriginalCode(rawData.raw);
                 setEspTemplateName("Untitled Template");
@@ -7024,6 +7034,18 @@ export default function TemplateEditorPage() {
 
   const handleModeSwitch = async (mode: EditorMode) => {
     if (mode === editorMode) return;
+    if (espMode) {
+      if (mode === "visual") {
+        if (parsed) {
+          const previewCode = serializeTemplateForPreview(parsed, hiddenComponents);
+          compilePreview(previewCode);
+        } else {
+          compilePreview(code);
+        }
+      }
+      setEditorMode(mode);
+      return;
+    }
     if (mode === "visual") {
       if (hasChanges) {
         await fetch("/api/templates", {
@@ -8867,7 +8889,7 @@ export default function TemplateEditorPage() {
               <AdjustmentsHorizontalIcon className="w-3.5 h-3.5" />
               Settings
             </button>
-            {!isHtmlOnlyBuilder && (
+            {!isHtmlOnlyBuilder && (!espMode || !!parsed) && (
               <button
                 onClick={() => {
                   handleModeSwitch("visual");
