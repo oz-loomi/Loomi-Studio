@@ -1490,6 +1490,30 @@ export default function MediaPage() {
   const connectedProviders = accountData?.connectedProviders;
   const hasConnection = effectiveAccountKey && connectedProviders && connectedProviders.length > 0;
   const activeFolderName = folderPath.length > 1 ? folderPath[folderPath.length - 1]?.name : null;
+  const activeAccountName = effectiveAccountKey
+    ? (accounts[effectiveAccountKey]?.dealer || accountData?.dealer || effectiveAccountKey)
+    : null;
+
+  const resetToAccountRoot = useCallback(() => {
+    setSearch('');
+    setCurrentFolderId(undefined);
+    setFolderPath([{ id: undefined, name: 'Root' }]);
+  }, []);
+
+  const jumpToFolderCrumb = useCallback((pathIndex: number) => {
+    const crumb = folderPath[pathIndex];
+    if (!crumb) return;
+    setCurrentFolderId(crumb.id);
+    setFolderPath(folderPath.slice(0, pathIndex + 1));
+  }, [folderPath]);
+
+  const backToAllAccounts = useCallback(() => {
+    setAccountFilter('all');
+    setSearch('');
+    setOverviewSearch('');
+    setCurrentFolderId(undefined);
+    setFolderPath([{ id: undefined, name: 'Root' }]);
+  }, [setAccountFilter]);
 
   // ── Render ──
 
@@ -1507,25 +1531,84 @@ export default function MediaPage() {
                   effectiveAccountKey ? (
                     <>
                       <button
-                        onClick={() => { setAccountFilter('all'); setSearch(''); setOverviewSearch(''); setCurrentFolderId(undefined); setFolderPath([{ id: undefined, name: 'Root' }]); }}
+                        onClick={backToAllAccounts}
                         className="inline-flex items-center gap-1 text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
                       >
                         <ArrowLeftIcon className="w-3.5 h-3.5" />
                         All Accounts
                       </button>
-                      <span className="text-[var(--muted-foreground)]">
-                        Viewing {accounts[effectiveAccountKey]?.dealer || effectiveAccountKey}
-                        {activeFolderName ? ` • ${activeFolderName}` : ''}
-                      </span>
+                      <span className="text-[var(--muted-foreground)]">{'>'}</span>
+                      {activeFolderName ? (
+                        <button
+                          onClick={resetToAccountRoot}
+                          className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                        >
+                          {activeAccountName}
+                        </button>
+                      ) : (
+                        <span className="text-[var(--muted-foreground)]">{activeAccountName}</span>
+                      )}
+                      {folderPath.slice(1).map((crumb, idx) => {
+                        const pathIndex = idx + 1;
+                        const isLast = pathIndex === folderPath.length - 1;
+                        return (
+                          <span
+                            key={`${crumb.id || 'root'}-${pathIndex}`}
+                            className="inline-flex items-center gap-2"
+                          >
+                            <span className="text-[var(--muted-foreground)]">{'>'}</span>
+                            {isLast ? (
+                              <span className="text-[var(--muted-foreground)]">{crumb.name}</span>
+                            ) : (
+                              <button
+                                onClick={() => jumpToFolderCrumb(pathIndex)}
+                                className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                              >
+                                {crumb.name}
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })}
                     </>
                   ) : (
                     <span className="text-[var(--muted-foreground)]">All Accounts</span>
                   )
                 ) : effectiveAccountKey ? (
-                  <span className="text-[var(--muted-foreground)]">
-                    {accountData?.dealer || effectiveAccountKey}
-                    {activeFolderName ? ` • ${activeFolderName}` : ''}
-                  </span>
+                  <>
+                    {activeFolderName ? (
+                      <button
+                        onClick={resetToAccountRoot}
+                        className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                      >
+                        {activeAccountName}
+                      </button>
+                    ) : (
+                      <span className="text-[var(--muted-foreground)]">{activeAccountName}</span>
+                    )}
+                    {folderPath.slice(1).map((crumb, idx) => {
+                      const pathIndex = idx + 1;
+                      const isLast = pathIndex === folderPath.length - 1;
+                      return (
+                        <span
+                          key={`${crumb.id || 'root'}-${pathIndex}`}
+                          className="inline-flex items-center gap-2"
+                        >
+                          <span className="text-[var(--muted-foreground)]">{'>'}</span>
+                          {isLast ? (
+                            <span className="text-[var(--muted-foreground)]">{crumb.name}</span>
+                          ) : (
+                            <button
+                              onClick={() => jumpToFolderCrumb(pathIndex)}
+                              className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                            >
+                              {crumb.name}
+                            </button>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </>
                 ) : (
                   <span className="text-[var(--muted-foreground)]">Manage your media files</span>
                 )}

@@ -110,6 +110,54 @@ function toAbsoluteUrl(nextUrl: string): string {
   return `${GHL_BASE}/${nextUrl.replace(/^\/+/, '')}`;
 }
 
+function extractBuilderRows(payload: JsonRecord): JsonRecord[] {
+  const data = asRecord(payload.data);
+  const candidates: unknown[] = [
+    payload.builders,
+    data?.builders,
+    payload.items,
+    data?.items,
+    payload.results,
+    data?.results,
+  ];
+
+  for (const candidate of candidates) {
+    const rows = asRecordArray(candidate);
+    if (rows.length > 0) return rows;
+  }
+
+  return [];
+}
+
+function extractBuilderTotal(payload: JsonRecord): number | null {
+  const data = asRecord(payload.data);
+  const totalCandidate = payload.total ?? data?.total;
+
+  if (typeof totalCandidate === 'number' && Number.isFinite(totalCandidate) && totalCandidate >= 0) {
+    return Math.floor(totalCandidate);
+  }
+
+  const totalRecord = asRecord(totalCandidate);
+  if (totalRecord) {
+    const nestedValue = Number(totalRecord.total);
+    if (Number.isFinite(nestedValue) && nestedValue >= 0) {
+      return Math.floor(nestedValue);
+    }
+  }
+
+  if (Array.isArray(totalCandidate) && totalCandidate.length > 0) {
+    const first = asRecord(totalCandidate[0]);
+    if (first) {
+      const nestedValue = Number(first.total);
+      if (Number.isFinite(nestedValue) && nestedValue >= 0) {
+        return Math.floor(nestedValue);
+      }
+    }
+  }
+
+  return null;
+}
+
 function toEspTemplate(t: JsonRecord): EspEmailTemplate {
   return {
     id: String(t.id || t._id || ''),
@@ -125,18 +173,10 @@ function toEspTemplate(t: JsonRecord): EspEmailTemplate {
   };
 }
 
-// ── Fetch all templates for a location ──
-
-export async function fetchTemplates(
+async function fetchTemplatesFromLocationEndpoint(
   token: string,
   locationId: string,
-  options?: { forceRefresh?: boolean },
 ): Promise<EspEmailTemplate[]> {
-  if (!options?.forceRefresh) {
-    const cached = getCached(locationId);
-    if (cached) return cached;
-  }
-
   const templatesById = new Map<string, EspEmailTemplate>();
   let nextUrl: string | null =
     `${GHL_BASE}/locations/${encodeURIComponent(locationId)}/templates?type=email&limit=${TEMPLATE_PAGE_SIZE}`;
@@ -189,7 +229,99 @@ export async function fetchTemplates(
     nextUrl = null;
   }
 
+  return Array.from(templatesById.values());
+}
+
+async function fetchTemplatesFromBuilderEndpoint(
+  token: string,
+  locationId: string,
+): Promise<EspEmailTemplate[]> {
+  const templatesById = new Map<string, EspEmailTemplate>();
+  let offset = 0;
+  let total: number | null = null;
+
+  for (let page = 0; page < MAX_TEMPLATE_PAGES; page += 1) {
+    const params = new URLSearchParams({
+      locationId,
+      limit: String(TEMPLATE_PAGE_SIZE),
+      offset: String(offset),
+    });
+
+    const res = await fetch(`${GHL_BASE}/emails/builder?${params.toString()}`, {
+      headers: ghlHeaders(token),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const msg = (data as Record<string, string>)?.message
+        || (data as Record<string, string>)?.error
+        || `GHL API error (${res.status})`;
+      throw new Error(msg);
+    }
+
+    const payload = asRecord(await res.json()) ?? {};
+    const rows = extractBuilderRows(payload);
+    const nextTotal = extractBuilderTotal(payload);
+    if (nextTotal !== null) total = nextTotal;
+
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      const template = toEspTemplate(row);
+      if (!template.id) continue;
+      templatesById.set(template.id, template);
+    }
+
+    if (rows.length < TEMPLATE_PAGE_SIZE) break;
+    if (total !== null && templatesById.size >= total) break;
+
+    offset += rows.length;
+  }
+
+  return Array.from(templatesById.values());
+}
+
+// ── Fetch all templates for a location ──
+
+export async function fetchTemplates(
+  token: string,
+  locationId: string,
+  options?: { forceRefresh?: boolean },
+): Promise<EspEmailTemplate[]> {
+  if (!options?.forceRefresh) {
+    const cached = getCached(locationId);
+    if (cached) return cached;
+  }
+
+  let locationTemplates: EspEmailTemplate[] = [];
+  let builderTemplates: EspEmailTemplate[] = [];
+  let locationError: Error | null = null;
+  let builderError: Error | null = null;
+
+  try {
+    locationTemplates = await fetchTemplatesFromLocationEndpoint(token, locationId);
+  } catch (err) {
+    locationError = err instanceof Error ? err : new Error(String(err));
+  }
+
+  try {
+    builderTemplates = await fetchTemplatesFromBuilderEndpoint(token, locationId);
+  } catch (err) {
+    builderError = err instanceof Error ? err : new Error(String(err));
+  }
+
+  const templatesById = new Map<string, EspEmailTemplate>();
+  for (const template of [...locationTemplates, ...builderTemplates]) {
+    if (!template.id) continue;
+    templatesById.set(template.id, template);
+  }
   const templates = Array.from(templatesById.values());
+
+  if (templates.length === 0 && locationError && builderError) {
+    throw new Error(
+      `Failed to fetch templates from GHL (locations endpoint: ${locationError.message}; builder endpoint: ${builderError.message})`,
+    );
+  }
 
   setCache(locationId, templates);
   return templates;

@@ -14,6 +14,7 @@ import type {
 // ── In-memory cache (5 min TTL, same pattern as templates) ──
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+type JsonRecord = Record<string, unknown>;
 
 // File cache — keyed by locationId + parentId
 const mediaCache = new Map<string, { data: EspMedia[]; fetchedAt: number }>();
@@ -100,6 +101,75 @@ function normalizeFolder(raw: Record<string, unknown>): EspMediaFolder {
     createdAt: String(raw.createdAt || ''),
     updatedAt: String(raw.updatedAt || ''),
   };
+}
+
+function normalizeParentId(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  if (lower === 'null' || lower === 'root') return null;
+  return raw;
+}
+
+function extractParentId(raw: JsonRecord): string | null {
+  return normalizeParentId(
+    raw.parentId
+    ?? raw.parentID
+    ?? raw.folderId
+    ?? raw.folderID
+    ?? null,
+  );
+}
+
+function extractMediaId(raw: JsonRecord): string {
+  return String(raw.id || raw._id || '').trim();
+}
+
+async function fetchRawMediaObjects(
+  token: string,
+  locationId: string,
+  type: 'file' | 'folder',
+): Promise<JsonRecord[]> {
+  const params = new URLSearchParams({
+    altId: locationId,
+    altType: 'location',
+    type,
+    fetchAll: 'true',
+  });
+  const res = await fetch(`${GHL_BASE}/medias/files?${params.toString()}`, {
+    headers: ghlHeaders(token),
+  });
+  if (!res.ok) return [];
+
+  const data = await res.json().catch(() => ({}));
+  const list = (data as { files?: unknown }).files;
+  if (!Array.isArray(list)) return [];
+
+  return list
+    .filter((entry): entry is JsonRecord => Boolean(entry && typeof entry === 'object'))
+    .map((entry) => entry as JsonRecord);
+}
+
+async function verifyMediaParent(
+  token: string,
+  locationId: string,
+  mediaId: string,
+  targetFolderId?: string,
+): Promise<boolean> {
+  const target = normalizeParentId(targetFolderId);
+
+  const fileRecords = await fetchRawMediaObjects(token, locationId, 'file');
+  const file = fileRecords.find((row) => extractMediaId(row) === mediaId);
+  if (file) {
+    return extractParentId(file) === target;
+  }
+
+  const folderRecords = await fetchRawMediaObjects(token, locationId, 'folder');
+  const folder = folderRecords.find((row) => extractMediaId(row) === mediaId);
+  if (!folder) return false;
+
+  return extractParentId(folder) === target;
 }
 
 function throwGhlError(data: unknown, status: number): never {
@@ -325,12 +395,15 @@ export async function moveMedia(
   targetFolderId?: string,
   name?: string,
 ): Promise<void> {
-  const body: Record<string, string> = {
+  const normalizedTarget = normalizeParentId(targetFolderId);
+  const body: Record<string, string | null> = {
     altType: 'location',
     altId: locationId,
+    locationId,
+    parentId: normalizedTarget,
+    folderId: normalizedTarget,
   };
-  if (targetFolderId) body.parentId = targetFolderId;
-  if (name) body.name = name;
+  if (name?.trim()) body.name = name.trim();
 
   const res = await fetch(
     `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}`,
@@ -347,6 +420,12 @@ export async function moveMedia(
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throwGhlError(data, res.status);
+  }
+
+  // Defensive verification: GHL may return 200 while ignoring an invalid move payload.
+  const moved = await verifyMediaParent(token, locationId, mediaId, normalizedTarget || undefined);
+  if (!moved) {
+    throw new Error('Move request was accepted but the file/folder parent did not change');
   }
 
   invalidateAllCaches(locationId);
