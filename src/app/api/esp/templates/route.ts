@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
 
     try {
       const templates = await prisma.espTemplate.findMany({
-        where: { accountKey },
+        where: { accountKey, status: { not: 'deleted-local' } },
         orderBy: { updatedAt: 'desc' },
         include: {
           account: {
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
     }
     try {
       const templates = await prisma.espTemplate.findMany({
-        where: { accountKey: { in: userAccountKeys } },
+        where: { accountKey: { in: userAccountKeys }, status: { not: 'deleted-local' } },
         orderBy: { updatedAt: 'desc' },
         include: {
           account: {
@@ -100,6 +100,7 @@ export async function GET(req: NextRequest) {
   // Unrestricted: return all templates
   try {
     const templates = await prisma.espTemplate.findMany({
+      where: { status: { not: 'deleted-local' } },
       orderBy: { updatedAt: 'desc' },
       include: {
         account: {

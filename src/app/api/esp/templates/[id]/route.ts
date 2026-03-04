@@ -180,8 +180,16 @@ export async function DELETE(
       }
     }
 
-    // Delete locally
-    await prisma.espTemplate.delete({ where: { id } });
+    if (deleteFromRemote || !existing.remoteId) {
+      // Hard-delete: template removed from ESP too, or was never synced
+      await prisma.espTemplate.delete({ where: { id } });
+    } else {
+      // Soft-delete: hide locally but keep the row so sync won't recreate it
+      await prisma.espTemplate.update({
+        where: { id },
+        data: { status: 'deleted-local' },
+      });
+    }
 
     return NextResponse.json({ deleted: true, remoteDeleted });
   } catch (err) {

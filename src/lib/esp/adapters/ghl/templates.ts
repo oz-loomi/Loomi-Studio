@@ -365,46 +365,85 @@ export async function fetchTemplateById(
 }
 
 // ── Create template ──
+//
+// GHL's POST /emails/builder creates a shell template that ignores `name` and
+// `html` in the request body.  We work around this by creating the shell first,
+// then immediately pushing the real name + HTML via the update endpoint.
 
 export async function createTemplate(
   token: string,
   locationId: string,
   input: CreateEspTemplateInput,
 ): Promise<EspEmailTemplate> {
-  const url = `${GHL_BASE}/emails/builder`;
-  const res = await fetch(url, {
+  // Step 1 — create the shell template
+  const createUrl = `${GHL_BASE}/emails/builder`;
+  const createRes = await fetch(createUrl, {
     method: 'POST',
     headers: ghlHeaders(token),
     body: JSON.stringify({
       locationId,
       name: input.name,
       type: 'html',
-      html: input.html,
     }),
   });
 
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
+  if (!createRes.ok) {
+    const data = await createRes.json().catch(() => ({}));
     const msg = (data as Record<string, string>)?.message
       || (data as Record<string, string>)?.error
-      || `GHL API error (${res.status})`;
+      || `GHL API error (${createRes.status})`;
     throw new Error(msg);
   }
 
-  const data = await res.json();
-  const raw = ((data as Record<string, unknown>)?.template || data) as Record<string, unknown>;
+  const createData = await createRes.json();
+  const raw = ((createData as Record<string, unknown>)?.template || createData) as Record<string, unknown>;
+  const templateId = String(raw.id || raw._id || '');
+
+  if (!templateId) {
+    throw new Error('GHL did not return a template ID after creation');
+  }
+
+  // Step 2 — push the real name + HTML via the update/data endpoint
+  const updateBody: Record<string, unknown> = { locationId, templateId };
+  if (input.name) updateBody.name = input.name;
+  if (input.html) updateBody.html = input.html;
+
+  const updateUrl = `${GHL_BASE}/emails/builder/data`;
+  const updateRes = await fetch(updateUrl, {
+    method: 'POST',
+    headers: ghlHeaders(token),
+    body: JSON.stringify(updateBody),
+  });
+
+  if (!updateRes.ok) {
+    // Non-fatal — the shell was created; log but don't throw so the caller
+    // still gets a usable remote ID.
+    console.error(
+      `[GHL] Created template ${templateId} but failed to push name/HTML (${updateRes.status})`,
+    );
+  }
 
   invalidateCache(locationId);
 
+  // Re-fetch the template to get the actual state after update
+  const final = await fetchTemplateById(token, locationId, templateId);
+  if (final) {
+    return {
+      ...final,
+      subject: input.subject || '',
+      previewText: input.previewText || '',
+    };
+  }
+
   return {
-    id: String(raw.id || raw._id || ''),
-    name: String(raw.name || input.name),
+    id: templateId,
+    name: input.name || '',
     subject: input.subject || '',
     previewText: input.previewText || '',
-    html: String(raw.html || input.html),
+    html: input.html || '',
     status: 'active',
     editorType: 'code',
-    thumbnailUrl: String(raw.previewUrl || ''),
+    thumbnailUrl: '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

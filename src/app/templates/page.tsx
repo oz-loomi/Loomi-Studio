@@ -291,6 +291,16 @@ interface EspHtmlPreviewProps {
   height?: number;
 }
 
+/** Check whether a thumbnail URL looks like it can be loaded client-side. */
+function isUsableThumbnailUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  // GHL internal URLs (msgsndr / leadconnectorhq storage) require auth and won't render
+  if (trimmed.includes('leadconnectorhq.com') || trimmed.includes('msgsndr.com')) return false;
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/');
+}
+
 function EspHtmlPreview({ html, height = 160 }: EspHtmlPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -389,9 +399,14 @@ function TemplateCard({
       >
         {hasLiveHtmlPreview ? (
           <EspHtmlPreview html={previewHtml} height={160} />
-        ) : t.thumbnailUrl ? (
+        ) : isUsableThumbnailUrl(t.thumbnailUrl) ? (
           <div className="h-[160px] bg-[var(--muted)]">
-            <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
+            <img
+              src={t.thumbnailUrl!}
+              alt={t.name}
+              className="w-full h-full object-cover"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
           </div>
         ) : (
           <div className="h-[160px] bg-[var(--muted)] flex items-center justify-center">
@@ -551,8 +566,13 @@ function TemplateRow({
         </div>
       )}
       <div className="w-10 h-10 rounded-lg bg-[var(--muted)] flex items-center justify-center flex-shrink-0 overflow-hidden">
-        {t.thumbnailUrl ? (
-          <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
+        {isUsableThumbnailUrl(t.thumbnailUrl) ? (
+          <img
+            src={t.thumbnailUrl!}
+            alt={t.name}
+            className="w-full h-full object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
         ) : (
           <EnvelopeIcon className="w-5 h-5 text-[var(--muted-foreground)] opacity-40" />
         )}
@@ -1457,12 +1477,19 @@ export default function TemplatesPage() {
 
   const handleDelete = async (deleteFromRemote: boolean) => {
     if (!deleteTemplate) return;
+    const espName = providerLabel(deleteTemplate.provider);
     try {
       const url = `/api/esp/templates/${deleteTemplate.id}${deleteFromRemote ? '?deleteFromRemote=true' : ''}`;
       const res = await fetch(url, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok) {
-        toast.success(data.remoteDeleted ? 'Template deleted from Loomi and connected platform' : 'Template deleted locally');
+        if (data.remoteDeleted) {
+          toast.success(`Deleted from Loomi and ${espName}`);
+        } else if (deleteFromRemote && !data.remoteDeleted) {
+          toast.warning(`Removed from Loomi, but could not delete from ${espName}`);
+        } else {
+          toast.success('Removed from Loomi');
+        }
         setDeleteTemplate(null);
         await loadTemplates();
       } else {
@@ -1884,52 +1911,69 @@ export default function TemplatesPage() {
       })()}
 
       {/* ── Delete Confirmation Modal ── */}
-      {deleteTemplate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => setDeleteTemplate(null)}>
-          <div className="glass-modal w-[420px]" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-[var(--border)]">
-              <h3 className="text-base font-semibold">Delete Template</h3>
-            </div>
-            <div className="p-5">
-              <p className="text-sm text-[var(--foreground)] mb-1">
-                Are you sure you want to delete <strong>{deleteTemplate.name}</strong>?
-              </p>
-              {isAdmin && (
-                <p className="text-xs text-[var(--muted-foreground)] mt-1">
-                  Account: {accounts[deleteTemplate.accountKey]?.dealer || deleteTemplate.accountKey}
+      {deleteTemplate && (() => {
+        const linkedToEsp = isPublishedToEsp(deleteTemplate);
+        const espName = providerLabel(deleteTemplate.provider);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => setDeleteTemplate(null)}>
+            <div className="glass-modal w-[420px]" onClick={(e) => e.stopPropagation()}>
+              <div className="px-5 py-4 border-b border-[var(--border)]">
+                <h3 className="text-base font-semibold">Delete Template</h3>
+              </div>
+              <div className="p-5">
+                <p className="text-sm text-[var(--foreground)] mb-1">
+                  Are you sure you want to delete <strong>{deleteTemplate.name}</strong>?
                 </p>
-              )}
-              {deleteTemplate.remoteId && (
-                <p className="text-xs text-[var(--muted-foreground)] mt-3">
-                  This template is synced with {providerLabel(deleteTemplate.provider)}. You can delete it locally only, or also remove it from the connected platform.
-                </p>
-              )}
-            </div>
-            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
-              <button
-                onClick={() => setDeleteTemplate(null)}
-                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleDelete(false)}
-                className="px-4 py-2 text-sm font-medium text-red-400 border border-red-400/30 rounded-lg hover:bg-red-500/10 transition-colors"
-              >
-                Delete Locally
-              </button>
-              {deleteTemplate.remoteId && (
+                {isAdmin && (
+                  <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                    Account: {accounts[deleteTemplate.accountKey]?.dealer || deleteTemplate.accountKey}
+                  </p>
+                )}
+                {linkedToEsp ? (
+                  <p className="text-xs text-[var(--muted-foreground)] mt-3">
+                    This template exists in {espName}. You can remove it from Loomi only, or also delete it from {espName}.
+                  </p>
+                ) : (
+                  <p className="text-xs text-[var(--muted-foreground)] mt-3">
+                    This template is only stored in Loomi and will be permanently removed.
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
                 <button
-                  onClick={() => handleDelete(true)}
-                  className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+                  onClick={() => setDeleteTemplate(null)}
+                  className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
                 >
-                  Delete Everywhere
+                  Cancel
                 </button>
-              )}
+                {linkedToEsp ? (
+                  <>
+                    <button
+                      onClick={() => handleDelete(false)}
+                      className="px-4 py-2 text-sm font-medium text-red-400 border border-red-400/30 rounded-lg hover:bg-red-500/10 transition-colors"
+                    >
+                      Remove from Loomi
+                    </button>
+                    <button
+                      onClick={() => handleDelete(true)}
+                      className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+                    >
+                      Delete from {espName} too
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => handleDelete(false)}
+                    className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Preview Modal ── */}
       {previewTemplate && (

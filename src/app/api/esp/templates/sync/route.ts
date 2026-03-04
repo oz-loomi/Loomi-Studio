@@ -94,6 +94,12 @@ export async function POST(req: NextRequest) {
       }
 
       if (existing) {
+        // Skip templates that the user intentionally deleted locally
+        if (existing.status === 'deleted-local') {
+          unchanged++;
+          continue;
+        }
+
         const nextName = remote.name?.trim() || 'Untitled';
         const nextSubject = remote.subject?.trim() || null;
         const nextPreviewText = remote.previewText?.trim() || null;
