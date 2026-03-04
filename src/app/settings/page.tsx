@@ -21,6 +21,7 @@ import { AccountsList } from '@/components/accounts-list';
 import { OemMultiSelect } from '@/components/oem-multi-select';
 import { UserAvatar } from '@/components/user-avatar';
 import { AccountAvatar } from '@/components/account-avatar';
+import PrimaryButton from '@/components/primary-button';
 import { roleDisplayName } from '@/lib/roles';
 import { getAccountOems, industryHasBrands, brandsForIndustry } from '@/lib/oems';
 import { formatAccountCityState, resolveAccountLocationId } from '@/lib/account-resolvers';
@@ -435,13 +436,12 @@ function AccountSettingsTab() {
       </section>
 
       <div className="lg:col-span-2 flex items-center justify-end gap-3">
-        <button
+        <PrimaryButton
           onClick={handleSave}
           disabled={saving}
-          className="px-6 py-2.5 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
         >
           {saving ? 'Saving...' : 'Save Settings'}
-        </button>
+        </PrimaryButton>
       </div>
     </div>
   );
@@ -584,13 +584,12 @@ function UsersTab() {
             />
           </div>
           {canEditUsers && (
-            <button
+            <PrimaryButton
               onClick={() => router.push('/settings/users/new')}
-              className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
             >
               <PlusIcon className="w-4 h-4" />
               Add User
-            </button>
+            </PrimaryButton>
           )}
         </div>
       </div>
@@ -915,13 +914,12 @@ function KnowledgeBaseTab() {
             {hasChanges && (
               <span className="text-xs text-amber-500 font-medium">Unsaved changes</span>
             )}
-            <button
+            <PrimaryButton
               onClick={handleSave}
               disabled={saving || !hasChanges}
-              className="px-5 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
             >
               {saving ? 'Saving...' : 'Save'}
-            </button>
+            </PrimaryButton>
           </div>
         </div>
       </section>
@@ -1531,7 +1529,7 @@ function AgencyIntegrationsTab() {
             <>
               <a
                 href={ghlAgencyStatus.connectUrl || '/api/esp/connections/authorize?provider=ghl&mode=agency'}
-                className="px-3 py-1.5 text-[11px] rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
+                className="inline-flex items-center gap-2 h-10 px-4 text-sm font-medium rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors"
               >
                 Re-authorize
               </a>
@@ -1553,7 +1551,7 @@ function AgencyIntegrationsTab() {
           ) : (
             <a
               href={ghlAgencyStatus?.connectUrl || '/api/esp/connections/authorize?provider=ghl&mode=agency'}
-              className="px-3 py-1.5 text-[11px] rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
+              className="inline-flex items-center gap-2 h-10 px-4 text-sm font-medium rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors"
             >
               Connect Agency OAuth
             </a>
@@ -1648,13 +1646,12 @@ function AgencyIntegrationsTab() {
               <button onClick={handlePreviewBulkLinks} className="px-3 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors">
                 Preview
               </button>
-              <button
+              <PrimaryButton
                 onClick={() => void handleApplyBulkLinks()}
                 disabled={!ghlAgencyStatus?.connected || bulkLinkApplying}
-                className="px-3 py-2 text-xs font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
               >
                 {bulkLinkApplying ? 'Applying...' : 'Apply Links'}
-              </button>
+              </PrimaryButton>
             </div>
 
             {bulkLinkPreview.length > 0 && (
@@ -2438,13 +2435,12 @@ function CustomValuesTab() {
             {hasDefaultChanges && (
               <span className="text-xs text-amber-500 font-medium">Unsaved changes</span>
             )}
-            <button
+            <PrimaryButton
               onClick={handleSaveDefaults}
               disabled={savingDefaults || !hasDefaultChanges}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
             >
               {savingDefaults ? 'Saving...' : 'Save Defaults'}
-            </button>
+            </PrimaryButton>
           </div>
         </div>
 
@@ -2611,14 +2607,13 @@ function CustomValuesTab() {
           </div>
           <div className="flex items-center gap-2">
             {selectedKeys.size > 0 && (
-              <button
+              <PrimaryButton
                 onClick={() => handleBulkSync(Array.from(selectedKeys))}
                 disabled={bulkSyncing}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
               >
                 <ArrowPathIcon className={`w-4 h-4 ${bulkSyncing ? 'animate-spin' : ''}`} />
                 Push to Selected ({selectedKeys.size})
-              </button>
+              </PrimaryButton>
             )}
             <button
               onClick={() => handleBulkSync(connectedAccounts.map(a => a.key))}
@@ -2921,14 +2916,14 @@ function CustomValuesTab() {
                   placeholder="Value"
                   className={inputClass}
                 />
-                <button
+                <PrimaryButton
                   onClick={() => void handleCreateRemoteValue()}
                   disabled={!remoteAccountKey || remoteMutating}
-                  className="justify-center inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                  className="justify-center"
                 >
                   <PlusIcon className="w-3.5 h-3.5" />
                   Create in GHL
-                </button>
+                </PrimaryButton>
               </div>
 
               <div className="max-h-80 overflow-y-auto border border-[var(--border)] rounded-lg">
@@ -3011,14 +3006,14 @@ function CustomValuesTab() {
                   <option value="MULTIPLE_OPTIONS">MULTIPLE_OPTIONS</option>
                   <option value="DATE">DATE</option>
                 </select>
-                <button
+                <PrimaryButton
                   onClick={() => void handleCreateRemoteField()}
                   disabled={!remoteAccountKey || remoteMutating}
-                  className="sm:col-span-2 justify-center inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                  className="sm:col-span-2 justify-center"
                 >
                   <PlusIcon className="w-3.5 h-3.5" />
                   Create Field in GHL
-                </button>
+                </PrimaryButton>
               </div>
 
               <div className="max-h-80 overflow-y-auto border border-[var(--border)] rounded-lg">
@@ -3521,15 +3516,14 @@ function JobsTab({ activeJobKey }: { activeJobKey: string }) {
               <ClockIcon className="w-4 h-4" />
               History
             </button>
-            <button
+            <PrimaryButton
               type="button"
               onClick={openCreateJobModal}
               disabled={creatingJob}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
             >
               <PlusIcon className="w-4 h-4" />
               New Job
-            </button>
+            </PrimaryButton>
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -3614,13 +3608,12 @@ function JobsTab({ activeJobKey }: { activeJobKey: string }) {
               >
                 Cancel
               </button>
-              <button
+              <PrimaryButton
                 type="submit"
                 disabled={creatingJob || !newJobKey.trim()}
-                className="px-3 py-2 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
               >
                 {creatingJob ? 'Creating...' : 'Create Job'}
-              </button>
+              </PrimaryButton>
             </div>
           </form>
         </div>
@@ -4254,14 +4247,13 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
         </div>
 
         <div className="mt-5 flex items-center gap-2 flex-wrap">
-          <button
+          <PrimaryButton
             type="button"
             onClick={handleSaveConfig}
             disabled={saving || !isDirty}
-            className="px-4 py-2 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {saving ? 'Saving...' : 'Save Config'}
-          </button>
+          </PrimaryButton>
           {snapshot.config.lastSyncedAt && (
             <span className="text-xs text-[var(--muted-foreground)]">
               Last sync: {formatRollupDate(snapshot.config.lastSyncedAt)} ({snapshot.config.lastSyncStatus || 'unknown'})
@@ -4407,14 +4399,13 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           >
             {runningMode === 'incremental' ? 'Running Incremental...' : 'Run Incremental'}
           </button>
-          <button
+          <PrimaryButton
             type="button"
             onClick={() => runSync('full')}
             disabled={runningMode !== null || runningWipeMode !== null}
-            className="px-3 py-2 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
           >
             {runningMode === 'full' ? 'Running Full Sync...' : 'Run Full Sync'}
-          </button>
+          </PrimaryButton>
         </div>
 
         {runResult && (

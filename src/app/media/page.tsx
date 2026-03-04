@@ -28,6 +28,7 @@ import { toast } from '@/lib/toast';
 import { safeJson } from '@/lib/safe-json';
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
+import PrimaryButton from '@/components/primary-button';
 
 // ── Types ──
 
@@ -1619,25 +1620,23 @@ export default function MediaPage() {
           {/* Action buttons in header */}
           <div className="flex items-center gap-2">
             {showOverview && (
-              <button
+              <PrimaryButton
                 onClick={() => { setUploadDestination('s3'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
                 disabled={uploading}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
               >
                 <ArrowUpTrayIcon className="w-3.5 h-3.5" />
                 {uploading ? 'Uploading...' : 'Add Media'}
-              </button>
+              </PrimaryButton>
             )}
             {effectiveAccountKey && (
               <>
-                <button
+                <PrimaryButton
                   onClick={() => { setUploadDestination('esp'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
                   disabled={uploading}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                   <ArrowUpTrayIcon className="w-3.5 h-3.5" />
                   {uploading ? 'Uploading...' : 'Add Media'}
-                </button>
+                </PrimaryButton>
                 {capabilities?.canCreateFolders && (
                   <button
                     onClick={() => setShowNewFolderInput(true)}

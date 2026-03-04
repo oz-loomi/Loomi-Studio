@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import PrimaryButton from '@/components/primary-button';
 
 type TrackableElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLElement;
 
@@ -312,13 +313,12 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
               >
                 Stay
               </button>
-              <button
+              <PrimaryButton
                 type="button"
                 onClick={handleLeave}
-                className="px-3.5 py-2 rounded-lg bg-[var(--primary)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
               >
                 Leave without saving
-              </button>
+              </PrimaryButton>
             </div>
           </div>
         </div>

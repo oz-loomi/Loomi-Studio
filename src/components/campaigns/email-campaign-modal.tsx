@@ -13,6 +13,7 @@ import {
   SparklesIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
+import PrimaryButton from '@/components/primary-button';
 
 type EmailCampaignSourceType = 'template-library' | 'drag-drop' | 'html';
 
@@ -459,14 +460,13 @@ export function EmailCampaignModal({
               >
                 Cancel
               </button>
-              <button
+              <PrimaryButton
                 type="button"
                 onClick={() => setStep('compose')}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)]"
               >
                 Continue
                 <ChevronRightIcon className="w-3.5 h-3.5" />
-              </button>
+              </PrimaryButton>
             </div>
           </div>
         ) : (
@@ -664,11 +664,10 @@ export function EmailCampaignModal({
                 >
                   Cancel
                 </button>
-                <button
+                <PrimaryButton
                   type="button"
                   onClick={submitCampaign}
                   disabled={sending || recipients.length === 0}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] disabled:opacity-50"
                 >
                   {sending ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : <EnvelopeIcon className="w-3.5 h-3.5" />}
                   {sending
@@ -680,7 +679,7 @@ export function EmailCampaignModal({
                       : mode === 'both'
                         ? 'Send Email + Continue'
                         : 'Send Email'}
-                </button>
+                </PrimaryButton>
               </div>
             </div>
           </div>

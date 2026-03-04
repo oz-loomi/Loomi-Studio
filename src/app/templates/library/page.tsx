@@ -33,6 +33,7 @@ import {
   parseTemplateTagsPayload,
   assignmentsMapToArray,
 } from '@/lib/template-tags-payload';
+import PrimaryButton from '@/components/primary-button';
 
 // ── Types ──
 
@@ -500,13 +501,12 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
               <AdjustmentsHorizontalIcon className="w-4 h-4" />
               Bulk Edit
             </button>
-            <button
+            <PrimaryButton
               onClick={() => { setShowCreateChoice(true); setCreateStep('choice'); setNewName(''); }}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity"
             >
               <PlusIcon className="w-4 h-4" />
               Create Template
-            </button>
+            </PrimaryButton>
           </div>
         </div>
       )}
@@ -572,13 +572,12 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                     className="flex-1 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
                     autoFocus
                   />
-                  <button
+                  <PrimaryButton
                     onClick={createTemplate}
                     disabled={saving || !newName.trim()}
-                    className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
                   >
                     {saving ? 'Creating...' : 'Create'}
-                  </button>
+                  </PrimaryButton>
                 </div>
               )}
             </div>
@@ -1151,7 +1150,7 @@ function ManageTagsModal({
             </div>
             <div className="flex items-center gap-2 mt-2">
               <input type="text" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTag()} className="flex-1 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-[var(--foreground)]" placeholder="New tag name..." />
-              <button onClick={addTag} disabled={!newTagName.trim()} className="px-3 py-1.5 bg-[var(--primary)] text-white rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-50">Add</button>
+              <PrimaryButton onClick={addTag} disabled={!newTagName.trim()}>Add</PrimaryButton>
             </div>
           </div>
 
@@ -1212,7 +1211,7 @@ function ManageTagsModal({
 
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-[var(--border)] bg-[var(--muted)]/30 flex-shrink-0">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors">Cancel</button>
-          <button onClick={() => onSave(local)} className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90">Save</button>
+          <PrimaryButton onClick={() => onSave(local)}>Save</PrimaryButton>
         </div>
       </div>
     </div>
@@ -1398,7 +1397,7 @@ function BulkEditModal({
             <button onClick={() => runBulk(true)} disabled={loading} className="flex items-center gap-1.5 px-4 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors disabled:opacity-50">
               <ArrowPathIcon className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />Preview Impact
             </button>
-            <button onClick={() => runBulk(false)} disabled={loading} className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50">Apply Changes</button>
+            <PrimaryButton onClick={() => runBulk(false)} disabled={loading}>Apply Changes</PrimaryButton>
           </div>
         </div>
       </div>

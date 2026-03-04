@@ -16,6 +16,7 @@ import {
 import { toast } from '@/lib/toast';
 import { AdminOnly } from '@/components/route-guard';
 import { SectionsIcon } from '@/components/icon-map';
+import PrimaryButton from '@/components/primary-button';
 
 interface ComponentEntry {
   name: string;
@@ -276,9 +277,9 @@ export default function ComponentsPage() {
           <button onClick={() => setShowManageTags(true)} className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors">
             <TagIcon className="w-4 h-4" /> Manage Tags
           </button>
-          <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 px-3 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+          <PrimaryButton onClick={() => setShowCreate(true)}>
             <PlusIcon className="w-4 h-4" /> New Section
-          </button>
+          </PrimaryButton>
         </div>
       </div>
 
@@ -328,7 +329,7 @@ export default function ComponentsPage() {
             </div>
             <div className="flex justify-end gap-2 px-5 py-3 border-t border-[var(--border)] bg-[var(--muted)]/30">
               <button onClick={() => { setShowCreate(false); setNewName(''); }} className="px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors">Cancel</button>
-              <button onClick={handleCreateComponent} disabled={!newName.trim() || creating} className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50">{creating ? 'Creating...' : 'Create'}</button>
+              <PrimaryButton onClick={handleCreateComponent} disabled={!newName.trim() || creating}>{creating ? 'Creating...' : 'Create'}</PrimaryButton>
             </div>
           </div>
         </div>
@@ -494,9 +495,9 @@ function ManageTagsModal({
                 className="flex-1 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-[var(--foreground)]"
                 placeholder="New tag name..."
               />
-              <button onClick={addTag} disabled={!newTagName.trim()} className="px-3 py-1.5 bg-[var(--primary)] text-white rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-50">
+              <PrimaryButton onClick={addTag} disabled={!newTagName.trim()}>
                 Add
-              </button>
+              </PrimaryButton>
             </div>
           </div>
 
@@ -563,9 +564,9 @@ function ManageTagsModal({
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors">
             Cancel
           </button>
-          <button onClick={() => onSave(local)} className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90">
+          <PrimaryButton onClick={() => onSave(local)}>
             Save
-          </button>
+          </PrimaryButton>
         </div>
       </div>
     </div>

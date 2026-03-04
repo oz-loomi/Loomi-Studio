@@ -13,6 +13,7 @@ import { roleDisplayName } from '@/lib/roles';
 import { safeJson } from '@/lib/safe-json';
 import { toast } from '@/lib/toast';
 import { ArrowLeftIcon, ArrowUpTrayIcon, TrashIcon } from '@heroicons/react/24/outline';
+import PrimaryButton from '@/components/primary-button';
 
 const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
@@ -303,13 +304,12 @@ function UserDetailContent() {
             >
               {sendingInvite ? 'Sending...' : 'Send Invite'}
             </button>
-            <button
+            <PrimaryButton
               onClick={handleSave}
               disabled={saving || !name || !email}
-              className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
               {saving ? 'Saving...' : 'Save Changes'}
-            </button>
+            </PrimaryButton>
           </div>
         )}
       </div>

@@ -8,6 +8,7 @@ import { useAccount } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { UserAvatar } from '@/components/user-avatar';
 import { safeJson } from '@/lib/safe-json';
+import PrimaryButton from '@/components/primary-button';
 import {
   EnvelopeIcon,
   ShieldCheckIcon,
@@ -220,14 +221,14 @@ export default function ProfilePage() {
             Your account details and access level
           </p>
         </div>
-        <button
+        <PrimaryButton
           type="button"
           onClick={handleProfileSave}
           disabled={savingProfile || !hasProfileChanges || passwordInvalid}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50 flex-shrink-0"
+          className="flex-shrink-0"
         >
           {savingProfile ? 'Saving...' : 'Save Profile'}
-        </button>
+        </PrimaryButton>
       </div>
 
       <section className="pb-6 border-b border-[var(--border)]">

@@ -17,6 +17,7 @@ import {
   FolderArrowDownIcon,
 } from '@heroicons/react/24/outline';
 import { AdminOnly } from '@/components/route-guard';
+import PrimaryButton from '@/components/primary-button';
 
 interface ComponentEntry {
   name: string;
@@ -356,9 +357,9 @@ export default function ComponentFolderPage() {
               <button onClick={() => setShowNewFolder(true)} className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors">
                 <FolderPlusIcon className="w-4 h-4" /> New Folder
               </button>
-              <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 px-3 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              <PrimaryButton onClick={() => setShowCreate(true)}>
                 <PlusIcon className="w-4 h-4" /> New Component
-              </button>
+              </PrimaryButton>
               <button onClick={() => setShowDeleteFolder(true)} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10" title="Delete folder">
                 <TrashIcon className="w-4 h-4" />
               </button>
@@ -380,7 +381,7 @@ export default function ComponentFolderPage() {
           <label className="text-sm font-medium block mb-2">Component Name</label>
           <div className="flex items-center gap-2">
             <input type="text" value={newCompName} onChange={(e) => setNewCompName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateComponent()} className="flex-1 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]" placeholder="e.g. promo-banner, social-links..." autoFocus />
-            <button onClick={handleCreateComponent} disabled={!newCompName.trim() || creating} className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50">{creating ? 'Creating...' : 'Create'}</button>
+            <PrimaryButton onClick={handleCreateComponent} disabled={!newCompName.trim() || creating}>{creating ? 'Creating...' : 'Create'}</PrimaryButton>
             <button onClick={() => { setShowCreate(false); setNewCompName(''); }} className="p-2 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"><XMarkIcon className="w-4 h-4" /></button>
           </div>
           <p className="text-[10px] text-[var(--muted-foreground)] mt-1.5">Will be saved as a kebab-case .html file and added to this folder.</p>
@@ -467,12 +468,9 @@ export default function ComponentFolderPage() {
             {selectedComponents.size === folderComponents.length && folderComponents.every(n => selectedComponents.has(n)) ? 'Deselect All' : 'Select All'}
           </button>
           <div className="w-px h-5 bg-[var(--border)]" />
-          <button
-            onClick={() => setShowBulkMoveModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[var(--primary)] text-white rounded-lg hover:opacity-90 transition-opacity"
-          >
+          <PrimaryButton onClick={() => setShowBulkMoveModal(true)}>
             <FolderArrowDownIcon className="w-4 h-4" /> Move to Folder
-          </button>
+          </PrimaryButton>
           <button
             onClick={() => setSelectedComponents(new Set())}
             className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"

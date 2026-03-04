@@ -18,6 +18,7 @@ import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { componentSchemas, type PropSchema } from '@/lib/component-schemas';
 import { AdminOnly } from '@/components/route-guard';
 import { CodeEditor } from '@/components/code-editor';
+import PrimaryButton from '@/components/primary-button';
 
 const OEM_LIST = [
   'audi', 'buick', 'chevrolet', 'chrysler', 'dodge', 'ford',
@@ -518,14 +519,13 @@ rooftop: ${selectedOem}
             <ArrowPathIcon className={`w-3.5 h-3.5 ${previewLoading ? 'animate-spin' : ''}`} />
             Preview
           </button>
-          <button
+          <PrimaryButton
             onClick={handleSave}
             disabled={saving || !hasChanges}
-            className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--primary)] text-white rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity"
           >
             <DocumentArrowDownIcon className="w-3.5 h-3.5" />
             {saving ? 'Saving...' : 'Save'}
-          </button>
+          </PrimaryButton>
         </div>
       </div>
 

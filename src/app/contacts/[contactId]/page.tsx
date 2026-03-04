@@ -17,6 +17,7 @@ import {
   ClockIcon,
   ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
+import PrimaryButton from '@/components/primary-button';
 
 interface ContactDetail {
   id: string;
@@ -836,14 +837,13 @@ export default function ContactDetailPage() {
                             Reset
                           </button>
                         )}
-                        <button
+                        <PrimaryButton
                           type="button"
                           onClick={saveDndSettings}
                           disabled={!dndDirty || dndSaving}
-                          className="px-2.5 py-1.5 text-[11px] rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] disabled:opacity-60"
                         >
                           {dndSaving ? 'Saving...' : 'Save DND'}
-                        </button>
+                        </PrimaryButton>
                       </div>
                     </div>
 
@@ -960,11 +960,10 @@ export default function ContactDetailPage() {
                     <span className="text-[10px] text-[var(--muted-foreground)]">
                       {smsDraft.trim().length}/640
                     </span>
-                    <button
+                    <PrimaryButton
                       type="button"
                       onClick={sendSmsMessage}
                       disabled={smsSending || (capabilities.dnd && currentDndSettings.SMS.enabled) || (!smsDraft.trim() && (smsChannel !== 'MMS' || parseMediaUrlInput(smsMediaUrlsText).length === 0))}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] disabled:opacity-60"
                     >
                       {smsSending ? (
                         <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
@@ -972,7 +971,7 @@ export default function ContactDetailPage() {
                         <PaperAirplaneIcon className="w-3.5 h-3.5" />
                       )}
                       {smsSending ? 'Sending...' : `Send ${smsChannel}`}
-                    </button>
+                    </PrimaryButton>
                   </div>
 
                   {smsError && <p className="mt-2 text-[11px] text-red-300">{smsError}</p>}

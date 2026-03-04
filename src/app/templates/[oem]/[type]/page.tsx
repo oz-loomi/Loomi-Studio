@@ -50,6 +50,7 @@ import {
 import { ComponentIcon, SectionsIcon } from "@/components/icon-map";
 import { CodeEditor } from "@/components/code-editor";
 import { TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT } from "@/lib/ui-events";
+import PrimaryButton from "@/components/primary-button";
 
 type EditorMode = "code" | "visual";
 type VisualTab = "settings" | "components";
@@ -2978,15 +2979,14 @@ export default function TemplateEditorPage() {
           {message && (
             <span className="text-xs text-green-400 mr-2">{message}</span>
           )}
-          <button
+          <PrimaryButton
             onClick={handleSchedule}
             disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
             title="Open campaign scheduling"
           >
             <PaperAirplaneIcon className="w-3.5 h-3.5" />
             Schedule
-          </button>
+          </PrimaryButton>
           <button
             onClick={() => {
               setSendTestSubject(
@@ -3045,14 +3045,13 @@ export default function TemplateEditorPage() {
             />
             {exporting ? "Building..." : "Export"}
           </button>
-          <button
+          <PrimaryButton
             onClick={handleSave}
             disabled={saving || !hasChanges}
-            className="flex items-center gap-1.5 px-4 py-1.5 bg-[var(--primary)] text-white rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-40 transition-opacity"
           >
             <DocumentArrowDownIcon className="w-3.5 h-3.5" />
             {saving ? "Saving..." : "Save"}
-          </button>
+          </PrimaryButton>
           <button
             onClick={() => setShowShortcuts(true)}
             className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
@@ -4475,14 +4474,13 @@ export default function TemplateEditorPage() {
               >
                 Cancel
               </button>
-              <button
+              <PrimaryButton
                 onClick={handleSendTest}
                 disabled={!sendTestTo.trim() || sendingTest}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
               >
                 <EnvelopeIcon className="w-3.5 h-3.5" />
                 {sendingTest ? "Sending..." : "Send Test"}
-              </button>
+              </PrimaryButton>
             </div>
           </div>
         </div>

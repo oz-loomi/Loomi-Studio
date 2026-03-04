@@ -9,6 +9,7 @@ import {
   PaperAirplaneIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
+import PrimaryButton from '@/components/primary-button';
 
 interface BulkSmsCampaignResponse {
   id: string;
@@ -332,11 +333,10 @@ export function BulkSmsModal({
             >
               Cancel
             </button>
-            <button
+            <PrimaryButton
               type="button"
               onClick={submit}
               disabled={sending || recipients.length === 0 || (!message.trim() && (channel !== 'MMS' || parseMediaUrlInput(mediaUrlsText).length === 0))}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] disabled:opacity-50"
             >
               {sending ? (
                 <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
@@ -344,7 +344,7 @@ export function BulkSmsModal({
                 <PaperAirplaneIcon className="w-3.5 h-3.5" />
               )}
               {sending ? 'Sending...' : scheduled ? `Schedule ${channel}` : `Send ${channel}`}
-            </button>
+            </PrimaryButton>
           </div>
         </div>
       </div>

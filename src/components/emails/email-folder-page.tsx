@@ -17,6 +17,7 @@ import {
   FolderArrowDownIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
+import PrimaryButton from '@/components/primary-button';
 import { useAccount } from '@/contexts/account-context';
 import {
   parseEmailFoldersPayload,
@@ -406,9 +407,9 @@ export function EmailFolderPage() {
               <button onClick={() => setShowNewFolder(true)} className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors">
                 <FolderPlusIcon className="w-4 h-4" /> New Folder
               </button>
-              <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 px-3 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+              <PrimaryButton onClick={() => setShowCreate(true)}>
                 <PlusIcon className="w-4 h-4" /> New Email
-              </button>
+              </PrimaryButton>
               <button onClick={() => setShowDeleteFolder(true)} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10" title="Delete folder">
                 <TrashIcon className="w-4 h-4" />
               </button>
@@ -442,7 +443,7 @@ export function EmailFolderPage() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={handleCreate} disabled={!newName.trim() || !newDesign || !newAccountKey || creating} className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50">{creating ? 'Creating...' : 'Create Email'}</button>
+              <PrimaryButton onClick={handleCreate} disabled={!newName.trim() || !newDesign || !newAccountKey || creating}>{creating ? 'Creating...' : 'Create Email'}</PrimaryButton>
               <button onClick={() => { setShowCreate(false); setNewName(''); setNewDesign(''); setNewAccountKey(''); }} className="p-2 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"><XMarkIcon className="w-4 h-4" /></button>
             </div>
           </div>

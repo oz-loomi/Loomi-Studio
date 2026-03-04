@@ -8,6 +8,7 @@ import { AccountAssignmentManager } from '@/components/account-assignment-manage
 import { useAccount } from '@/contexts/account-context';
 import { toast } from '@/lib/toast';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
+import PrimaryButton from '@/components/primary-button';
 
 export default function NewUserPage() {
   return (
@@ -95,13 +96,12 @@ function NewUserContent() {
           <h2 className="text-2xl font-bold">New User</h2>
           <p className="text-xs text-[var(--muted-foreground)]">Create a new team member account</p>
         </div>
-        <button
+        <PrimaryButton
           onClick={handleCreate}
           disabled={saving || !name || !email || (!sendInvite && !password)}
-          className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
           {saving ? 'Creating...' : sendInvite ? 'Create & Send Invite' : 'Create User'}
-        </button>
+        </PrimaryButton>
       </div>
 
       <div className="max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6">

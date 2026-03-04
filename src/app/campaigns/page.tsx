@@ -27,6 +27,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { getAccountOems, industryHasBrands } from '@/lib/oems';
 import { FlowIcon } from '@/components/icon-map';
+import PrimaryButton from '@/components/primary-button';
 
 // ── Tab Icons (from icons8) ──
 
@@ -598,15 +599,14 @@ function AdminCampaignsPage() {
               )}
             </button>
             <div ref={createMenuRef} className="relative">
-              <button
+              <PrimaryButton
                 type="button"
                 onClick={() => setShowCreateMenu((prev) => !prev)}
-                className="inline-flex items-center gap-2 h-10 px-4 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors"
               >
                 <PlusIcon className="w-4 h-4" />
                 Create Campaign
                 <ChevronDownIcon className={`w-4 h-4 transition-transform ${showCreateMenu ? 'rotate-180' : ''}`} />
-              </button>
+              </PrimaryButton>
 
               {showCreateMenu && (
                 <div className="absolute top-full right-0 mt-2 z-[90] glass-dropdown min-w-[320px] p-1.5 shadow-lg">
@@ -956,15 +956,14 @@ function AccountCampaignsPage() {
             />
 
             <div ref={createMenuRef} className="relative">
-              <button
+              <PrimaryButton
                 type="button"
                 onClick={() => setShowCreateMenu((prev) => !prev)}
-                className="inline-flex items-center gap-2 h-10 px-4 text-sm rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors"
               >
                 <PlusIcon className="w-4 h-4" />
                 Create Campaign
                 <ChevronDownIcon className={`w-4 h-4 transition-transform ${showCreateMenu ? 'rotate-180' : ''}`} />
-              </button>
+              </PrimaryButton>
 
               {showCreateMenu && (
                 <div className="absolute top-full right-0 mt-2 z-[90] glass-dropdown min-w-[320px] p-1.5 shadow-lg">

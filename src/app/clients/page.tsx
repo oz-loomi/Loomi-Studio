@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { PlusIcon, XMarkIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { AdminOnly } from '@/components/route-guard';
+import PrimaryButton from '@/components/primary-button';
 
 interface ClientData {
   dealer: string;
@@ -119,13 +120,12 @@ export default function ClientsPage() {
           >
             <PlusIcon className="w-4 h-4" /> New Client
           </button>
-          <button
+          <PrimaryButton
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save Changes'}
-          </button>
+          </PrimaryButton>
         </div>
       </div>
 
@@ -148,7 +148,7 @@ export default function ClientsPage() {
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={handleCreate} disabled={!newKey.trim() || !newDealer.trim() || creating} className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50">{creating ? 'Creating...' : 'Create'}</button>
+            <PrimaryButton onClick={handleCreate} disabled={!newKey.trim() || !newDealer.trim() || creating}>{creating ? 'Creating...' : 'Create'}</PrimaryButton>
             <button onClick={() => { setShowCreate(false); setNewKey(''); setNewDealer(''); setNewCategory('General'); }} className="p-2 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"><XMarkIcon className="w-4 h-4" /></button>
           </div>
         </div>
