@@ -1101,7 +1101,7 @@ export default function TemplatesPage() {
       const url = effectiveAccountKey
         ? `/api/esp/templates?accountKey=${encodeURIComponent(effectiveAccountKey)}`
         : '/api/esp/templates';
-      const res = await fetch(url);
+      const res = await fetch(url, { cache: 'no-store' });
       const data = await res.json();
       if (res.ok) {
         setAllTemplates(data.templates || []);
