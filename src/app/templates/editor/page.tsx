@@ -78,6 +78,10 @@ const AI_PANEL_WIDTH = 360;
 const SPLIT_GAP_PX = 16;
 const SPLITTER_WIDTH_PX = 8;
 const PANEL_WIDTH_STEP_PX = 24;
+const PREVIEW_ZOOM_DEFAULT = 100;
+const PREVIEW_ZOOM_MIN = 50;
+const PREVIEW_ZOOM_MAX = 200;
+const PREVIEW_ZOOM_STEP = 10;
 
 interface TemplateHistoryVersion {
   id: string;
@@ -6217,6 +6221,7 @@ export default function TemplateEditorPage() {
   const [previewWidth, setPreviewWidth] = useState<"desktop" | "mobile">(
     "desktop",
   );
+  const [previewZoom, setPreviewZoom] = useState(PREVIEW_ZOOM_DEFAULT);
   const [hasChanges, setHasChanges] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>(
     isHtmlOnlyBuilder ? "code" : "visual",
@@ -8085,6 +8090,16 @@ export default function TemplateEditorPage() {
     return () => window.removeEventListener("mousedown", handler);
   }, [showCopyDropdown]);
 
+  const adjustPreviewZoom = useCallback((delta: number) => {
+    setPreviewZoom((current) =>
+      Math.max(PREVIEW_ZOOM_MIN, Math.min(PREVIEW_ZOOM_MAX, current + delta)),
+    );
+  }, []);
+
+  const resetPreviewZoom = useCallback(() => {
+    setPreviewZoom(PREVIEW_ZOOM_DEFAULT);
+  }, []);
+
   const syncPreviewFrameWidth = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -9651,6 +9666,31 @@ export default function TemplateEditorPage() {
               >
                 <DevicePhoneMobileIcon className="w-4 h-4" />
               </button>
+              <div className="flex items-center gap-0.5 ml-1 pl-2 border-l border-[var(--border)]/70">
+                <button
+                  onClick={() => adjustPreviewZoom(-PREVIEW_ZOOM_STEP)}
+                  disabled={previewZoom <= PREVIEW_ZOOM_MIN}
+                  className="h-7 w-7 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40 transition-colors"
+                  title="Zoom out"
+                >
+                  <span className="text-sm font-semibold leading-none">-</span>
+                </button>
+                <button
+                  onClick={resetPreviewZoom}
+                  className="h-7 min-w-[46px] px-1 rounded text-[10px] font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  title="Reset zoom"
+                >
+                  {previewZoom}%
+                </button>
+                <button
+                  onClick={() => adjustPreviewZoom(PREVIEW_ZOOM_STEP)}
+                  disabled={previewZoom >= PREVIEW_ZOOM_MAX}
+                  className="h-7 w-7 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40 transition-colors"
+                  title="Zoom in"
+                >
+                  <span className="text-sm font-semibold leading-none">+</span>
+                </button>
+              </div>
             </div>
 
             {/* Right — Copy dropdown + Undo/Redo */}
@@ -9734,7 +9774,7 @@ export default function TemplateEditorPage() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-zinc-700 flex justify-center">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto bg-zinc-700 flex justify-center">
             {previewError ? (
               <div className="max-w-md mx-auto p-6 text-center mt-8">
                 <p className="text-red-400 text-sm font-medium mb-2">
@@ -9746,10 +9786,12 @@ export default function TemplateEditorPage() {
               </div>
             ) : previewHtml ? (
               <div
-                className="transition-all duration-200 ease-in-out"
+                className="origin-top transition-all duration-150 ease-out"
                 style={{
                   width: previewWidth === "mobile" ? "375px" : "100%",
                   maxWidth: previewWidth === "mobile" ? "375px" : "100%",
+                  minWidth: previewWidth === "mobile" ? "375px" : "0px",
+                  zoom: previewZoom / 100,
                 }}
               >
                 <iframe
