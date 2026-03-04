@@ -1134,7 +1134,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
                       );
                     }
                     return (
-                      <div className="rounded-xl border border-[var(--border)] divide-y divide-[var(--border)] overflow-hidden">
+                      <div className="max-h-80 overflow-y-auto rounded-xl border border-[var(--border)] divide-y divide-[var(--border)]">
                         {assignedUsers.map((u) => {
                           const isRep = accountRepId === u.id;
                           return (
