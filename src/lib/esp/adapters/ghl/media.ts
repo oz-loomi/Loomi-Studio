@@ -80,16 +80,69 @@ function ghlHeaders(token: string): Record<string, string> {
   };
 }
 
+function firstNonEmptyString(
+  raw: Record<string, unknown>,
+  keys: readonly string[],
+): string {
+  for (const key of keys) {
+    const value = raw[key];
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return '';
+}
+
+function inferNameFromUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = new URL(trimmed);
+    const lastSegment = parsed.pathname.split('/').filter(Boolean).pop() || '';
+    if (!lastSegment) return '';
+    return decodeURIComponent(lastSegment);
+  } catch {
+    const cleaned = trimmed.split('?')[0].split('#')[0];
+    const lastSegment = cleaned.split('/').filter(Boolean).pop() || '';
+    if (!lastSegment) return '';
+    try {
+      return decodeURIComponent(lastSegment);
+    } catch {
+      return lastSegment;
+    }
+  }
+}
+
+function extractMediaName(raw: Record<string, unknown>): string {
+  const explicit = firstNonEmptyString(raw, [
+    'name',
+    'fileName',
+    'filename',
+    'originalFileName',
+    'originalFilename',
+    'displayName',
+    'title',
+  ]);
+  if (explicit) return explicit;
+
+  const fromUrl = inferNameFromUrl(firstNonEmptyString(raw, ['url', 'fileUrl', 'src']));
+  if (fromUrl) return fromUrl;
+
+  return 'Untitled file';
+}
+
 function normalizeFile(raw: Record<string, unknown>): EspMedia {
   // GHL uses MongoDB _id — raw.altId is the LOCATION id, never the file id
+  const resolvedUrl = firstNonEmptyString(raw, ['url', 'fileUrl', 'src']);
   return {
-    id: String(raw.id || raw._id || ''),
-    name: String(raw.name || ''),
-    url: String(raw.url || ''),
-    type: String(raw.type || 'image'),
-    thumbnailUrl: String(raw.url || ''),
-    createdAt: String(raw.createdAt || ''),
-    updatedAt: String(raw.updatedAt || ''),
+    id: firstNonEmptyString(raw, ['id', '_id', 'mediaId', 'fileId']),
+    name: extractMediaName(raw),
+    url: resolvedUrl,
+    type: firstNonEmptyString(raw, ['type', 'mimeType', 'contentType']) || 'image',
+    thumbnailUrl: firstNonEmptyString(raw, ['thumbnailUrl', 'thumbUrl', 'url', 'fileUrl']) || resolvedUrl,
+    createdAt: firstNonEmptyString(raw, ['createdAt', 'dateAdded']),
+    updatedAt: firstNonEmptyString(raw, ['updatedAt', 'lastUpdated']),
   };
 }
 
@@ -123,7 +176,7 @@ function extractParentId(raw: JsonRecord): string | null {
 }
 
 function extractMediaId(raw: JsonRecord): string {
-  return String(raw.id || raw._id || '').trim();
+  return firstNonEmptyString(raw, ['id', '_id', 'mediaId', 'fileId']);
 }
 
 async function fetchRawMediaObjects(
@@ -170,6 +223,24 @@ async function verifyMediaParent(
   if (!folder) return false;
 
   return extractParentId(folder) === target;
+}
+
+async function resolveMediaName(
+  token: string,
+  locationId: string,
+  mediaId: string,
+): Promise<string> {
+  const fileRecords = await fetchRawMediaObjects(token, locationId, 'file');
+  const file = fileRecords.find((row) => extractMediaId(row) === mediaId);
+  if (file) return extractMediaName(file);
+
+  const folderRecords = await fetchRawMediaObjects(token, locationId, 'folder');
+  const folder = folderRecords.find((row) => extractMediaId(row) === mediaId);
+  if (folder) {
+    return firstNonEmptyString(folder, ['name', 'title', 'displayName']);
+  }
+
+  return '';
 }
 
 function throwGhlError(data: unknown, status: number): never {
@@ -383,7 +454,11 @@ export async function uploadMedia(
 
   invalidateAllCaches(locationId);
 
-  return normalizeFile(raw);
+  const normalized = normalizeFile(raw);
+  if (!normalized.name || normalized.name === 'Untitled file') {
+    normalized.name = input.name;
+  }
+  return normalized;
 }
 
 // ── Move media / folder (change parent folder) ──
@@ -396,6 +471,7 @@ export async function moveMedia(
   name?: string,
 ): Promise<void> {
   const normalizedTarget = normalizeParentId(targetFolderId);
+  const resolvedName = name?.trim() || (await resolveMediaName(token, locationId, mediaId));
   const body: Record<string, string | null> = {
     altType: 'location',
     altId: locationId,
@@ -403,7 +479,11 @@ export async function moveMedia(
     parentId: normalizedTarget,
     folderId: normalizedTarget,
   };
-  if (name?.trim()) body.name = name.trim();
+  if (resolvedName) {
+    body.name = resolvedName;
+    // Some GHL tenants serialize this field under fileName.
+    body.fileName = resolvedName;
+  }
 
   const res = await fetch(
     `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}`,
@@ -422,8 +502,13 @@ export async function moveMedia(
     throwGhlError(data, res.status);
   }
 
-  // Defensive verification: GHL may return 200 while ignoring an invalid move payload.
-  const moved = await verifyMediaParent(token, locationId, mediaId, normalizedTarget || undefined);
+  // Defensive verification with retries: GHL can be eventually consistent.
+  let moved = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    moved = await verifyMediaParent(token, locationId, mediaId, normalizedTarget || undefined);
+    if (moved) break;
+    await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+  }
   if (!moved) {
     throw new Error('Move request was accepted but the file/folder parent did not change');
   }

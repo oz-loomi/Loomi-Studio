@@ -8684,19 +8684,58 @@ export default function TemplateEditorPage() {
     : null;
   const lineCount = code.split("\n").length;
   const backHref = espMode ? "/templates" : isAccount ? "/emails" : "/templates/library";
+  const autoSaveStatus = useMemo(() => {
+    if (saving || savingTemplate) {
+      return { label: "Autosaving...", tone: "saving" as const };
+    }
+    const trimmedMessage = message.trim();
+    if (trimmedMessage) {
+      const lower = trimmedMessage.toLowerCase();
+      if (lower.includes("error") || lower.includes("failed")) {
+        return { label: trimmedMessage, tone: "error" as const };
+      }
+      return { label: trimmedMessage, tone: "saved" as const };
+    }
+    if (hasChanges) {
+      return { label: "Changes pending", tone: "pending" as const };
+    }
+    return { label: "Autosave on", tone: "saved" as const };
+  }, [saving, savingTemplate, message, hasChanges]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-2rem)]">
       {/* Top toolbar */}
-      <div className="flex items-center justify-between pb-4 flex-shrink-0">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="grid grid-cols-[minmax(220px,1fr)_auto_minmax(220px,1fr)] items-center gap-3 pb-4 flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
           <Link
             href={backHref}
-            className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
           >
             <ArrowLeftIcon className="w-4 h-4" />
+            Back
           </Link>
-          <div className="min-w-0">
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
+              autoSaveStatus.tone === "error"
+                ? "border-red-500/30 bg-red-500/10 text-red-400"
+                : autoSaveStatus.tone === "saving" || autoSaveStatus.tone === "pending"
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                  : "border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]"
+            }`}
+          >
+            {autoSaveStatus.tone === "saving" ? (
+              <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+            ) : autoSaveStatus.tone === "error" ? (
+              <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+            ) : (
+              <CheckIcon className="w-3.5 h-3.5" />
+            )}
+            <span>{autoSaveStatus.label}</span>
+          </span>
+        </div>
+
+        <div className="min-w-0 max-w-[720px] justify-self-center">
+          <div className="min-w-0 text-center">
             {isEditingTitle ? (
               <input
                 type="text"
@@ -8729,11 +8768,11 @@ export default function TemplateEditorPage() {
                   setIsEditingTitle(false);
                 }}
                 autoFocus
-                className="text-lg font-bold bg-transparent border-b-2 border-[var(--primary)] text-[var(--foreground)] focus:outline-none w-64"
+                className="w-[min(44rem,64vw)] text-center text-lg font-bold bg-transparent border-b-2 border-[var(--primary)] text-[var(--foreground)] focus:outline-none"
               />
             ) : (
-              <div className="group/title flex items-center gap-1.5">
-                <h2 className="text-lg font-bold capitalize truncate">{designLabel}</h2>
+              <div className="group/title flex items-center justify-center gap-1.5 min-w-0">
+                <h2 className="text-lg font-bold capitalize truncate max-w-[40rem]">{designLabel}</h2>
                 {templateTypeLabel && (
                   <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
                     {templateTypeLabel}
@@ -8751,87 +8790,22 @@ export default function TemplateEditorPage() {
                 </button>
               </div>
             )}
-            <p className="text-xs text-[var(--muted-foreground)]">
+            <p className="text-xs text-[var(--muted-foreground)] truncate">
               {editorMode === "code"
                 ? `${lineCount} lines`
                 : `${parsed?.components.length || 0} components`}
               {isHtmlOnlyBuilder && (
                 <span className="text-[var(--primary)] ml-2">HTML-only builder</span>
               )}
-              {hasChanges && (
-                <span className="text-amber-400 ml-2">Unsaved changes</span>
-              )}
             </p>
           </div>
-          {espMode && (
-            <div className="hidden xl:flex items-end gap-2 ml-2 min-w-0 flex-1 max-w-[860px]">
-              <div className="min-w-[220px] flex-1">
-                <div className="flex items-center gap-1 mb-1">
-                  <label className="block text-[10px] text-[var(--muted-foreground)]">
-                    Subject
-                  </label>
-                  <button
-                    onClick={() => handleGenerateEmailMeta("subject")}
-                    disabled={aiMetaLoading}
-                    className="ai-horizon-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-40"
-                    title="Generate subject with Loomi AI"
-                    aria-label="Generate subject with Loomi AI"
-                  >
-                    {aiMetaLoading && aiMetaField === "subject" ? (
-                      <ArrowPathIcon className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <SparklesIcon className="w-3 h-3" />
-                    )}
-                    <span>AI</span>
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={espSubject}
-                  onChange={(e) => setEspSubject(e.target.value)}
-                  placeholder="Subject line..."
-                  className="w-full text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
-                />
-              </div>
-              <div className="min-w-[220px] flex-1">
-                <div className="flex items-center gap-1 mb-1">
-                  <label className="block text-[10px] text-[var(--muted-foreground)]">
-                    Preview Text
-                  </label>
-                  <button
-                    onClick={() => handleGenerateEmailMeta("previewText")}
-                    disabled={aiMetaLoading}
-                    className="ai-horizon-chip inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-40"
-                    title="Generate preview text with Loomi AI"
-                    aria-label="Generate preview text with Loomi AI"
-                  >
-                    {aiMetaLoading && aiMetaField === "previewText" ? (
-                      <ArrowPathIcon className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <SparklesIcon className="w-3 h-3" />
-                    )}
-                    <span>AI</span>
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={espPreviewText}
-                  onChange={(e) => setEspPreviewText(e.target.value)}
-                  placeholder="Preview text..."
-                  className="w-full text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)]"
-                />
-              </div>
-            </div>
-          )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+
+        <div className="flex items-center justify-end gap-2 min-w-0">
           {previewContactsError && (
             <span className="text-[10px] text-amber-400 mr-1">
               {previewContactsError}
             </span>
-          )}
-          {message && (
-            <span className="text-xs text-green-400 mr-2">{message}</span>
           )}
           {/* Ask Loomi */}
           <button

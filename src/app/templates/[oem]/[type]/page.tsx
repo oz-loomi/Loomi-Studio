@@ -2943,41 +2943,74 @@ export default function TemplateEditorPage() {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
   const lineCount = code.split("\n").length;
+  const backHref = isAccount ? "/emails" : "/templates";
+  const autoSaveStatus = useMemo(() => {
+    if (saving) {
+      return { label: "Autosaving...", tone: "saving" as const };
+    }
+    const trimmedMessage = message.trim();
+    if (trimmedMessage) {
+      const lower = trimmedMessage.toLowerCase();
+      if (lower.includes("error") || lower.includes("failed")) {
+        return { label: trimmedMessage, tone: "error" as const };
+      }
+      return { label: trimmedMessage, tone: "saved" as const };
+    }
+    if (hasChanges) {
+      return { label: "Changes pending", tone: "pending" as const };
+    }
+    return { label: "Autosave on", tone: "saved" as const };
+  }, [saving, message, hasChanges]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-2rem)]">
       {/* Top toolbar */}
-      <div className="flex items-center justify-between pb-4 flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="grid grid-cols-[minmax(220px,1fr)_auto_minmax(220px,1fr)] items-center gap-3 pb-4 flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
           <Link
-            href={isAccount ? "/emails" : "/templates"}
-            className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            href={backHref}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
           >
             <ArrowLeftIcon className="w-4 h-4" />
+            Back
           </Link>
-          <div>
-            <h2 className="text-lg font-bold capitalize">{designLabel}</h2>
-            <p className="text-xs text-[var(--muted-foreground)]">
-              {editorMode === "code"
-                ? `${lineCount} lines`
-                : `${parsed?.components.length || 0} components`}
-              {isHtmlOnlyBuilder && (
-                <span className="text-[var(--primary)] ml-2">HTML-only builder</span>
-              )}
-              {hasChanges && (
-                <span className="text-amber-400 ml-2">Unsaved changes</span>
-              )}
-            </p>
-          </div>
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
+              autoSaveStatus.tone === "error"
+                ? "border-red-500/30 bg-red-500/10 text-red-400"
+                : autoSaveStatus.tone === "saving" || autoSaveStatus.tone === "pending"
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                  : "border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]"
+            }`}
+          >
+            {autoSaveStatus.tone === "saving" ? (
+              <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+            ) : autoSaveStatus.tone === "error" ? (
+              <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+            ) : (
+              <CheckIcon className="w-3.5 h-3.5" />
+            )}
+            <span>{autoSaveStatus.label}</span>
+          </span>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="min-w-0 max-w-[720px] justify-self-center text-center">
+          <h2 className="text-lg font-bold capitalize truncate max-w-[40rem]">{designLabel}</h2>
+          <p className="text-xs text-[var(--muted-foreground)] truncate">
+            {editorMode === "code"
+              ? `${lineCount} lines`
+              : `${parsed?.components.length || 0} components`}
+            {isHtmlOnlyBuilder && (
+              <span className="text-[var(--primary)] ml-2">HTML-only builder</span>
+            )}
+          </p>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 min-w-0">
           {previewContactsError && (
             <span className="text-[10px] text-amber-400 mr-1">
               {previewContactsError}
             </span>
-          )}
-          {message && (
-            <span className="text-xs text-green-400 mr-2">{message}</span>
           )}
           <PrimaryButton
             onClick={handleSchedule}

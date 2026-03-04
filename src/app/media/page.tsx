@@ -1223,10 +1223,11 @@ export default function MediaPage() {
             name: item.name,
           }),
         });
-        if (res.ok) successCount++;
-        else {
-          const data = await res.json();
-          toast.error(data.error || `Failed to move item`);
+        const { ok, data, error } = await safeJson<{ error?: string }>(res);
+        if (ok) {
+          successCount++;
+        } else {
+          toast.error(data?.error || error || `Failed to move item (${res.status})`);
         }
       } catch {
         toast.error('Failed to move item');
@@ -1407,9 +1408,9 @@ export default function MediaPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accountKey: effectiveAccountKey, targetFolderId, name: dragData.name }),
       });
-      const data = await res.json();
+      const { ok, data, error } = await safeJson<{ error?: string }>(res);
 
-      if (res.ok) {
+      if (ok) {
         // Remove moved item from current view
         if (dragData.type === 'file') {
           setFiles(prev => prev.filter(f => f.id !== dragData!.id));
@@ -1418,7 +1419,7 @@ export default function MediaPage() {
         }
         toast.success('Moved successfully');
       } else {
-        toast.error(data.error || 'Failed to move');
+        toast.error(data?.error || error || `Failed to move (${res.status})`);
       }
     } catch {
       toast.error('Failed to move');
