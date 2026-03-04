@@ -140,6 +140,18 @@ function formatFileSize(bytes: number | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function mediaItemKey(file: MediaFile): string {
+  const source = file.source || 'esp';
+  const id = (file.id || '').trim();
+  const url = (file.url || '').trim();
+  const name = (file.name || '').trim();
+  const createdAt = (file.createdAt || '').trim();
+
+  if (id) return `${source}:id:${id}`;
+  if (url) return `${source}:url:${url}`;
+  return `${source}:name:${name}:created:${createdAt}`;
+}
+
 // ── Extracted sub-components (stable references — never defined inside a render) ──
 
 function ProviderPill({ prov }: { prov: string }) {
@@ -1603,25 +1615,28 @@ export default function MediaPage() {
                 </p>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-                {filteredAdminMedia.map(f => (
-                  <MediaCard
-                    key={f.id}
-                    f={f}
-                    isMenuOpen={openMenu === f.id}
-                    isSelected={selectedIds.has(f.id)}
-                    selectMode={selectMode}
-                    provider="s3"
-                    capabilities={S3_CAPABILITIES}
-                    menuClickRef={menuClickRef}
-                    onMenuToggle={() => setOpenMenu(prev => prev === f.id ? null : f.id)}
-                    onMenuClose={() => setOpenMenu(null)}
-                    onSelect={() => toggleSelectFile(f.id)}
-                    onPreview={() => setPreviewFile(f)}
-                    onCopyUrl={() => copyUrl(f.url)}
-                    onRename={() => { setRenameValue(f.name); setRenameFile(f); }}
-                    onDelete={() => setDeleteFile(f)}
-                  />
-                ))}
+                {filteredAdminMedia.map(f => {
+                  const itemKey = mediaItemKey(f);
+                  return (
+                    <MediaCard
+                      key={itemKey}
+                      f={f}
+                      isMenuOpen={openMenu === itemKey}
+                      isSelected={selectedIds.has(f.id)}
+                      selectMode={selectMode}
+                      provider="s3"
+                      capabilities={S3_CAPABILITIES}
+                      menuClickRef={menuClickRef}
+                      onMenuToggle={() => setOpenMenu(prev => prev === itemKey ? null : itemKey)}
+                      onMenuClose={() => setOpenMenu(null)}
+                      onSelect={() => toggleSelectFile(f.id)}
+                      onPreview={() => setPreviewFile(f)}
+                      onCopyUrl={() => copyUrl(f.url)}
+                      onRename={() => { setRenameValue(f.name); setRenameFile(f); }}
+                      onDelete={() => setDeleteFile(f)}
+                    />
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1965,12 +1980,13 @@ export default function MediaPage() {
               : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3'
             }>
               {filtered.map(f => {
+                const itemKey = mediaItemKey(f);
                 const ItemComponent = viewMode === 'list' ? MediaListRow : MediaCard;
                 return (
                   <ItemComponent
-                    key={f.id}
+                    key={itemKey}
                     f={f}
-                    isMenuOpen={openMenu === f.id}
+                    isMenuOpen={openMenu === itemKey}
                     isSelected={selectedIds.has(f.id)}
                     selectMode={selectMode}
                     provider={provider}
@@ -1978,7 +1994,7 @@ export default function MediaPage() {
                     menuClickRef={menuClickRef}
                     draggable={!!capabilities?.canMove}
                     onDragStart={(e) => handleDragStart(e, f.id, 'file', f.name)}
-                    onMenuToggle={() => setOpenMenu(prev => prev === f.id ? null : f.id)}
+                    onMenuToggle={() => setOpenMenu(prev => prev === itemKey ? null : itemKey)}
                     onMenuClose={() => setOpenMenu(null)}
                     onSelect={() => toggleSelectFile(f.id)}
                     onPreview={() => setPreviewFile(f)}
