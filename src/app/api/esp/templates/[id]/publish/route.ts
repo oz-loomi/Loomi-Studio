@@ -141,10 +141,16 @@ export async function POST(
   }
 
   // Persist updated publishedTo mapping
+  const primaryRemoteId =
+    (template.provider && typeof publishedTo[template.provider] === 'string'
+      ? publishedTo[template.provider]
+      : null) || template.remoteId || null;
+
   await prisma.espTemplate.update({
     where: { id },
     data: {
       publishedTo: JSON.stringify(publishedTo),
+      remoteId: primaryRemoteId,
       lastSyncedAt: new Date(),
     },
   });

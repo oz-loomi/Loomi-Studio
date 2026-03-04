@@ -48,6 +48,29 @@ export async function POST(req: NextRequest) {
       credentials.locationId,
     );
 
+    // Back-compat: templates published via `publishedTo` may not have legacy `remoteId` populated.
+    // Build a lookup so sync updates those rows instead of creating duplicates.
+    const publishedCandidates = await prisma.espTemplate.findMany({
+      where: {
+        accountKey,
+        provider: adapter.provider,
+        publishedTo: { not: null },
+      },
+    });
+    const publishedLookup = new Map<string, (typeof publishedCandidates)[number]>();
+    for (const candidate of publishedCandidates) {
+      if (!candidate.publishedTo) continue;
+      try {
+        const parsed = JSON.parse(candidate.publishedTo) as Record<string, unknown>;
+        const mappedId = parsed?.[adapter.provider];
+        if (typeof mappedId === 'string' && mappedId.trim()) {
+          publishedLookup.set(mappedId.trim(), candidate);
+        }
+      } catch {
+        // Ignore malformed mappings and continue with direct remoteId matching.
+      }
+    }
+
     const now = new Date();
     let created = 0;
     let updated = 0;
@@ -56,7 +79,7 @@ export async function POST(req: NextRequest) {
     for (const remote of remoteTemplates) {
       if (!remote.id) continue;
 
-      const existing = await prisma.espTemplate.findUnique({
+      let existing = await prisma.espTemplate.findUnique({
         where: {
           accountKey_provider_remoteId: {
             accountKey,
@@ -65,6 +88,10 @@ export async function POST(req: NextRequest) {
           },
         },
       });
+
+      if (!existing) {
+        existing = publishedLookup.get(remote.id) ?? null;
+      }
 
       if (existing) {
         const nextName = remote.name?.trim() || 'Untitled';
@@ -82,6 +109,7 @@ export async function POST(req: NextRequest) {
         const statusChanged = nextStatus !== existing.status;
         const editorTypeChanged = nextEditorType !== existing.editorType;
         const thumbChanged = nextThumbnailUrl !== existing.thumbnailUrl;
+        const remoteIdChanged = existing.remoteId !== remote.id;
 
         if (
           nameChanged ||
@@ -90,7 +118,8 @@ export async function POST(req: NextRequest) {
           htmlChanged ||
           statusChanged ||
           editorTypeChanged ||
-          thumbChanged
+          thumbChanged ||
+          remoteIdChanged
         ) {
           await prisma.espTemplate.update({
             where: { id: existing.id },
@@ -102,6 +131,7 @@ export async function POST(req: NextRequest) {
               ...(statusChanged && { status: nextStatus }),
               ...(editorTypeChanged && { editorType: nextEditorType }),
               ...(thumbChanged && { thumbnailUrl: nextThumbnailUrl }),
+              ...(remoteIdChanged && { remoteId: remote.id }),
               lastSyncedAt: now,
             },
           });

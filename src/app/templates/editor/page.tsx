@@ -6193,6 +6193,10 @@ export default function TemplateEditorPage() {
   // ESP template mode: we're editing an EspTemplate record (not a library template)
   const [espMode, setEspMode] = useState(false);
   const [espRecordId, setEspRecordId] = useState<string | null>(null);
+  const espRecordIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    espRecordIdRef.current = espRecordId;
+  }, [espRecordId]);
   const [espTemplateName, setEspTemplateName] = useState("");
   const [espSubject, setEspSubject] = useState("");
   const [espPreviewText, setEspPreviewText] = useState("");
@@ -6672,6 +6676,7 @@ export default function TemplateEditorPage() {
     // ── ESP template: load by ID ──
     if (espTemplateId) {
       setEspMode(true);
+      espRecordIdRef.current = espTemplateId;
       setEspRecordId(espTemplateId);
       fetch(`/api/esp/templates/${espTemplateId}`)
         .then((r) => r.json())
@@ -6890,6 +6895,7 @@ export default function TemplateEditorPage() {
           });
           if (res.ok) {
             const data = await res.json();
+            espRecordIdRef.current = data.template.id;
             setEspRecordId(data.template.id);
             setOriginalCode(code);
             setMessage("Saved");
@@ -7620,6 +7626,7 @@ export default function TemplateEditorPage() {
         });
         if (res.ok) {
           const data = await res.json();
+          espRecordIdRef.current = data.template.id;
           setEspRecordId(data.template.id);
         }
       } else {
@@ -7773,32 +7780,69 @@ export default function TemplateEditorPage() {
         return;
       }
 
-      // 3. Create ESP template record
+      // 3. Reuse/update current ESP template record, or create one if needed
       const templateTitle = parsed?.frontmatter?.title || designLabel;
-      const createRes = await fetch("/api/esp/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          accountKey: effectiveAccountKey,
-          name: templateTitle,
-          subject: espSubject || parsed?.frontmatter?.title || "",
-          html: compiledHtml,
-          source: code,
-          editorType: editorMode === "code" ? "code" : "visual",
-        }),
-      });
-
-      if (!createRes.ok) {
-        const err = await createRes.json();
-        toast.error(err.error || "Failed to create template");
-        setSavingTemplate(false);
-        return;
+      let targetEspTemplateId = espRecordIdRef.current;
+      if (targetEspTemplateId) {
+        const updateRes = await fetch(`/api/esp/templates/${targetEspTemplateId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accountKey: effectiveAccountKey || undefined,
+            name: templateTitle,
+            subject: espSubject || parsed?.frontmatter?.title || "",
+            previewText: espPreviewText || undefined,
+            html: compiledHtml,
+            source: code,
+            editorType: editorMode === "code" ? "code" : "visual",
+          }),
+        });
+        if (!updateRes.ok) {
+          const err = await updateRes.json().catch(() => ({}));
+          toast.error(err.error || "Failed to update template before publish");
+          setSavingTemplate(false);
+          return;
+        }
+        const updated = await updateRes.json().catch(() => ({}));
+        const updatedId = updated?.template?.id;
+        if (typeof updatedId === "string" && updatedId.trim()) {
+          targetEspTemplateId = updatedId.trim();
+          espRecordIdRef.current = targetEspTemplateId;
+          setEspRecordId(targetEspTemplateId);
+        }
+      } else {
+        if (!effectiveAccountKey) {
+          toast.error("Select an account before publishing this template");
+          setSavingTemplate(false);
+          return;
+        }
+        const createRes = await fetch("/api/esp/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accountKey: effectiveAccountKey,
+            name: templateTitle,
+            subject: espSubject || parsed?.frontmatter?.title || "",
+            previewText: espPreviewText || null,
+            html: compiledHtml,
+            source: code,
+            editorType: editorMode === "code" ? "code" : "visual",
+          }),
+        });
+        if (!createRes.ok) {
+          const err = await createRes.json().catch(() => ({}));
+          toast.error(err.error || "Failed to create template");
+          setSavingTemplate(false);
+          return;
+        }
+        const { template: espTemplate } = await createRes.json();
+        targetEspTemplateId = espTemplate.id;
+        espRecordIdRef.current = espTemplate.id;
+        setEspRecordId(espTemplate.id);
       }
 
-      const { template: espTemplate } = await createRes.json();
-
       // 4. Publish to selected providers
-      const publishRes = await fetch(`/api/esp/templates/${espTemplate.id}/publish`, {
+      const publishRes = await fetch(`/api/esp/templates/${targetEspTemplateId}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ providers: selectedProviders }),
