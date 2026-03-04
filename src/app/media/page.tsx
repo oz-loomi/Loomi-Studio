@@ -1489,6 +1489,7 @@ export default function MediaPage() {
   // ── Connection state ──
   const connectedProviders = accountData?.connectedProviders;
   const hasConnection = effectiveAccountKey && connectedProviders && connectedProviders.length > 0;
+  const activeFolderName = folderPath.length > 1 ? folderPath[folderPath.length - 1]?.name : null;
 
   // ── Render ──
 
@@ -1514,13 +1515,17 @@ export default function MediaPage() {
                       </button>
                       <span className="text-[var(--muted-foreground)]">
                         Viewing {accounts[effectiveAccountKey]?.dealer || effectiveAccountKey}
+                        {activeFolderName ? ` • ${activeFolderName}` : ''}
                       </span>
                     </>
                   ) : (
                     <span className="text-[var(--muted-foreground)]">All Accounts</span>
                   )
                 ) : effectiveAccountKey ? (
-                  <span className="text-[var(--muted-foreground)]">{accountData?.dealer || effectiveAccountKey}</span>
+                  <span className="text-[var(--muted-foreground)]">
+                    {accountData?.dealer || effectiveAccountKey}
+                    {activeFolderName ? ` • ${activeFolderName}` : ''}
+                  </span>
                 ) : (
                   <span className="text-[var(--muted-foreground)]">Manage your media files</span>
                 )}
