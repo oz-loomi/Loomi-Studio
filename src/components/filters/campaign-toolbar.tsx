@@ -87,6 +87,10 @@ function getFilterLabel(baseLabel: string, values: string[]): string {
   return `${baseLabel} (${values.length})`;
 }
 
+function campaignStatusLabel(value: string): string {
+  return value.trim().toLowerCase() === 'draft' ? 'In Progress' : value;
+}
+
 export function CampaignToolbar({
   filters,
   onFiltersChange,
@@ -168,6 +172,7 @@ export function CampaignToolbar({
           panelTitle="Filter by Status"
           panelOptions={options.statuses}
           panelAllLabel="All Statuses"
+          displayValue={campaignStatusLabel}
           onToggleValue={(value) => toggleFilterValue('status', value)}
         />
       )}
@@ -309,6 +314,7 @@ function MultiFilterDropdown({
   panelTitle,
   panelOptions,
   panelAllLabel,
+  displayValue,
   onToggleValue,
 }: {
   label: string;
@@ -320,10 +326,12 @@ function MultiFilterDropdown({
   panelTitle: string;
   panelOptions: string[];
   panelAllLabel: string;
+  displayValue?: (value: string) => string;
   onToggleValue: (value: string) => void;
 }) {
   const hasSelection = values.length > 0;
-  const triggerLabel = getFilterLabel(label, values);
+  const shownValues = displayValue ? values.map(displayValue) : values;
+  const triggerLabel = getFilterLabel(label, shownValues);
 
   return (
     <div className="relative">
@@ -374,6 +382,7 @@ function MultiFilterDropdown({
           <div className="border-t border-[var(--border)] max-h-[280px] overflow-y-auto p-1.5">
             {panelOptions.map((opt) => {
               const isSelected = values.includes(opt);
+              const shownOpt = displayValue ? displayValue(opt) : opt;
               return (
                 <button
                   key={opt}
@@ -384,7 +393,7 @@ function MultiFilterDropdown({
                       : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
                   }`}
                 >
-                  <span className="truncate">{opt}</span>
+                  <span className="truncate">{shownOpt}</span>
                   {isSelected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
                 </button>
               );

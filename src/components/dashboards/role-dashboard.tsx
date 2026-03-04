@@ -258,6 +258,14 @@ function normalizeStatus(status: string): string {
   return status.trim().toLowerCase();
 }
 
+function campaignStatusLabel(status: string): string {
+  const normalized = normalizeStatus(status);
+  if (normalized === 'draft') return 'In Progress';
+  return normalized
+    .replace(/[_\s]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function intersectsAccountSet(accountKeys: string[] | undefined, scopedAccountSet: Set<string>): boolean {
   if (!Array.isArray(accountKeys) || accountKeys.length === 0) return false;
   return accountKeys.some((key) => scopedAccountSet.has(key));
@@ -2723,7 +2731,7 @@ function ManagementRoleDashboard({
                         </p>
                       </div>
                       <div className="text-right text-[10px] text-[var(--muted-foreground)]">
-                        <p className="capitalize">{campaign.status}</p>
+                        <p>{campaignStatusLabel(campaign.status)}</p>
                         <p>{relativeTime(campaign.updatedAt)}</p>
                       </div>
                     </div>
@@ -3305,7 +3313,7 @@ function ClientRoleDashboard({
                         <p className="text-[10px] text-[var(--muted-foreground)]">{activity.detail}</p>
                       </div>
                       <div className="text-right text-[10px] text-[var(--muted-foreground)]">
-                        <p className="capitalize">{activity.status}</p>
+                        <p>{campaignStatusLabel(activity.status)}</p>
                         <p>{relativeTime(activity.date)}</p>
                       </div>
                     </div>

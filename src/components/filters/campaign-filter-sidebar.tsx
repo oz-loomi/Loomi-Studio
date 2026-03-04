@@ -105,6 +105,10 @@ function normalizeStatus(status: string): StatusKey {
   return 'unknown';
 }
 
+function campaignStatusLabel(status: string): string {
+  return status.trim().toLowerCase() === 'draft' ? 'In Progress' : status;
+}
+
 function toggleSelection(values: string[], value: string): string[] {
   return values.includes(value)
     ? values.filter((entry) => entry !== value)
@@ -210,6 +214,7 @@ function StatusPillSection({
           const selected = values.includes(status);
           const meta = STATUS_META[normalizeStatus(status)];
           const StatusIcon = meta.icon;
+          const shownStatus = campaignStatusLabel(status);
           return (
             <button
               key={status}
@@ -218,7 +223,7 @@ function StatusPillSection({
               className={`${PILL_BASE_CLASS} ${selected ? meta.activeClass : PILL_INACTIVE_CLASS}`}
             >
               <StatusIcon className={`w-3.5 h-3.5 flex-shrink-0 ${selected ? '' : meta.iconClass}`} />
-              <span className="truncate max-w-[120px]">{status}</span>
+              <span className="truncate max-w-[120px]">{shownStatus}</span>
               {selected && <CheckIcon className="w-3 h-3 flex-shrink-0" />}
             </button>
           );

@@ -95,6 +95,12 @@ function normalizeStatus(status: string): string {
   return s;
 }
 
+function statusLabel(status: string): string {
+  const normalized = normalizeStatus(status);
+  if (normalized === 'draft') return 'In Progress';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
 function campaignAccountKey(campaign: Campaign): string | null {
   return campaign.accountKey || null;
 }
@@ -287,7 +293,7 @@ export function CampaignPageAnalytics({
     return {
       chart: { type: 'donut', background: 'transparent', animations: { enabled: true, speed: 600, easing: 'easeinout' } },
       colors: analytics.statusEntries.map(([status]) => getStatusColor(status)),
-      labels: analytics.statusEntries.map(([status]) => status.charAt(0).toUpperCase() + status.slice(1)),
+      labels: analytics.statusEntries.map(([status]) => statusLabel(status)),
       legend: {
         position: 'right',
         fontSize: '11px',
@@ -444,7 +450,7 @@ export function CampaignPageAnalytics({
         <StatCard
           icon={DocumentTextIcon}
           value={analytics.draftCount}
-          label="Draft"
+          label="In Progress"
           color="text-zinc-400"
           bgColor="bg-zinc-500/10"
           delay={3}

@@ -60,6 +60,13 @@ function statusBadgeClass(status: string): string {
   return STATUS_BADGE[normalizeStatus(status)] || 'bg-zinc-500/10 text-zinc-400';
 }
 
+function statusLabel(status: string): string {
+  const normalized = normalizeStatus(status);
+  if (normalized === 'draft') return 'In Progress';
+  const withSpaces = normalized.replace(/_/g, ' ');
+  return withSpaces.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function accountKeyForRecord(record: { accountKey?: string }): string | null {
   return record.accountKey || null;
 }
@@ -94,6 +101,7 @@ export function CampaignList({
     return campaigns.filter(c =>
       c.name.toLowerCase().includes(q) ||
       c.status.toLowerCase().includes(q) ||
+      statusLabel(c.status).toLowerCase().includes(q) ||
       (c.dealer || '').toLowerCase().includes(q)
     );
   }, [campaigns, debouncedSearch]);
@@ -198,8 +206,8 @@ export function CampaignList({
                   <span className="flex-1 text-sm font-medium truncate">{item.name || '(Untitled)'}</span>
                   <span className="w-28 text-xs text-[var(--muted-foreground)] truncate">{accountName}</span>
                   <span className="w-20 flex justify-center">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium capitalize ${statusBadgeClass(item.status)}`}>
-                      {normalizeStatus(item.status)}
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${statusBadgeClass(item.status)}`}>
+                      {statusLabel(item.status)}
                     </span>
                   </span>
                   {tab === 'workflows' && (

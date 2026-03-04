@@ -69,6 +69,14 @@ function getWorkflowStatusColor(status: string): string {
   return WORKFLOW_STATUS_COLORS[status.toLowerCase()] || '#71717a';
 }
 
+function campaignStatusLabel(status: string): string {
+  const normalized = status.toLowerCase().trim();
+  if (normalized === 'draft') return 'In Progress';
+  return normalized
+    .replace(/[_\s]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function accountKeyForRecord(record: { accountKey?: string }): string | null {
   return record.accountKey || null;
 }
@@ -175,7 +183,7 @@ export function CampaignAnalytics({
     return {
       chart: { type: 'donut', background: 'transparent', animations: { enabled: true, speed: 600, easing: 'easeinout' } },
       colors: analytics.campaignStatusEntries.map(([status]) => getCampaignStatusColor(status)),
-      labels: analytics.campaignStatusEntries.map(([status]) => status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())),
+      labels: analytics.campaignStatusEntries.map(([status]) => campaignStatusLabel(status)),
       legend: {
         position: 'right',
         fontSize: '11px',

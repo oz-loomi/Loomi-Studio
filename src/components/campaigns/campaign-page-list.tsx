@@ -149,6 +149,13 @@ function statusBadgeClass(status: string): string {
   return STATUS_BADGE[normalizeStatus(status)] || 'bg-zinc-500/10 text-zinc-400';
 }
 
+function statusLabel(status: string): string {
+  const normalized = normalizeStatus(status);
+  if (normalized === 'draft') return 'In Progress';
+  const withSpaces = normalized.replace(/_/g, ' ');
+  return withSpaces.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function getDateTimeParts(dateStr?: string): { date: string; time: string } | null {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -443,9 +450,9 @@ function CampaignRow({
         </span>
       )}
       <span className="w-20 flex justify-end">
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium capitalize ${statusBadgeClass(item.status)}`}>
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${statusBadgeClass(item.status)}`}>
           {StatusIcon && <StatusIcon className="w-3 h-3" />}
-          {normalizedStatus.replace(/_/g, ' ')}
+          {statusLabel(item.status)}
         </span>
       </span>
       <span className="w-36 text-right tabular-nums leading-tight">
@@ -655,6 +662,7 @@ export function CampaignPageList({
     return campaigns.filter(c =>
       c.name.toLowerCase().includes(q) ||
       c.status.toLowerCase().includes(q) ||
+      statusLabel(c.status).toLowerCase().includes(q) ||
       (c.dealer || '').toLowerCase().includes(q)
     );
   }, [campaigns, debouncedSearch]);
