@@ -9975,17 +9975,21 @@ export default function TemplateEditorPage() {
         {showAiAssistant && (
           <div
             data-ai-assistant-pane="true"
-            className="relative w-[360px] flex-shrink-0 flex flex-col rounded-xl overflow-hidden ai-ed-panel animate-slide-in-right"
+            className="relative w-[360px] flex-shrink-0 flex flex-col rounded-2xl overflow-hidden ai-assist-panel animate-slide-in-right"
           >
-            <div className="pointer-events-none absolute inset-0 ai-ed-glow" />
             <div className="relative z-10 flex h-full flex-col">
               {/* Header */}
-              <div className="px-4 py-2.5 border-b border-[var(--ai-ed-accent)] ai-ed-header flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <SparklesIcon className="w-4 h-4 text-[var(--ai-ed-text-muted)] drop-shadow-[0_0_12px_rgba(236,72,153,0.5)]" />
-                  <p className="text-xs font-semibold text-[var(--ai-ed-text)]">
-                    AI Assistant
+              <div className="px-4 py-3 border-b border-[var(--ai-assist-border)] flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full ai-horizon-orb flex items-center justify-center">
+                    <SparklesIcon className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <p className="text-sm font-semibold text-[var(--foreground)]">
+                    Ask Loomi
                   </p>
+                  <span className="text-[10px] text-[var(--muted-foreground)] bg-[var(--muted)] px-1.5 py-0.5 rounded">
+                    ⌘⇧A
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   {aiHistory.length > 0 && (
@@ -9997,7 +10001,7 @@ export default function TemplateEditorPage() {
                         setAiComponentEdits([]);
                         setAiError("");
                       }}
-                      className="p-1 rounded-lg text-[var(--ai-ed-text-faint)] hover:text-[var(--ai-ed-text)] hover:bg-[var(--ai-ed-hover)] transition-colors"
+                      className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                       title="Clear conversation"
                     >
                       <TrashIcon className="w-3.5 h-3.5" />
@@ -10005,7 +10009,7 @@ export default function TemplateEditorPage() {
                   )}
                   <button
                     onClick={() => setShowAiAssistant(false)}
-                    className="p-1 rounded-lg text-[var(--ai-ed-text-muted)] hover:text-[var(--ai-ed-text)] hover:bg-[var(--ai-ed-hover)] transition-colors"
+                    className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                     title="Close AI assistant"
                   >
                     <XMarkIcon className="w-4 h-4" />
@@ -10014,10 +10018,10 @@ export default function TemplateEditorPage() {
               </div>
 
               {/* Context bar */}
-              <div className="px-3 py-2 border-b border-[var(--ai-ed-accent)] bg-[var(--ai-ed-card)] backdrop-blur-[1px] flex items-center gap-2">
+              <div className="px-3 py-1.5 border-b border-[var(--ai-assist-border)] ai-assist-context flex items-center gap-2">
                 {selectedEditorComponent ? (
-                  <p className="text-[10px] text-[var(--ai-ed-text-muted)] truncate">
-                    <span className="text-[var(--ai-ed-text)] font-medium">
+                  <p className="text-[10px] text-[var(--muted-foreground)] truncate">
+                    <span className="text-[var(--foreground)] font-medium">
                       Section {selectedEditorComponent.index + 1}:
                     </span>{" "}
                     {selectedEditorComponent.label} &middot;{" "}
@@ -10027,7 +10031,7 @@ export default function TemplateEditorPage() {
                       : "s"}
                   </p>
                 ) : (
-                  <p className="text-[10px] text-[var(--ai-ed-text-faint)]">
+                  <p className="text-[10px] text-[var(--muted-foreground)]">
                     Select a section for prop-level suggestions
                   </p>
                 )}
@@ -10036,14 +10040,14 @@ export default function TemplateEditorPage() {
               {/* Conversation thread */}
               <div
                 ref={aiScrollRef}
-                className="flex-1 overflow-y-auto p-3 space-y-3 bg-[var(--ai-ed-thread)]"
+                className="flex-1 overflow-y-auto p-3 space-y-3 ai-assist-thread"
               >
                 {/* Welcome / empty state */}
                 {aiHistory.length === 0 && !aiLoading && (
                   <div className="space-y-3">
-                    <div className="border border-dashed border-[var(--ai-ed-accent)] rounded-lg p-3 text-center bg-[var(--ai-ed-card)]">
-                      <SparklesIcon className="w-5 h-5 mx-auto text-[var(--ai-ed-text-faint)] mb-1.5" />
-                      <p className="text-xs text-[var(--ai-ed-text-muted)]">
+                    <div className="border border-dashed border-[var(--ai-assist-border)] rounded-xl p-3 text-center ai-assist-assistant-message">
+                      <SparklesIcon className="w-5 h-5 mx-auto text-[var(--muted-foreground)] mb-1.5" />
+                      <p className="text-xs text-[var(--muted-foreground)]">
                         Ask for subject lines, CTA rewrites, body copy, or prop
                         tweaks.
                       </p>
@@ -10062,7 +10066,7 @@ export default function TemplateEditorPage() {
                           onClick={() => {
                             setAiPrompt(preset);
                           }}
-                          className="px-2.5 py-1.5 rounded-lg text-[10px] font-medium border border-[var(--ai-ed-accent)] text-[var(--ai-ed-text-muted)] bg-[var(--ai-ed-card)] hover:bg-[var(--ai-ed-hover)] hover:text-[var(--ai-ed-text)] transition-colors"
+                          className="px-2.5 py-1.5 rounded-lg text-[10px] font-medium border border-[var(--ai-assist-border)] text-[var(--ai-ed-text-muted)] hover:text-[var(--ai-ed-text)] hover:bg-[var(--ai-ed-hover)] transition-colors"
                         >
                           {preset}
                         </button>
@@ -10076,8 +10080,8 @@ export default function TemplateEditorPage() {
                   <div key={`ai-msg-${idx}`}>
                     {msg.role === "user" ? (
                       <div className="flex justify-end">
-                        <div className="max-w-[85%] bg-[var(--ai-ed-user-msg)] border border-[var(--ai-ed-accent)] rounded-lg rounded-br-sm px-3 py-2">
-                          <p className="text-xs text-[var(--ai-ed-text)] whitespace-pre-wrap">
+                        <div className="max-w-[85%] bg-[linear-gradient(90deg,var(--ai-hz-start),var(--ai-hz-mid),var(--ai-hz-end))] text-white rounded-xl rounded-br-sm px-3 py-2">
+                          <p className="text-xs whitespace-pre-wrap">
                             {msg.content}
                           </p>
                         </div>
@@ -10086,32 +10090,32 @@ export default function TemplateEditorPage() {
                       <div className="space-y-2">
                         {/* Reply text */}
                         {msg.content && (
-                          <div className="border border-[var(--ai-ed-accent)] rounded-lg rounded-bl-sm p-2.5 bg-[var(--ai-ed-card)] backdrop-blur-sm">
-                            <p className="text-xs leading-relaxed whitespace-pre-wrap text-[var(--ai-ed-text)]">
+                          <div className="border border-[var(--ai-assist-border)] rounded-xl rounded-bl-sm p-2.5 ai-assist-assistant-message">
+                            <p className="text-xs leading-relaxed whitespace-pre-wrap text-[var(--foreground)]">
                               {msg.content}
                             </p>
                           </div>
                         )}
                         {/* Suggestions */}
                         {msg.suggestions && msg.suggestions.length > 0 && (
-                          <div className="border border-[var(--ai-ed-accent)] rounded-lg p-2.5 bg-[var(--ai-ed-card)]">
-                            <p className="text-[10px] uppercase tracking-wider text-[var(--ai-ed-text-muted)] mb-2">
+                          <div className="border border-[var(--ai-assist-border)] rounded-lg p-2.5 ai-assist-assistant-message">
+                            <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] mb-2">
                               Suggestions
                             </p>
                             <div className="space-y-1.5">
                               {msg.suggestions.map((suggestion, sIdx) => (
                                 <div
                                   key={`${suggestion}-${sIdx}`}
-                                  className="flex items-start gap-2 bg-[var(--ai-ed-deep)] border border-[var(--ai-ed-accent)] rounded-md px-2 py-1.5"
+                                  className="flex items-start gap-2 bg-[var(--muted)] border border-[var(--ai-assist-border)] rounded-md px-2 py-1.5"
                                 >
-                                  <p className="text-xs flex-1 text-[var(--ai-ed-text)]">
+                                  <p className="text-xs flex-1 text-[var(--foreground)]">
                                     {suggestion}
                                   </p>
                                   <button
                                     onClick={() =>
                                       handleCopySuggestion(suggestion)
                                     }
-                                    className="p-1 rounded text-[var(--ai-ed-text-muted)] hover:text-[var(--ai-ed-text)] hover:bg-[var(--ai-ed-hover)] transition-colors"
+                                    className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                                     title="Copy suggestion"
                                   >
                                     {copiedSuggestion === suggestion ? (
@@ -10129,9 +10133,9 @@ export default function TemplateEditorPage() {
                         {msg.componentEdits &&
                           msg.componentEdits.length > 0 &&
                           idx === aiHistory.length - 1 && (
-                            <div className="border border-[var(--ai-ed-accent)] rounded-lg p-2.5 bg-[var(--ai-ed-card)]">
+                            <div className="border border-[var(--ai-assist-border)] rounded-lg p-2.5 ai-assist-assistant-message">
                               <div className="flex items-center justify-between mb-2">
-                                <p className="text-[10px] uppercase tracking-wider text-[var(--ai-ed-text-muted)]">
+                                <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
                                   Prop Edits
                                 </p>
                                 <button
@@ -10148,16 +10152,16 @@ export default function TemplateEditorPage() {
                                 {msg.componentEdits.map((edit, eIdx) => (
                                   <div
                                     key={`${edit.key}-${eIdx}`}
-                                    className="border border-[var(--ai-ed-accent)] rounded-md p-2 bg-[var(--ai-ed-deep)]"
+                                    className="border border-[var(--ai-assist-border)] rounded-md p-2 bg-[var(--muted)]"
                                   >
-                                    <p className="text-[11px] font-medium text-[var(--ai-ed-text)]">
+                                    <p className="text-[11px] font-medium text-[var(--foreground)]">
                                       {edit.key}
                                     </p>
-                                    <p className="text-xs mt-1 whitespace-pre-wrap text-[var(--ai-ed-text)]">
+                                    <p className="text-xs mt-1 whitespace-pre-wrap text-[var(--foreground)]">
                                       {edit.value}
                                     </p>
                                     {edit.reason && (
-                                      <p className="text-[10px] text-[var(--ai-ed-text-muted)] mt-1">
+                                      <p className="text-[10px] text-[var(--muted-foreground)] mt-1">
                                         {edit.reason}
                                       </p>
                                     )}
@@ -10195,15 +10199,15 @@ export default function TemplateEditorPage() {
                         style={{ animationDelay: "300ms" }}
                       />
                     </div>
-                    <p className="text-[10px] text-[var(--ai-ed-text-faint)]">Thinking...</p>
+                    <p className="text-[10px] text-[var(--muted-foreground)]">Thinking...</p>
                   </div>
                 )}
               </div>
 
               {/* Input area */}
-              <div className="p-3 border-t border-[var(--ai-ed-accent)] bg-[var(--ai-ed-footer)] space-y-2">
+              <div className="p-3 border-t border-[var(--ai-assist-border)] space-y-2">
                 {aiError && (
-                  <p className="text-xs text-amber-300 mb-1">{aiError}</p>
+                  <p className="text-xs text-[var(--destructive)] mb-1">{aiError}</p>
                 )}
                 <div className="flex items-end gap-2">
                   <textarea
@@ -10217,7 +10221,7 @@ export default function TemplateEditorPage() {
                     }}
                     placeholder="Ask anything..."
                     rows={2}
-                    className="flex-1 bg-[var(--ai-ed-input)] border border-[var(--ai-ed-accent)] rounded-lg px-3 py-2 text-xs text-[var(--ai-ed-text)] placeholder:text-[var(--ai-ed-text-faint)] resize-none focus:outline-none focus:ring-2 focus:ring-[var(--ai-ed-focus)]"
+                    className="flex-1 resize-none bg-[var(--ai-ed-input)] border border-[var(--ai-assist-border)] rounded-lg px-3 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none focus:border-[var(--ai-ed-focus)] focus:ring-1 focus:ring-[var(--ai-ed-focus)] transition-colors max-h-20"
                   />
                   <button
                     onClick={handleAskAssistant}
