@@ -617,6 +617,8 @@ interface ToolbarProps {
   uniqueProviders: string[];
   viewMode: 'card' | 'list';
   toggleView: (mode: 'card' | 'list') => void;
+  canSync: boolean;
+  syncLabel: string;
   syncing: boolean;
   handleSync: () => void;
   effectiveAccountKey: string | null;
@@ -651,6 +653,8 @@ function Toolbar({
   uniqueProviders,
   viewMode,
   toggleView,
+  canSync,
+  syncLabel,
   syncing,
   handleSync,
   effectiveAccountKey,
@@ -867,14 +871,14 @@ function Toolbar({
         </div>
 
         {/* Sync */}
-        {(effectiveAccountKey || accountFilter !== 'all') && (
+        {canSync && (
           <button
             onClick={handleSync}
             disabled={syncing}
             className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
           >
             <ArrowPathIcon className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing...' : 'Sync'}
+            {syncing ? 'Syncing...' : syncLabel}
           </button>
         )}
 
@@ -1059,6 +1063,7 @@ export default function TemplatesPage() {
   // Bulk selection
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const autoSyncedAccountKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setViewMode(loadView());
@@ -1114,29 +1119,6 @@ export default function TemplatesPage() {
     loadTemplates();
   }, [loadTemplates]);
 
-  // ── Sync from ESP ──
-
-  const handleSync = async () => {
-    const syncKey = accountFilter !== 'all' ? accountFilter : effectiveAccountKey;
-    if (!syncKey || syncing) return;
-    setSyncing(true);
-    try {
-      const res = await fetch(`/api/esp/templates/sync?accountKey=${encodeURIComponent(syncKey)}`, {
-        method: 'POST',
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(`Synced ${data.sync.total} templates (${data.sync.created} new, ${data.sync.updated} updated)`);
-        await loadTemplates();
-      } else {
-        toast.error(data.error || 'Failed to sync');
-      }
-    } catch {
-      toast.error('Failed to sync templates');
-    }
-    setSyncing(false);
-  };
-
   // ── Grouped data for admin overview ──
 
   const accountGroups = useMemo(() => {
@@ -1161,6 +1143,149 @@ export default function TemplatesPage() {
       return nameA.localeCompare(nameB);
     });
   }, [accounts, accountGroups]);
+
+  const syncTemplatesForAccounts = useCallback(async (
+    accountKeys: string[],
+    options?: { force?: boolean; silent?: boolean },
+  ) => {
+    const uniqueKeys = Array.from(
+      new Set(
+        accountKeys
+          .map((key) => key?.trim())
+          .filter((key): key is string => Boolean(key)),
+      ),
+    );
+    const targetKeys = options?.force
+      ? uniqueKeys
+      : uniqueKeys.filter((key) => !autoSyncedAccountKeysRef.current.has(key));
+
+    if (targetKeys.length === 0) {
+      return {
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        total: 0,
+        created: 0,
+        updated: 0,
+        unchanged: 0,
+        errors: [] as string[],
+      };
+    }
+
+    if (!options?.silent) setSyncing(true);
+
+    let succeeded = 0;
+    let failed = 0;
+    let total = 0;
+    let created = 0;
+    let updated = 0;
+    let unchanged = 0;
+    const errors: string[] = [];
+
+    try {
+      for (const key of targetKeys) {
+        try {
+          const res = await fetch(`/api/esp/templates/sync?accountKey=${encodeURIComponent(key)}`, {
+            method: 'POST',
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const label = accounts[key]?.dealer || key;
+            const message =
+              typeof data?.error === 'string' ? data.error : `Sync failed (${res.status})`;
+            failed += 1;
+            errors.push(`${label}: ${message}`);
+            continue;
+          }
+
+          succeeded += 1;
+          autoSyncedAccountKeysRef.current.add(key);
+
+          total += Number(data?.sync?.total ?? 0);
+          created += Number(data?.sync?.created ?? 0);
+          updated += Number(data?.sync?.updated ?? 0);
+          unchanged += Number(data?.sync?.unchanged ?? 0);
+        } catch (err) {
+          const label = accounts[key]?.dealer || key;
+          const message = err instanceof Error ? err.message : 'Sync failed';
+          failed += 1;
+          errors.push(`${label}: ${message}`);
+        }
+      }
+
+      if (succeeded > 0) {
+        await loadTemplates();
+      }
+
+      if (!options?.silent) {
+        if (succeeded > 0 && failed === 0) {
+          if (targetKeys.length === 1) {
+            toast.success(`Synced ${total} templates (${created} new, ${updated} updated)`);
+          } else {
+            toast.success(`Synced ${succeeded} accounts (${created} new, ${updated} updated, ${unchanged} unchanged templates)`);
+          }
+        } else if (succeeded > 0 && failed > 0) {
+          toast.warning(`Synced ${succeeded}/${targetKeys.length} accounts. ${failed} failed.`);
+        } else if (errors.length > 0) {
+          toast.error(errors[0]);
+        } else {
+          toast.error('Failed to sync templates');
+        }
+      }
+    } finally {
+      if (!options?.silent) setSyncing(false);
+    }
+
+    return {
+      attempted: targetKeys.length,
+      succeeded,
+      failed,
+      total,
+      created,
+      updated,
+      unchanged,
+      errors,
+    };
+  }, [accounts, loadTemplates]);
+
+  const syncAccountKeys = useMemo(() => {
+    if (effectiveAccountKey) return [effectiveAccountKey];
+    if (accountFilter !== 'all') return [accountFilter];
+    if (isAdmin) {
+      return allAccountKeys.filter((key) => {
+        const account = accounts[key];
+        const hasConnection =
+          Boolean(account?.espProvider) ||
+          (account?.connectedProviders?.length ?? 0) > 0;
+        const hasLocalTemplates = Boolean(accountGroups[key]?.templates.length);
+        return hasConnection || hasLocalTemplates;
+      });
+    }
+    return [];
+  }, [effectiveAccountKey, accountFilter, isAdmin, allAccountKeys, accounts, accountGroups]);
+
+  const canSync = syncAccountKeys.length > 0;
+  const syncLabel =
+    isAdmin && !effectiveAccountKey && accountFilter === 'all'
+      ? 'Sync All'
+      : 'Sync';
+
+  useEffect(() => {
+    const keysToAutoSync = effectiveAccountKey
+      ? [effectiveAccountKey]
+      : accountFilter !== 'all'
+        ? [accountFilter]
+        : [];
+    if (keysToAutoSync.length === 0) return;
+    void syncTemplatesForAccounts(keysToAutoSync, { silent: true, force: false });
+  }, [effectiveAccountKey, accountFilter, syncTemplatesForAccounts]);
+
+  // ── Sync from ESP ──
+
+  const handleSync = useCallback(async () => {
+    if (!canSync || syncing) return;
+    await syncTemplatesForAccounts(syncAccountKeys, { force: true, silent: false });
+  }, [canSync, syncing, syncTemplatesForAccounts, syncAccountKeys]);
 
   // Account filter label
   const selectedAccountData = accountFilter !== 'all' ? accounts[accountFilter] : null;
@@ -1296,24 +1421,42 @@ export default function TemplatesPage() {
     const confirmed = confirm(`Delete ${selectedIds.size} template${selectedIds.size !== 1 ? 's' : ''}?`);
     if (!confirmed) return;
 
-    const results = await Promise.allSettled(
-      Array.from(selectedIds).map(id =>
-        fetch(`/api/esp/templates/${id}`, { method: 'DELETE' })
-      )
+    const results = await Promise.all(
+      Array.from(selectedIds).map(async (id) => {
+        try {
+          const res = await fetch(`/api/esp/templates/${id}`, { method: 'DELETE' });
+          const data = await res.json().catch(() => ({}));
+          return {
+            ok: res.ok,
+            error:
+              typeof data?.error === 'string'
+                ? data.error
+                : `Delete failed (${res.status})`,
+          };
+        } catch {
+          return { ok: false, error: 'Network error' };
+        }
+      }),
     );
 
-    const succeeded = results.filter(r => r.status === 'fulfilled').length;
-    const failed = results.filter(r => r.status === 'rejected').length;
+    const succeeded = results.filter((result) => result.ok).length;
+    const failed = results.length - succeeded;
 
-    if (failed > 0) {
-      toast.error(`Deleted ${succeeded}, failed ${failed}`);
+    if (failed > 0 && succeeded > 0) {
+      const firstError = results.find((result) => !result.ok)?.error;
+      toast.warning(`Deleted ${succeeded}, failed ${failed}${firstError ? ` (${firstError})` : ''}`);
+    } else if (failed > 0) {
+      const firstError = results.find((result) => !result.ok)?.error;
+      toast.error(firstError || `Failed to delete ${failed} template${failed !== 1 ? 's' : ''}`);
     } else {
       toast.success(`Deleted ${succeeded} template${succeeded !== 1 ? 's' : ''}`);
     }
 
     setSelectMode(false);
     setSelectedIds(new Set());
-    await loadTemplates();
+    if (succeeded > 0) {
+      await loadTemplates();
+    }
   };
 
   const handleDownloadScreenshot = async (template: EspTemplateRecord) => {
@@ -1356,6 +1499,8 @@ export default function TemplatesPage() {
     uniqueProviders,
     viewMode,
     toggleView,
+    canSync,
+    syncLabel,
     syncing,
     handleSync,
     effectiveAccountKey,

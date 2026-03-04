@@ -67,18 +67,41 @@ export async function POST(req: NextRequest) {
       });
 
       if (existing) {
-        // Update if name or html changed
-        const nameChanged = remote.name && remote.name !== existing.name;
-        const htmlChanged = remote.html && remote.html !== existing.html;
-        const thumbChanged = remote.thumbnailUrl && remote.thumbnailUrl !== existing.thumbnailUrl;
+        const nextName = remote.name?.trim() || 'Untitled';
+        const nextSubject = remote.subject?.trim() || null;
+        const nextPreviewText = remote.previewText?.trim() || null;
+        const nextHtml = remote.html || '';
+        const nextStatus = remote.status || existing.status || 'active';
+        const nextEditorType = remote.editorType || null;
+        const nextThumbnailUrl = remote.thumbnailUrl || null;
 
-        if (nameChanged || htmlChanged || thumbChanged) {
+        const nameChanged = nextName !== existing.name;
+        const subjectChanged = nextSubject !== existing.subject;
+        const previewTextChanged = nextPreviewText !== existing.previewText;
+        const htmlChanged = nextHtml !== existing.html;
+        const statusChanged = nextStatus !== existing.status;
+        const editorTypeChanged = nextEditorType !== existing.editorType;
+        const thumbChanged = nextThumbnailUrl !== existing.thumbnailUrl;
+
+        if (
+          nameChanged ||
+          subjectChanged ||
+          previewTextChanged ||
+          htmlChanged ||
+          statusChanged ||
+          editorTypeChanged ||
+          thumbChanged
+        ) {
           await prisma.espTemplate.update({
             where: { id: existing.id },
             data: {
-              ...(nameChanged && { name: remote.name }),
-              ...(htmlChanged && { html: remote.html }),
-              ...(thumbChanged && { thumbnailUrl: remote.thumbnailUrl }),
+              ...(nameChanged && { name: nextName }),
+              ...(subjectChanged && { subject: nextSubject }),
+              ...(previewTextChanged && { previewText: nextPreviewText }),
+              ...(htmlChanged && { html: nextHtml }),
+              ...(statusChanged && { status: nextStatus }),
+              ...(editorTypeChanged && { editorType: nextEditorType }),
+              ...(thumbChanged && { thumbnailUrl: nextThumbnailUrl }),
               lastSyncedAt: now,
             },
           });

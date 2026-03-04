@@ -152,6 +152,11 @@ function mediaItemKey(file: MediaFile): string {
   return `${source}:name:${name}:created:${createdAt}`;
 }
 
+function hasFilePayload(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer?.types) return false;
+  return Array.from(dataTransfer.types).includes('Files');
+}
+
 // ── Extracted sub-components (stable references — never defined inside a render) ──
 
 function ProviderPill({ prov }: { prov: string }) {
@@ -538,7 +543,9 @@ export default function MediaPage() {
   // Upload
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [pageDragOver, setPageDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pageDragDepthRef = useRef(0);
   const [uploadDestination, setUploadDestination] = useState<'esp' | 's3'>('esp');
   const [uploadAccountKeys, setUploadAccountKeys] = useState<Set<string>>(new Set());
   const [uploadAccountSearch, setUploadAccountSearch] = useState('');
@@ -623,6 +630,7 @@ export default function MediaPage() {
 
   // Show overview when admin has no specific account selected
   const showOverview = isAdmin && !effectiveAccountKey;
+  const canDropUploadFiles = showOverview || !!effectiveAccountKey;
 
   // All account keys (sorted)
   const allAccountKeys = useMemo(() => {
@@ -868,11 +876,11 @@ export default function MediaPage() {
 
   // ── Upload ──
 
-  const stageFiles = (fileList: FileList | null) => {
+  const stageFiles = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     const newFiles = Array.from(fileList);
     setStagedFiles((prev) => [...prev, ...newFiles]);
-  };
+  }, []);
 
   const handleUpload = async (files?: File[]) => {
     const filesToUpload = files ?? stagedFiles;
@@ -996,6 +1004,70 @@ export default function MediaPage() {
     e.preventDefault();
     setDragOver(false);
   };
+
+  // ── Global file drag/drop (full-page target) ──
+  useEffect(() => {
+    if (!canDropUploadFiles) return;
+
+    const onDragEnter = (e: DragEvent) => {
+      if (!hasFilePayload(e.dataTransfer)) return;
+      e.preventDefault();
+      pageDragDepthRef.current += 1;
+      setPageDragOver(true);
+    };
+
+    const onDragOverWindow = (e: DragEvent) => {
+      if (!hasFilePayload(e.dataTransfer)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      setPageDragOver(true);
+    };
+
+    const onDragLeaveWindow = (e: DragEvent) => {
+      if (!hasFilePayload(e.dataTransfer)) return;
+      e.preventDefault();
+      pageDragDepthRef.current = Math.max(0, pageDragDepthRef.current - 1);
+      if (pageDragDepthRef.current === 0) {
+        setPageDragOver(false);
+      }
+    };
+
+    const onDropWindow = (e: DragEvent) => {
+      if (!hasFilePayload(e.dataTransfer)) return;
+      e.preventDefault();
+      pageDragDepthRef.current = 0;
+      setPageDragOver(false);
+
+      const droppedFiles = e.dataTransfer?.files || null;
+      if (!droppedFiles || droppedFiles.length === 0) return;
+
+      stageFiles(droppedFiles);
+
+      if (showOverview) {
+        setUploadDestination('s3');
+        setUploadAccountKeys(new Set());
+        setUploadAccountSearch('');
+      } else {
+        setUploadDestination('esp');
+      }
+
+      setShowUploadModal(true);
+    };
+
+    window.addEventListener('dragenter', onDragEnter);
+    window.addEventListener('dragover', onDragOverWindow);
+    window.addEventListener('dragleave', onDragLeaveWindow);
+    window.addEventListener('drop', onDropWindow);
+
+    return () => {
+      window.removeEventListener('dragenter', onDragEnter);
+      window.removeEventListener('dragover', onDragOverWindow);
+      window.removeEventListener('dragleave', onDragLeaveWindow);
+      window.removeEventListener('drop', onDropWindow);
+      pageDragDepthRef.current = 0;
+      setPageDragOver(false);
+    };
+  }, [canDropUploadFiles, showOverview, stageFiles]);
 
   // ── Rename ──
 
@@ -1360,13 +1432,6 @@ export default function MediaPage() {
     setSearch('');
   }, []);
 
-  const navigateToBreadcrumb = useCallback((index: number) => {
-    const crumb = folderPath[index];
-    setCurrentFolderId(crumb.id);
-    setFolderPath(prev => prev.slice(0, index + 1));
-    setSearch('');
-  }, [folderPath]);
-
   // ── Create Folder ──
 
   const handleCreateFolder = async () => {
@@ -1436,33 +1501,30 @@ export default function MediaPage() {
             <PhotoIcon className="w-7 h-7 text-[var(--primary)]" />
             <div>
               <h2 className="text-2xl font-bold">Media Library</h2>
-              {/* Breadcrumb for admin navigation */}
-              {isAdmin ? (
-                <div className="flex items-center gap-1.5 text-sm mt-0.5">
-                  {effectiveAccountKey ? (
+              <div className="flex items-center gap-2 text-sm mt-0.5 flex-wrap">
+                {isAdmin ? (
+                  effectiveAccountKey ? (
                     <>
                       <button
                         onClick={() => { setAccountFilter('all'); setSearch(''); setOverviewSearch(''); setCurrentFolderId(undefined); setFolderPath([{ id: undefined, name: 'Root' }]); }}
-                        className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                        className="inline-flex items-center gap-1 text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
                       >
+                        <ArrowLeftIcon className="w-3.5 h-3.5" />
                         All Accounts
                       </button>
-                      <ChevronRightIcon className="w-3 h-3 text-[var(--muted-foreground)]" />
                       <span className="text-[var(--muted-foreground)]">
-                        {accounts[effectiveAccountKey]?.dealer || effectiveAccountKey}
+                        Viewing {accounts[effectiveAccountKey]?.dealer || effectiveAccountKey}
                       </span>
                     </>
                   ) : (
                     <span className="text-[var(--muted-foreground)]">All Accounts</span>
-                  )}
-                </div>
-              ) : (
-                <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
-                  {isAccount && accountData
-                    ? `Media files for ${accountData.dealer}`
-                    : 'Manage your media files'}
-                </p>
-              )}
+                  )
+                ) : effectiveAccountKey ? (
+                  <span className="text-[var(--muted-foreground)]">{accountData?.dealer || effectiveAccountKey}</span>
+                ) : (
+                  <span className="text-[var(--muted-foreground)]">Manage your media files</span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1787,36 +1849,6 @@ export default function MediaPage() {
                   </button>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* Breadcrumb navigation */}
-          {effectiveAccountKey && capabilities?.canNavigateFolders && folderPath.length > 1 && (
-            <div className="flex items-center gap-1 mb-4 text-sm flex-wrap">
-              {folderPath.map((crumb, idx) => {
-                const isLast = idx === folderPath.length - 1;
-                return (
-                  <span key={crumb.id ?? 'root'} className="flex items-center gap-1">
-                    {idx > 0 && (
-                      <ChevronRightIcon className="w-3 h-3 text-[var(--muted-foreground)]" />
-                    )}
-                    {isLast ? (
-                      <span className="font-medium text-[var(--foreground)] flex items-center gap-1">
-                        {idx === 0 ? <HomeIcon className="w-3.5 h-3.5" /> : <FolderIcon className="w-3.5 h-3.5" />}
-                        {crumb.name}
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => navigateToBreadcrumb(idx)}
-                        className="flex items-center gap-1 text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
-                      >
-                        {idx === 0 ? <HomeIcon className="w-3.5 h-3.5" /> : <FolderIcon className="w-3.5 h-3.5" />}
-                        {crumb.name}
-                      </button>
-                    )}
-                  </span>
-                );
-              })}
             </div>
           )}
 
@@ -2692,6 +2724,22 @@ export default function MediaPage() {
           </div>
         );
       })()}
+
+      {/* ── Global file drop overlay ── */}
+      {pageDragOver && !showUploadModal && canDropUploadFiles && (
+        <div className="fixed inset-0 z-[60] pointer-events-none">
+          <div className="absolute inset-0 bg-[var(--primary)]/8 backdrop-blur-[1px]" />
+          <div className="absolute inset-4 rounded-2xl border-2 border-dashed border-[var(--primary)] bg-[var(--primary)]/10 flex items-center justify-center">
+            <div className="text-center px-6">
+              <ArrowUpTrayIcon className="w-10 h-10 mx-auto text-[var(--primary)] mb-3" />
+              <p className="text-base font-semibold text-[var(--foreground)]">Drop files to upload</p>
+              <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                Files will be added to the upload queue.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -8,6 +8,10 @@ import type { EspEmailTemplate, CreateEspTemplateInput, UpdateEspTemplateInput }
 
 const templateCache = new Map<string, { data: EspEmailTemplate[]; fetchedAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const TEMPLATE_PAGE_SIZE = 100;
+const MAX_TEMPLATE_PAGES = 50;
+
+type JsonRecord = Record<string, unknown>;
 
 function cacheKey(locationId: string): string {
   return `ghl:${locationId}`;
@@ -42,6 +46,85 @@ function ghlHeaders(token: string): Record<string, string> {
   };
 }
 
+function asRecord(value: unknown): JsonRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as JsonRecord;
+}
+
+function asRecordArray(value: unknown): JsonRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => asRecord(item))
+    .filter((item): item is JsonRecord => Boolean(item));
+}
+
+function extractTemplateRows(payload: JsonRecord): JsonRecord[] {
+  const data = asRecord(payload.data);
+  const templatesObj = asRecord(payload.templates);
+  const candidates: unknown[] = [
+    payload.templates,
+    data?.templates,
+    templatesObj?.items,
+    payload.items,
+    data?.items,
+    payload.results,
+    data?.results,
+    payload.data,
+  ];
+
+  for (const candidate of candidates) {
+    const rows = asRecordArray(candidate);
+    if (rows.length > 0) return rows;
+  }
+
+  return [];
+}
+
+function extractNextPageUrl(payload: JsonRecord): string | null {
+  const meta = asRecord(payload.meta);
+  const pagination = asRecord(payload.pagination);
+  const links = asRecord(payload.links);
+
+  const candidates: unknown[] = [
+    payload.nextPageUrl,
+    payload.nextPage,
+    meta?.nextPageUrl,
+    meta?.nextPage,
+    pagination?.nextPageUrl,
+    pagination?.nextPage,
+    links?.next,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+function toAbsoluteUrl(nextUrl: string): string {
+  if (nextUrl.startsWith('http://') || nextUrl.startsWith('https://')) return nextUrl;
+  if (nextUrl.startsWith('/')) return `${GHL_BASE}${nextUrl}`;
+  return `${GHL_BASE}/${nextUrl.replace(/^\/+/, '')}`;
+}
+
+function toEspTemplate(t: JsonRecord): EspEmailTemplate {
+  return {
+    id: String(t.id || t._id || ''),
+    name: String(t.name || ''),
+    subject: '',
+    previewText: '',
+    html: String(t.html || ''),
+    status: 'active',
+    editorType: String(t.templateType || t.type || 'code'),
+    thumbnailUrl: String(t.previewUrl || t.thumbnailUrl || ''),
+    createdAt: String(t.dateAdded || t.createdAt || ''),
+    updatedAt: String(t.dateUpdated || t.updatedAt || ''),
+  };
+}
+
 // ── Fetch all templates for a location ──
 
 export async function fetchTemplates(
@@ -54,33 +137,59 @@ export async function fetchTemplates(
     if (cached) return cached;
   }
 
-  const url = `${GHL_BASE}/locations/${encodeURIComponent(locationId)}/templates?type=email`;
-  const res = await fetch(url, { headers: ghlHeaders(token) });
+  const templatesById = new Map<string, EspEmailTemplate>();
+  let nextUrl: string | null =
+    `${GHL_BASE}/locations/${encodeURIComponent(locationId)}/templates?type=email&limit=${TEMPLATE_PAGE_SIZE}`;
+  const seenUrls = new Set<string>();
 
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    const msg = (data as Record<string, string>)?.message
-      || (data as Record<string, string>)?.error
-      || `GHL API error (${res.status})`;
-    throw new Error(msg);
+  for (let page = 0; page < MAX_TEMPLATE_PAGES && nextUrl; page += 1) {
+    const requestUrl = toAbsoluteUrl(nextUrl);
+    if (seenUrls.has(requestUrl)) break;
+    seenUrls.add(requestUrl);
+
+    const res = await fetch(requestUrl, { headers: ghlHeaders(token) });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const msg = (data as Record<string, string>)?.message
+        || (data as Record<string, string>)?.error
+        || `GHL API error (${res.status})`;
+      throw new Error(msg);
+    }
+
+    const payload = asRecord(await res.json()) ?? {};
+    const rows = extractTemplateRows(payload);
+
+    const countBefore = templatesById.size;
+    for (const row of rows) {
+      const template = toEspTemplate(row);
+      if (!template.id) continue;
+      templatesById.set(template.id, template);
+    }
+    const addedOnThisPage = templatesById.size - countBefore;
+
+    const explicitNext = extractNextPageUrl(payload);
+    if (explicitNext) {
+      nextUrl = explicitNext;
+      continue;
+    }
+
+    // Fallback for offset-style pagination if no explicit next link is provided.
+    if (rows.length >= TEMPLATE_PAGE_SIZE) {
+      if (addedOnThisPage === 0) break;
+      const parsed = new URL(requestUrl);
+      const currentOffset = Number(parsed.searchParams.get('offset') || '0');
+      const nextOffset = currentOffset + rows.length;
+      parsed.searchParams.set('limit', String(TEMPLATE_PAGE_SIZE));
+      parsed.searchParams.set('offset', String(nextOffset));
+      nextUrl = parsed.toString();
+      continue;
+    }
+
+    nextUrl = null;
   }
 
-  const data = await res.json();
-  const rawTemplates: Record<string, unknown>[] =
-    (data as Record<string, unknown>)?.templates as Record<string, unknown>[] ?? [];
-
-  const templates: EspEmailTemplate[] = rawTemplates.map((t) => ({
-    id: String(t.id || t._id || ''),
-    name: String(t.name || ''),
-    subject: '',
-    previewText: '',
-    html: String(t.html || ''),
-    status: 'active',
-    editorType: String(t.templateType || t.type || 'code'),
-    thumbnailUrl: String(t.previewUrl || t.thumbnailUrl || ''),
-    createdAt: String(t.dateAdded || t.createdAt || ''),
-    updatedAt: String(t.dateUpdated || t.updatedAt || ''),
-  }));
+  const templates = Array.from(templatesById.values());
 
   setCache(locationId, templates);
   return templates;
