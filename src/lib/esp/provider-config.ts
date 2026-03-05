@@ -155,19 +155,19 @@ const ESP_PROVIDER_CONFIG: Record<string, EspProviderConfig> = {
     },
   },
   sendgrid: {
-    displayName: 'SendGrid',
+    displayName: 'Twilio',
     description: 'Transactional email delivery with real-time engagement tracking.',
     features: [
       'Email campaign sending',
       'Transactional templates',
       'Real-time engagement webhooks (opens, clicks, bounces)',
     ],
-    logoSrc: '/images/sendgrid-logo.png',
-    logoAlt: 'SendGrid',
-    iconSrc: '/images/sendgrid-icon.png',
-    iconAlt: 'SendGrid',
+    logoSrc: 'https://assets.cdn.filesafe.space/CVpny6EUSHRxlXfqAFb7/media/69a93f41618c8d22a7eb0004.jpg',
+    logoAlt: 'Twilio',
+    iconSrc: 'https://assets.cdn.filesafe.space/CVpny6EUSHRxlXfqAFb7/media/69a93f41618c8d22a7eb0004.jpg',
+    iconAlt: 'Twilio',
     headerClassName: 'bg-white',
-    connectButtonClassName: 'bg-[#1A82E2] text-white hover:bg-[#1570C2]',
+    connectButtonClassName: 'bg-[#F22F46] text-white hover:bg-[#D91C33]',
     portalLinks: {
       getCampaignCreateLinks() {
         return {
