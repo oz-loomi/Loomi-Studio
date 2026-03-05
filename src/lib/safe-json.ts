@@ -27,25 +27,6 @@ export interface SafeJsonResult<T = Record<string, unknown>> {
 export async function safeJson<T = Record<string, unknown>>(
   res: Response,
 ): Promise<SafeJsonResult<T>> {
-  const contentType = res.headers.get('content-type') || '';
-  const isJson = contentType.includes('application/json');
-
-  // Happy path: JSON response
-  if (isJson) {
-    try {
-      const data = (await res.json()) as T;
-      return { ok: res.ok, status: res.status, data, error: null };
-    } catch {
-      return {
-        ok: false,
-        status: res.status,
-        data: null,
-        error: `Failed to parse server response (${res.status})`,
-      };
-    }
-  }
-
-  // Non-JSON response — derive a readable error from the HTTP status
   const statusMessages: Record<number, string> = {
     413: 'File too large — your server (e.g. nginx) rejected the upload. Increase client_max_body_size.',
     401: 'Not authenticated. Please sign in again.',
@@ -57,8 +38,35 @@ export async function safeJson<T = Record<string, unknown>>(
     504: 'Gateway timeout — the server took too long to respond.',
   };
 
-  const fallback = `Server returned an unexpected response (${res.status})`;
-  const error = statusMessages[res.status] || fallback;
+  const fallbackByStatus = statusMessages[res.status] || `Server returned an unexpected response (${res.status})`;
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
 
-  return { ok: false, status: res.status, data: null, error };
+  // Happy path: JSON response
+  if (isJson) {
+    try {
+      const data = (await res.json()) as T;
+      if (res.ok) {
+        return { ok: true, status: res.status, data, error: null };
+      }
+
+      const dataRecord = data as unknown as Record<string, unknown> | null;
+      const apiError =
+        (typeof dataRecord?.error === 'string' && dataRecord.error.trim())
+        || (typeof dataRecord?.message === 'string' && dataRecord.message.trim())
+        || fallbackByStatus;
+
+      return { ok: false, status: res.status, data, error: apiError };
+    } catch {
+      return {
+        ok: false,
+        status: res.status,
+        data: null,
+        error: `Failed to parse server response (${res.status})`,
+      };
+    }
+  }
+
+  // Non-JSON response — derive a readable error from the HTTP status
+  return { ok: false, status: res.status, data: null, error: fallbackByStatus };
 }
