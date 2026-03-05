@@ -1195,6 +1195,69 @@ function TemplateListView({
   );
 }
 
+interface TemplateAccountCardProps {
+  accountKey: string;
+  accountData: AccountData | undefined;
+  templateCount: number;
+  providers: string[];
+  onSelect: () => void;
+}
+
+function TemplateAccountCard({
+  accountKey,
+  accountData,
+  templateCount,
+  providers,
+  onSelect,
+}: TemplateAccountCardProps) {
+  const accountName = accountData?.dealer || accountKey;
+  const location = [accountData?.city, accountData?.state].filter(Boolean).join(', ');
+
+  return (
+    <button
+      onClick={onSelect}
+      className="glass-card rounded-xl p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up"
+    >
+      <div className="flex items-start gap-3">
+        <AccountAvatar
+          name={accountName}
+          accountKey={accountKey}
+          storefrontImage={accountData?.storefrontImage}
+          logos={accountData?.logos}
+          size={40}
+          className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
+        />
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold truncate group-hover:text-[var(--primary)] transition-colors">
+            {accountName}
+          </h3>
+          {location && (
+            <p className="text-[11px] text-[var(--muted-foreground)] truncate mt-0.5">{location}</p>
+          )}
+          {providers.length > 0 && (
+            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+              {providers.slice(0, 4).map((provider) => (
+                <ProviderLogoCircle key={`${accountKey}:${provider}`} provider={provider} size={16} />
+              ))}
+            </div>
+          )}
+        </div>
+        <ChevronRightIcon className="w-4 h-4 text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex-shrink-0" />
+      </div>
+      <div className="mt-3 pt-3 border-t border-[var(--border)]">
+        <div className="flex items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
+          <EnvelopeIcon className="w-3.5 h-3.5" />
+          <span>
+            {templateCount === 0
+              ? 'No templates'
+              : `${templateCount} template${templateCount === 1 ? '' : 's'}`}
+          </span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 // ── Page ──
 
 export default function TemplatesPage() {
@@ -1297,6 +1360,7 @@ export default function TemplatesPage() {
   // Derive the effective account key for single-account mode
   const effectiveAccountKey = isAccount ? accountKey : null;
   const folderAccountKey = effectiveAccountKey || (accountFilter !== 'all' ? accountFilter : null);
+  const showAdminOverview = isAdmin && !folderAccountKey;
   const foldersEnabled = Boolean(
     (userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin')
     && folderAccountKey,
@@ -1442,6 +1506,17 @@ export default function TemplatesPage() {
       return nameA.localeCompare(nameB);
     });
   }, [accounts, accountGroups]);
+
+  const overviewFilteredAccountKeys = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allAccountKeys;
+    return allAccountKeys.filter((k) => {
+      const acct = accounts[k];
+      const name = (acct?.dealer || k).toLowerCase();
+      const location = [acct?.city, acct?.state].filter(Boolean).join(', ').toLowerCase();
+      return name.includes(q) || location.includes(q) || k.toLowerCase().includes(q);
+    });
+  }, [allAccountKeys, accounts, search]);
 
   const createFilteredAccountKeys = useMemo(() => {
     const q = createAccountSearch.trim().toLowerCase();
@@ -1613,6 +1688,9 @@ export default function TemplatesPage() {
   const accountFilterLabel = accountFilter === 'all'
     ? 'All Accounts'
     : selectedAccountData?.dealer || accountFilter;
+  const activeAccountName = folderAccountKey
+    ? (accounts[folderAccountKey]?.dealer || folderAccountKey)
+    : null;
 
   // ── Filtering (for flat list view and account-level view) ──
 
@@ -2168,6 +2246,26 @@ export default function TemplatesPage() {
   const connectedProviders = accountData?.connectedProviders;
   const hasConnection = effectiveAccountKey && connectedProviders && connectedProviders.length > 0;
 
+  const openAdminAccount = useCallback((nextAccountKey: string) => {
+    setAccountFilter(nextAccountKey);
+    setSearch('');
+    setProviderFilter('all');
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setCurrentFolderId(null);
+    setFolderPath([{ id: null, name: 'Root' }]);
+  }, []);
+
+  const backToAllAccounts = useCallback(() => {
+    setAccountFilter('all');
+    setSearch('');
+    setProviderFilter('all');
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setCurrentFolderId(null);
+    setFolderPath([{ id: null, name: 'Root' }]);
+  }, []);
+
   // Shared toolbar props
   const toolbarProps = {
     search,
@@ -2378,13 +2476,35 @@ export default function TemplatesPage() {
             <EnvelopeIcon className="w-7 h-7 text-[var(--primary)]" />
             <div>
               <h2 className="text-2xl font-bold">Templates</h2>
-              <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
-                {isAdmin
-                  ? 'Manage email templates across all accounts'
-                  : isAccount && accountData
-                    ? `Email templates for ${accountData.dealer}`
-                    : 'Manage your email templates'}
-              </p>
+              <div className="flex items-center gap-2 text-sm mt-0.5 flex-wrap">
+                {isAdmin ? (
+                  showAdminOverview ? (
+                    <span className="text-[var(--muted-foreground)]">All Accounts</span>
+                  ) : (
+                    <>
+                      {!effectiveAccountKey && (
+                        <>
+                          <button
+                            onClick={backToAllAccounts}
+                            className="inline-flex items-center gap-1 text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                          >
+                            <ArrowLeftIcon className="w-3.5 h-3.5" />
+                            All Accounts
+                          </button>
+                          <span className="text-[var(--muted-foreground)]">{'>'}</span>
+                        </>
+                      )}
+                      <span className="text-[var(--muted-foreground)]">{activeAccountName}</span>
+                    </>
+                  )
+                ) : (
+                  <span className="text-[var(--muted-foreground)]">
+                    {isAccount && accountData
+                      ? `Email templates for ${accountData.dealer}`
+                      : 'Manage your email templates'}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -2415,12 +2535,84 @@ export default function TemplatesPage() {
         </Link>
       </div>
 
-      {/* ── Admin Mode — flat list with account filter ── */}
-      {isAdmin && (
+      {/* ── Admin Overview Mode ── */}
+      {isAdmin && showAdminOverview && (
         <>
-          <Toolbar showAccountFilter {...toolbarProps} />
+          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <div className="relative flex-1 max-w-xs">
+              <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
+                placeholder="Search sub-accounts..."
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              {canSync && (
+                <button
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+                >
+                  <ArrowPathIcon className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                  {syncing ? 'Syncing...' : syncLabel}
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setCreateAccountKey(null);
+                  setShowCreateChoice(true);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+              >
+                <PlusIcon className="w-4 h-4" /> Add Template
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {overviewFilteredAccountKeys.length} account{overviewFilteredAccountKeys.length === 1 ? '' : 's'}
+              {search.trim() && ` matching "${search.trim()}"`}
+            </p>
+          </div>
+
+          {overviewFilteredAccountKeys.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {overviewFilteredAccountKeys.map((key) => {
+                const group = accountGroups[key];
+                const connected = accounts[key]?.connectedProviders || [];
+                const groupedProviders = group ? [...group.providers] : [];
+                const providers = [...new Set([...connected, ...groupedProviders])];
+                return (
+                  <TemplateAccountCard
+                    key={key}
+                    accountKey={key}
+                    accountData={accounts[key]}
+                    templateCount={group?.templates.length || 0}
+                    providers={providers}
+                    onSelect={() => openAdminAccount(key)}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-[var(--muted-foreground)]">
+              <MagnifyingGlassIcon className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No sub-accounts match &quot;{search.trim()}&quot;</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Admin Account Detail Mode ── */}
+      {isAdmin && !showAdminOverview && (
+        <>
+          <Toolbar showAccountFilter={!effectiveAccountKey} {...toolbarProps} />
           {folderPanel}
-          <TemplateListView templates={filtered} showAccount {...listViewProps} />
+          <TemplateListView templates={filtered} {...listViewProps} />
         </>
       )}
 
