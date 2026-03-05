@@ -84,6 +84,24 @@ function sanitizeFileName(value: string): string {
   return safe || 'template';
 }
 
+function updateLibraryTemplateTitle(raw: string, title: string): string {
+  const nextTitle = JSON.stringify(title.trim());
+  const frontmatterMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n)?/);
+
+  if (!frontmatterMatch) {
+    return `---\ntitle: ${nextTitle}\n---\n\n${raw}`;
+  }
+
+  const existingFrontmatter = frontmatterMatch[1];
+  const hasTitle = /^title:\s*.*$/m.test(existingFrontmatter);
+  const updatedFrontmatter = hasTitle
+    ? existingFrontmatter.replace(/^title:\s*.*$/m, `title: ${nextTitle}`)
+    : `title: ${nextTitle}\n${existingFrontmatter}`;
+  const rest = raw.slice(frontmatterMatch[0].length);
+
+  return `---\n${updatedFrontmatter}\n---\n${rest}`;
+}
+
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -221,6 +239,9 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const [previewDesign, setPreviewDesign] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedDesigns, setSelectedDesigns] = useState<Set<string>>(new Set());
+  const [renameDesign, setRenameDesign] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renaming, setRenaming] = useState(false);
   const [cloneToAccountDesign, setCloneToAccountDesign] = useState<string | null>(null);
   const [downloadingDesign, setDownloadingDesign] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -325,6 +346,67 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
       toast.success(`Cloned as "${data.name}"`);
       await loadTemplates();
     } catch { toast.error('Failed to clone'); }
+  };
+
+  const openRenameModal = (template: TemplateEntry) => {
+    setRenameDesign(template.design);
+    setRenameValue(template.name || formatDesign(template.design));
+  };
+
+  const closeRenameModal = () => {
+    if (renaming) return;
+    setRenameDesign(null);
+    setRenameValue('');
+  };
+
+  const handleRenameTemplate = async () => {
+    if (!renameDesign) return;
+    const nextName = renameValue.trim();
+    if (!nextName) {
+      toast.error('Template name is required');
+      return;
+    }
+
+    const currentName = tplMap[renameDesign]?.name || formatDesign(renameDesign);
+    if (nextName === currentName.trim()) {
+      closeRenameModal();
+      return;
+    }
+
+    setRenaming(true);
+    try {
+      const rawRes = await fetch(`/api/templates?design=${encodeURIComponent(renameDesign)}&format=raw`);
+      const rawData = await rawRes.json().catch(() => ({}));
+      if (!rawRes.ok || typeof rawData?.raw !== 'string') {
+        const message = typeof rawData?.error === 'string' ? rawData.error : 'Failed to load template';
+        toast.error(message);
+        return;
+      }
+
+      const updatedRaw = updateLibraryTemplateTitle(rawData.raw, nextName);
+      const saveRes = await fetch('/api/templates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          design: renameDesign,
+          raw: updatedRaw,
+        }),
+      });
+      const saveData = await saveRes.json().catch(() => ({}));
+      if (!saveRes.ok) {
+        const message = typeof saveData?.error === 'string' ? saveData.error : 'Failed to rename template';
+        toast.error(message);
+        return;
+      }
+
+      toast.success('Template renamed');
+      closeRenameModal();
+      await loadTemplates();
+    } catch {
+      toast.error('Failed to rename template');
+    } finally {
+      setRenaming(false);
+    }
   };
 
   const handleToggleSelect = (design: string) => {
@@ -672,6 +754,13 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                               Edit
                             </button>
                             <button
+                              onClick={() => { setMenuOpen(null); openRenameModal(t); }}
+                              className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                            >
+                              <PencilIcon className="w-4 h-4" />
+                              Rename
+                            </button>
+                            <button
                               onClick={() => { setMenuOpen(null); handleDownloadScreenshot(t); }}
                               disabled={isDownloading}
                               className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2 disabled:opacity-60"
@@ -775,6 +864,58 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
           onReload={loadTemplates}
           onClose={() => setShowBulkModal(false)}
         />
+      )}
+      {renameDesign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={closeRenameModal}>
+          <div className="glass-modal w-[460px]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <h3 className="text-base font-semibold">Rename Template</h3>
+              <button
+                onClick={closeRenameModal}
+                disabled={renaming}
+                className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <input
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleRenameTemplate();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeRenameModal();
+                  }
+                }}
+                placeholder="Template name"
+                autoFocus
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
+              <button
+                onClick={closeRenameModal}
+                disabled={renaming}
+                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void handleRenameTemplate(); }}
+                disabled={renaming || !renameValue.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40"
+              >
+                {renaming ? 'Renaming...' : 'Rename'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Preview Modal */}

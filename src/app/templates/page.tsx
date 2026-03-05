@@ -28,6 +28,7 @@ import {
   ArrowDownTrayIcon,
   ArrowTopRightOnSquareIcon,
   DocumentDuplicateIcon,
+  PencilIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount, type AccountData } from '@/contexts/account-context';
@@ -369,6 +370,7 @@ interface TemplateCardProps {
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
+  onRename: (t: EspTemplateRecord) => void;
   onClone: (t: EspTemplateRecord) => void;
   onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
@@ -386,6 +388,7 @@ function TemplateCard({
   onMenuToggle,
   onPreview,
   onEdit,
+  onRename,
   onClone,
   onDownloadScreenshot,
   onDelete,
@@ -473,6 +476,12 @@ function TemplateCard({
                     <PencilSquareIcon className="w-4 h-4" /> Edit
                   </button>
                   <button
+                    onClick={() => { onMenuToggle(null); onRename(t); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <PencilIcon className="w-4 h-4" /> Rename
+                  </button>
+                  <button
                     onClick={() => { onMenuToggle(null); onClone(t); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                   >
@@ -538,6 +547,7 @@ interface TemplateRowProps {
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
+  onRename: (t: EspTemplateRecord) => void;
   onClone: (t: EspTemplateRecord) => void;
   onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
@@ -555,6 +565,7 @@ function TemplateRow({
   onMenuToggle,
   onPreview,
   onEdit,
+  onRename,
   onClone,
   onDownloadScreenshot,
   onDelete,
@@ -646,6 +657,12 @@ function TemplateRow({
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
               >
                 <PencilSquareIcon className="w-4 h-4" /> Edit
+              </button>
+              <button
+                onClick={() => { onMenuToggle(null); onRename(t); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+              >
+                <PencilIcon className="w-4 h-4" /> Rename
               </button>
               <button
                 onClick={() => { onMenuToggle(null); onClone(t); }}
@@ -996,6 +1013,7 @@ interface TemplateListViewProps {
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
+  onRename: (t: EspTemplateRecord) => void;
   onClone: (t: EspTemplateRecord) => void;
   onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
@@ -1018,6 +1036,7 @@ function TemplateListView({
   onMenuToggle,
   onPreview,
   onEdit,
+  onRename,
   onClone,
   onDownloadScreenshot,
   onDelete,
@@ -1076,6 +1095,7 @@ function TemplateListView({
                 onMenuToggle={onMenuToggle}
                 onPreview={onPreview}
                 onEdit={onEdit}
+                onRename={onRename}
                 onClone={onClone}
                 onDownloadScreenshot={onDownloadScreenshot}
                 onDelete={onDelete}
@@ -1098,6 +1118,7 @@ function TemplateListView({
                 onMenuToggle={onMenuToggle}
                 onPreview={onPreview}
                 onEdit={onEdit}
+                onRename={onRename}
                 onClone={onClone}
                 onDownloadScreenshot={onDownloadScreenshot}
                 onDelete={onDelete}
@@ -1131,11 +1152,14 @@ export default function TemplatesPage() {
   const [showCreateChoice, setShowCreateChoice] = useState(false);
   const [deleteTemplate, setDeleteTemplate] = useState<EspTemplateRecord | null>(null);
   const [previewTemplate, setPreviewTemplate] = useState<EspTemplateRecord | null>(null);
+  const [renameTemplate, setRenameTemplate] = useState<EspTemplateRecord | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const [cloneTemplate, setCloneTemplate] = useState<EspTemplateRecord | null>(null);
   const [cloneDestination, setCloneDestination] = useState<'loomi' | 'subaccounts' | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [cloning, setCloning] = useState(false);
+  const [renaming, setRenaming] = useState(false);
 
   // Library picker (inside create modal)
   const [libraryPickerMode, setLibraryPickerMode] = useState(false);
@@ -1486,6 +1510,66 @@ export default function TemplatesPage() {
     setCreateName('');
   };
 
+  const openRenameModal = useCallback((template: EspTemplateRecord) => {
+    setRenameTemplate(template);
+    setRenameValue(template.name || '');
+  }, []);
+
+  const closeRenameModal = useCallback(() => {
+    if (renaming) return;
+    setRenameTemplate(null);
+    setRenameValue('');
+  }, [renaming]);
+
+  const handleRenameTemplate = useCallback(async () => {
+    if (!renameTemplate) return;
+    const nextName = renameValue.trim();
+    if (!nextName) {
+      toast.error('Template name is required');
+      return;
+    }
+
+    if (nextName === (renameTemplate.name || '').trim()) {
+      closeRenameModal();
+      return;
+    }
+
+    setRenaming(true);
+    try {
+      const res = await fetch(`/api/esp/templates/${encodeURIComponent(renameTemplate.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nextName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = typeof data?.error === 'string' ? data.error : 'Failed to rename template';
+        toast.error(message);
+        return;
+      }
+
+      setAllTemplates((prev) =>
+        prev.map((template) => (
+          template.id === renameTemplate.id
+            ? { ...template, name: nextName }
+            : template
+        )),
+      );
+      setPreviewTemplate((prev) => (
+        prev && prev.id === renameTemplate.id
+          ? { ...prev, name: nextName }
+          : prev
+      ));
+      toast.success('Template renamed');
+      setRenameTemplate(null);
+      setRenameValue('');
+    } catch {
+      toast.error('Failed to rename template');
+    } finally {
+      setRenaming(false);
+    }
+  }, [closeRenameModal, renameTemplate, renameValue]);
+
   const openCloneModal = useCallback((template: EspTemplateRecord) => {
     setCloneTemplate(template);
     setCloneDestination(null);
@@ -1783,6 +1867,7 @@ export default function TemplatesPage() {
     onMenuToggle: (id: string | null) => { if (id !== null) menuClickRef.current = true; setOpenMenu(id); },
     onPreview: setPreviewTemplate,
     onEdit: navigateToEditor,
+    onRename: openRenameModal,
     onClone: openCloneModal,
     onDownloadScreenshot: handleDownloadScreenshot,
     onDelete: setDeleteTemplate,
@@ -2083,6 +2168,63 @@ export default function TemplatesPage() {
         </div>
         );
       })()}
+
+      {/* ── Rename Modal ── */}
+      {renameTemplate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={closeRenameModal}>
+          <div className="glass-modal w-[460px]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <h3 className="text-base font-semibold">Rename Template</h3>
+              <button
+                onClick={closeRenameModal}
+                disabled={renaming}
+                className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Update the name for <span className="text-[var(--foreground)] font-medium">{renameTemplate.name}</span>.
+              </p>
+              <input
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleRenameTemplate();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeRenameModal();
+                  }
+                }}
+                placeholder="Template name"
+                autoFocus
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
+              <button
+                onClick={closeRenameModal}
+                disabled={renaming}
+                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void handleRenameTemplate(); }}
+                disabled={renaming || !renameValue.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40"
+              >
+                {renaming ? 'Renaming...' : 'Rename'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Clone Modal ── */}
       {cloneTemplate && (
