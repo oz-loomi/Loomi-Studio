@@ -2413,19 +2413,25 @@ export default function MediaPage() {
                   }}
                   onDrop={(e) => handleMoveDrop(e, folder.id)}
                 >
-                  <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigateToFolder(folder)}>
+                  <div
+                    className="flex items-center gap-3 cursor-pointer transition-all duration-200 group-hover:h-full group-hover:justify-center"
+                    onClick={() => navigateToFolder(folder)}
+                  >
                     <div className="w-10 h-10 rounded-lg bg-[var(--primary)]/10 flex items-center justify-center flex-shrink-0">
                       <FolderIcon className="w-5 h-5 text-[var(--primary)]" />
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <h3 className="text-xs font-semibold truncate group-hover:text-[var(--primary)] transition-colors" title={folder.name}>
+                    <div className="min-w-0 flex-1 transition-all duration-200 group-hover:flex-none">
+                      <h3
+                        className="text-xs font-semibold truncate text-left group-hover:text-center group-hover:text-[var(--primary)] transition-colors"
+                        title={folder.name}
+                      >
                         {folder.name}
                       </h3>
-                      <span className="text-[10px] text-[var(--muted-foreground)]">
+                      <span className="text-[10px] text-[var(--muted-foreground)] group-hover:hidden">
                         {timeAgo(folder.createdAt)}
                       </span>
                     </div>
-                    <ChevronRightIcon className="w-4 h-4 text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <ChevronRightIcon className="w-4 h-4 text-[var(--muted-foreground)] opacity-0 -translate-x-1 group-hover:translate-x-0 group-hover:opacity-100 transition-all" />
                   </div>
                   {/* Folder context menu button */}
                   {(capabilities?.canMove || capabilities?.canDelete) && (
