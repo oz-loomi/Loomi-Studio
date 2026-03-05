@@ -29,17 +29,17 @@ export default function BulkActionDock({
 
   return (
     <div className="fixed bottom-6 left-1/2 z-40 w-fit max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-fade-in-up">
-      <div className="flex items-center rounded-2xl border border-[var(--border)] bg-[var(--card)]/95 px-2 py-1.5 shadow-[0_18px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+      <div className="loomi-bulk-dock flex items-center rounded-2xl border px-2 py-1.5 backdrop-blur-xl">
         <div className="flex items-center gap-2 px-3 py-1.5">
-          <span className="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-[var(--primary)] px-2 text-xs font-semibold text-white">
+          <span className="loomi-bulk-dock-count inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-[var(--primary)] px-2 text-xs font-semibold text-white">
             {count}
           </span>
-          <span className="text-sm font-semibold text-[var(--foreground)] whitespace-nowrap">
+          <span className="text-[13px] font-semibold text-[var(--foreground)] whitespace-nowrap">
             {count} {itemLabel} selected
           </span>
         </div>
 
-        <span className="mx-1 h-8 w-px bg-[var(--border)]" />
+        <span className="loomi-bulk-dock-sep mx-1 h-8 w-px" />
 
         <div className="flex items-center">
           {visibleActions.map((action, index) => (
@@ -48,26 +48,22 @@ export default function BulkActionDock({
                 type="button"
                 onClick={action.onClick}
                 disabled={action.disabled}
-                className={`inline-flex min-w-[88px] flex-col items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                  action.danger
-                    ? 'text-red-400 hover:bg-red-500/10'
-                    : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
-                }`}
+                className={`loomi-bulk-dock-action inline-flex min-w-[88px] flex-col items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${action.danger ? 'loomi-bulk-dock-action-danger' : ''}`}
               >
                 <span className="h-4 w-4">{action.icon}</span>
                 <span className="whitespace-nowrap">{action.label}</span>
               </button>
-              {index < visibleActions.length - 1 && <span className="mx-1 h-8 w-px bg-[var(--border)]" />}
+              {index < visibleActions.length - 1 && <span className="loomi-bulk-dock-sep mx-1 h-8 w-px" />}
             </div>
           ))}
         </div>
 
-        <span className="mx-1 h-8 w-px bg-[var(--border)]" />
+        <span className="loomi-bulk-dock-sep mx-1 h-8 w-px" />
 
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+          className="loomi-bulk-dock-close inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors"
           aria-label="Close bulk actions"
         >
           <XMarkIcon className="h-4 w-4" />

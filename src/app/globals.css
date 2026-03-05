@@ -402,6 +402,93 @@ main[data-scrolled='true'] .page-sticky-header {
     inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
 }
 
+/* ── Bulk action dock ── */
+.loomi-bulk-dock {
+  background: rgba(10, 12, 24, 0.95);
+  border-color: rgba(99, 102, 241, 0.34);
+  box-shadow:
+    0 20px 52px rgba(0, 0, 0, 0.56),
+    0 0 0 1px rgba(99, 102, 241, 0.22),
+    0 0 28px rgba(99, 102, 241, 0.18),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.1);
+}
+
+.loomi-bulk-dock-count {
+  box-shadow: 0 8px 18px rgba(99, 102, 241, 0.45);
+}
+
+.loomi-bulk-dock-sep {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.loomi-bulk-dock-action {
+  color: rgba(250, 250, 252, 0.96);
+}
+
+.loomi-bulk-dock-action:hover {
+  background: rgba(99, 102, 241, 0.18);
+}
+
+.loomi-bulk-dock-action-danger {
+  color: #f87171;
+}
+
+.loomi-bulk-dock-action-danger:hover {
+  background: rgba(239, 68, 68, 0.17);
+}
+
+.loomi-bulk-dock-close {
+  color: rgba(212, 212, 216, 0.92);
+}
+
+.loomi-bulk-dock-close:hover {
+  color: #ffffff;
+  background: rgba(99, 102, 241, 0.18);
+}
+
+[data-theme='light'] .loomi-bulk-dock {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(59, 130, 246, 0.32);
+  box-shadow:
+    0 20px 44px rgba(15, 23, 42, 0.18),
+    0 0 0 1px rgba(59, 130, 246, 0.18),
+    0 0 22px rgba(59, 130, 246, 0.12),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.96);
+}
+
+[data-theme='light'] .loomi-bulk-dock-count {
+  box-shadow: 0 7px 16px rgba(59, 130, 246, 0.34);
+}
+
+[data-theme='light'] .loomi-bulk-dock-sep {
+  background: rgba(15, 23, 42, 0.13);
+}
+
+[data-theme='light'] .loomi-bulk-dock-action {
+  color: rgba(15, 23, 42, 0.92);
+}
+
+[data-theme='light'] .loomi-bulk-dock-action:hover {
+  background: rgba(59, 130, 246, 0.13);
+}
+
+[data-theme='light'] .loomi-bulk-dock-action-danger {
+  color: #dc2626;
+}
+
+[data-theme='light'] .loomi-bulk-dock-action-danger:hover {
+  background: rgba(220, 38, 38, 0.13);
+}
+
+[data-theme='light'] .loomi-bulk-dock-close {
+  color: rgba(63, 63, 70, 0.9);
+}
+
+[data-theme='light'] .loomi-bulk-dock-close:hover {
+  color: rgba(15, 23, 42, 0.96);
+  background: rgba(59, 130, 246, 0.13);
+}
+
 /* Keep Apex charts transparent so Loomi glass gradients show through in both themes */
 .apexcharts-canvas,
 .apexcharts-svg,
