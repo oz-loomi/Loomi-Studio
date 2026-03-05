@@ -928,6 +928,7 @@ export default function MediaPage() {
   const [overviewData, setOverviewData] = useState<Record<string, AccountMediaPreview>>({});
   const [overviewLoaded, setOverviewLoaded] = useState(false);
   const [overviewSearch, setOverviewSearch] = useState('');
+  const [overviewTab, setOverviewTab] = useState<'subaccounts' | 'loomi'>('subaccounts');
 
   // ── Admin S3 media state ──
   const [adminMediaFiles, setAdminMediaFiles] = useState<MediaFile[]>([]);
@@ -950,6 +951,8 @@ export default function MediaPage() {
   // Show overview when admin has no specific account selected
   const showOverview = isAdmin && !effectiveAccountKey;
   const canDropUploadFiles = showOverview || !!effectiveAccountKey;
+  const isLoomiOverviewTab = showOverview && overviewTab === 'loomi';
+  const isSubAccountOverviewTab = showOverview && overviewTab === 'subaccounts';
 
   // All account keys (sorted)
   const allAccountKeys = useMemo(() => {
@@ -1363,7 +1366,10 @@ export default function MediaPage() {
       stageFiles(droppedFiles);
 
       if (showOverview) {
-        setUploadDestination('s3');
+        const defaultDestination = overviewTab === 'subaccounts' && connectedAccountKeys.length > 0
+          ? 'esp'
+          : 's3';
+        setUploadDestination(defaultDestination);
         setUploadAccountKeys(new Set());
         setUploadAccountSearch('');
       } else {
@@ -1386,7 +1392,7 @@ export default function MediaPage() {
       pageDragDepthRef.current = 0;
       setPageDragOver(false);
     };
-  }, [canDropUploadFiles, showOverview, stageFiles]);
+  }, [canDropUploadFiles, connectedAccountKeys.length, overviewTab, showOverview, stageFiles]);
 
   // ── Rename ──
 
@@ -1915,6 +1921,14 @@ export default function MediaPage() {
     return adminMediaFiles.filter(f => f.name.toLowerCase().includes(q));
   }, [adminMediaFiles, overviewSearch]);
 
+  useEffect(() => {
+    if (!showOverview) return;
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setOpenMenu(null);
+    setOverviewSearch('');
+  }, [overviewTab, showOverview]);
+
   // ── Connection state ──
   const connectedProviders = accountData?.connectedProviders;
   const hasConnection = effectiveAccountKey && connectedProviders && connectedProviders.length > 0;
@@ -2049,7 +2063,16 @@ export default function MediaPage() {
           <div className="flex items-center gap-2">
             {showOverview && (
               <PrimaryButton
-                onClick={() => { setUploadDestination('s3'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
+                onClick={() => {
+                  const defaultDestination = overviewTab === 'subaccounts' && connectedAccountKeys.length > 0
+                    ? 'esp'
+                    : 's3';
+                  setUploadDestination(defaultDestination);
+                  setUploadAccountKeys(new Set());
+                  setUploadAccountSearch('');
+                  setStagedFiles([]);
+                  setShowUploadModal(true);
+                }}
                 disabled={uploading}
               >
                 <ArrowUpTrayIcon className="w-3.5 h-3.5" />
@@ -2093,6 +2116,30 @@ export default function MediaPage() {
             id="media-upload-input"
           />
 
+          {/* Overview tabs */}
+          <div className="flex items-center gap-1 mb-4 border-b border-[var(--border)]">
+            <button
+              onClick={() => setOverviewTab('subaccounts')}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                overviewTab === 'subaccounts'
+                  ? 'border-[var(--primary)] text-[var(--primary)]'
+                  : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              Sub-account Media
+            </button>
+            <button
+              onClick={() => setOverviewTab('loomi')}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                overviewTab === 'loomi'
+                  ? 'border-[var(--primary)] text-[var(--primary)]'
+                  : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              Loomi Media
+            </button>
+          </div>
+
           {/* Overview toolbar: search + buttons */}
           <div className="flex items-center justify-between mb-4 gap-3">
             <div className="relative flex-1 max-w-xs">
@@ -2102,10 +2149,10 @@ export default function MediaPage() {
                 value={overviewSearch}
                 onChange={(e) => setOverviewSearch(e.target.value)}
                 className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
-                placeholder="Search..."
+                placeholder={isLoomiOverviewTab ? 'Search Loomi media...' : 'Search sub-accounts...'}
               />
             </div>
-            {adminMediaFiles.length > 0 && !selectMode && (
+            {isLoomiOverviewTab && adminMediaFiles.length > 0 && !selectMode && (
               <button
                 onClick={() => { setSelectMode(true); setSelectedIds(new Set()); }}
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
@@ -2117,7 +2164,7 @@ export default function MediaPage() {
           </div>
 
           {/* Bulk selection toolbar (admin overview) */}
-          {selectMode && (
+          {isLoomiOverviewTab && selectMode && (
             <div className="flex items-center justify-between mb-4 px-4 py-2.5 rounded-lg bg-[var(--primary)]/10 border border-[var(--primary)]/20 animate-fade-in-up">
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium text-[var(--foreground)]">
@@ -2165,7 +2212,7 @@ export default function MediaPage() {
           )}
 
           {/* ── Loomi Media Library section ── */}
-          {adminMediaLoading && adminMediaFiles.length === 0 && (
+          {isLoomiOverviewTab && adminMediaLoading && adminMediaFiles.length === 0 && (
             <div className="mb-8">
               <h3 className="text-sm font-semibold text-[var(--foreground)] mb-3">Loomi Media Library</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
@@ -2182,7 +2229,7 @@ export default function MediaPage() {
             </div>
           )}
 
-          {!adminMediaLoading && filteredAdminMedia.length > 0 && (
+          {isLoomiOverviewTab && !adminMediaLoading && filteredAdminMedia.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-[var(--foreground)]">Loomi Media Library</h3>
@@ -2218,17 +2265,22 @@ export default function MediaPage() {
             </div>
           )}
 
-          {/* Empty state: no admin files and no connected accounts */}
-          {!adminMediaLoading && adminMediaFiles.length === 0 && connectedAccountKeys.length === 0 && (
+          {isLoomiOverviewTab && !adminMediaLoading && filteredAdminMedia.length === 0 && (
             <div className="text-center py-16 text-[var(--muted-foreground)]">
               <PhotoIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-sm font-medium mb-1">No media files yet</p>
-              <p className="text-xs">Upload files to Loomi or connect an integration in account settings.</p>
+              <p className="text-sm font-medium mb-1">
+                {overviewSearch.trim() ? 'No Loomi media match your search' : 'No Loomi media files yet'}
+              </p>
+              <p className="text-xs">
+                {overviewSearch.trim()
+                  ? 'Try a different search term.'
+                  : 'Upload files to Loomi to build your shared media library.'}
+              </p>
             </div>
           )}
 
           {/* ── Sub-account cards section ── */}
-          {connectedAccountKeys.length > 0 && (
+          {isSubAccountOverviewTab && connectedAccountKeys.length > 0 && (
             <>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-[var(--foreground)]">Sub-account Media</h3>
@@ -2256,6 +2308,13 @@ export default function MediaPage() {
                 </div>
               )}
             </>
+          )}
+          {isSubAccountOverviewTab && connectedAccountKeys.length === 0 && (
+            <div className="text-center py-16 text-[var(--muted-foreground)]">
+              <PhotoIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm font-medium mb-1">No connected sub-accounts</p>
+              <p className="text-xs">Connect an integration in account settings to view sub-account media.</p>
+            </div>
           )}
         </>
       )}
