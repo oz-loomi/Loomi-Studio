@@ -687,6 +687,7 @@ function ManagementRoleDashboard({
   const [customizePanelOpen, setCustomizePanelOpen] = useState(false);
   const [draggedWidgetId, setDraggedWidgetId] = useState<string | null>(null);
   const [managementSideRailMounted, setManagementSideRailMounted] = useState(false);
+  const [filterSideRailMounted, setFilterSideRailMounted] = useState(false);
 
   useEffect(() => {
     if (!isDeveloper) return;
@@ -706,6 +707,7 @@ function ManagementRoleDashboard({
     setFiltersPanelOpen(false);
     setDraggedWidgetId(null);
     setManagementSideRailMounted(false);
+    setFilterSideRailMounted(false);
   }, [role, developerMode, isAccountMode, focusedAccountKey]);
 
   const managementSideRailOpen = customizePanelOpen;
@@ -719,6 +721,15 @@ function ManagementRoleDashboard({
     const timer = window.setTimeout(() => setManagementSideRailMounted(false), 260);
     return () => window.clearTimeout(timer);
   }, [managementSideRailOpen]);
+
+  useEffect(() => {
+    if (filtersPanelOpen) {
+      setFilterSideRailMounted(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setFilterSideRailMounted(false), 260);
+    return () => window.clearTimeout(timer);
+  }, [filtersPanelOpen]);
 
   useEffect(() => {
     if (!filtersPanelOpen) return;
@@ -804,17 +815,6 @@ function ManagementRoleDashboard({
     if (!isSuperAdmin || !superAdminPresetsHydrated || typeof window === 'undefined') return;
     window.localStorage.setItem(quickFilterStorageKey, JSON.stringify(superAdminPresets));
   }, [isSuperAdmin, superAdminPresetsHydrated, quickFilterStorageKey, superAdminPresets]);
-
-  useEffect(() => {
-    if (!filtersPanelOpen) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setFiltersPanelOpen(false);
-      }
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [filtersPanelOpen]);
 
   // Mock data mode — populate mock states and skip SWR fetches
   useEffect(() => {
@@ -1856,13 +1856,12 @@ function ManagementRoleDashboard({
     />
   );
 
-  const filtersDropdown = filtersPanelOpen ? (
-    <div className="fixed inset-0 z-[80]">
-      <div
-        className="absolute inset-0 bg-black/55 backdrop-blur-sm"
-        onClick={() => setFiltersPanelOpen(false)}
-      />
-      <aside className="glass-panel glass-panel-strong fixed right-3 top-3 bottom-3 w-[350px] rounded-2xl flex flex-col overflow-hidden">
+  const filterSidePanel = (
+    <div className={`glass-panel glass-panel-strong w-full rounded-2xl flex flex-col overflow-hidden transition-[opacity,transform,max-height] duration-300 ease-out lg:sticky lg:top-24 lg:w-[360px] ${
+      filtersPanelOpen
+        ? 'pointer-events-auto max-h-[calc(100vh-8rem)] translate-x-0 opacity-100 animate-slide-in-right'
+        : 'pointer-events-none max-h-0 translate-x-4 opacity-0'
+    }`}>
       <div className="p-5 border-b border-[var(--sidebar-border-soft)] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FunnelIcon className="w-5 h-5 text-black dark:text-[var(--primary)]" />
@@ -2110,9 +2109,8 @@ function ManagementRoleDashboard({
           Done
         </button>
       </div>
-      </aside>
     </div>
-  ) : null;
+  );
 
   const activeFilterCount = (selectedAccounts.length > 0 ? 1 : 0) + (selectedRepIds.length > 0 ? 1 : 0);
 
@@ -2245,6 +2243,7 @@ function ManagementRoleDashboard({
                   return;
                 }
                 setFiltersPanelOpen(false);
+                setFilterSideRailMounted(false);
                 setManagementSideRailMounted(true);
                 setCustomizePanelOpen(true);
                 dashboardCustomization.setEditMode(true);
@@ -2266,35 +2265,33 @@ function ManagementRoleDashboard({
               showReset={false}
               triggerSize="header"
             />
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  if (filtersPanelOpen) {
-                    setFiltersPanelOpen(false);
-                    return;
-                  }
-                  dashboardCustomization.setEditMode(false);
-                  setCustomizePanelOpen(false);
-                  setDraggedWidgetId(null);
-                  setFiltersPanelOpen(true);
-                }}
-                className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
-                  filtersPanelOpen
-                    ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                    : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
-                }`}
-              >
-                <FunnelIcon className="h-4 w-4" />
-                <span className="hidden sm:inline">Filters</span>
-                {activeFilterCount > 0 ? (
-                  <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--primary)]">
-                    {activeFilterCount}
-                  </span>
-                ) : null}
-              </button>
-              {filtersDropdown}
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (filtersPanelOpen) {
+                  setFiltersPanelOpen(false);
+                  return;
+                }
+                dashboardCustomization.setEditMode(false);
+                setCustomizePanelOpen(false);
+                setManagementSideRailMounted(false);
+                setDraggedWidgetId(null);
+                setFiltersPanelOpen(true);
+              }}
+              className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
+                filtersPanelOpen
+                  ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <FunnelIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">Filters</span>
+              {activeFilterCount > 0 ? (
+                <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--primary)]">
+                  {activeFilterCount}
+                </span>
+              ) : null}
+            </button>
           </div>
         </div>
       </div>
@@ -2308,7 +2305,7 @@ function ManagementRoleDashboard({
       ) : null}
 
       {!loading && isDeveloper && developerMode === 'technical' ? (
-        <div className={managementSideRailMounted ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
+        <div className={(managementSideRailMounted || filterSideRailMounted) ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
           <div className="flex flex-col gap-5">
             {renderManagedWidget('tech_overview', (
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -2416,12 +2413,12 @@ function ManagementRoleDashboard({
             </div>
           ))}
           </div>
-          {managementSideRailMounted ? managementCustomizePanel : null}
+          {filterSideRailMounted ? filterSidePanel : managementSideRailMounted ? managementCustomizePanel : null}
         </div>
       ) : null}
 
       {!loading && (!isDeveloper || developerMode === 'analytics') ? (
-        <div className={managementSideRailMounted ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
+        <div className={(managementSideRailMounted || filterSideRailMounted) ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start' : ''}>
           <div className={isDeveloper ? 'flex flex-col gap-5' : 'flex flex-col gap-8'}>
             {renderManagedWidget('summary', (
             isDeveloper ? (
@@ -2742,7 +2739,7 @@ function ManagementRoleDashboard({
             </div>
           )) : null}
           </div>
-          {managementSideRailMounted ? managementCustomizePanel : null}
+          {filterSideRailMounted ? filterSidePanel : managementSideRailMounted ? managementCustomizePanel : null}
         </div>
       ) : null}
     </div>
