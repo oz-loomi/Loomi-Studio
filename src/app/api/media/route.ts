@@ -29,6 +29,22 @@ function canAccessAccount(
   return accountKeys.includes(accountKey);
 }
 
+function describeMediaUploadError(err: unknown): { status: number; error: string } {
+  const message = err instanceof Error ? err.message : 'Failed to upload media';
+
+  if (
+    message.includes('S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are required')
+    || message.includes('S3_BUCKET is required')
+  ) {
+    return {
+      status: 503,
+      error: 'Loomi storage is not configured on the server. Missing S3 credentials or bucket.',
+    };
+  }
+
+  return { status: 500, error: 'Failed to upload media' };
+}
+
 /**
  * GET /api/media
  *
@@ -149,55 +165,61 @@ export async function POST(req: NextRequest) {
 
   const s3Key = buildS3Key(accountKey, assetId, file.name);
 
-  // Upload original to S3
-  await uploadToS3(s3Key, buffer, mimeType);
+  try {
+    // Upload original to S3
+    await uploadToS3(s3Key, buffer, mimeType);
 
-  // Generate thumbnail for images
-  let thumbnailKey: string | null = null;
-  let width: number | null = null;
-  let height: number | null = null;
+    // Generate thumbnail for images
+    let thumbnailKey: string | null = null;
+    let width: number | null = null;
+    let height: number | null = null;
 
-  const thumbResult = await generateThumbnail(buffer, mimeType);
-  if (thumbResult) {
-    thumbnailKey = buildThumbnailKey(accountKey, assetId);
-    await uploadToS3(thumbnailKey, thumbResult.buffer, 'image/webp');
-    width = thumbResult.originalWidth;
-    height = thumbResult.originalHeight;
-  }
+    const thumbResult = await generateThumbnail(buffer, mimeType);
+    if (thumbResult) {
+      thumbnailKey = buildThumbnailKey(accountKey, assetId);
+      await uploadToS3(thumbnailKey, thumbResult.buffer, 'image/webp');
+      width = thumbResult.originalWidth;
+      height = thumbResult.originalHeight;
+    }
 
-  // Save metadata to DB
-  const asset = await prisma.mediaAsset.create({
-    data: {
-      id: assetId,
-      accountKey,
-      s3Key,
-      filename: file.name,
-      mimeType,
-      size: buffer.length,
-      width,
-      height,
-      thumbnailKey,
-      category,
-      uploadedBy: session!.user.id,
-    },
-  });
-
-  return NextResponse.json(
-    {
-      file: {
-        id: asset.id,
-        name: asset.filename,
-        url: s3PublicUrl(asset.s3Key),
-        type: asset.mimeType,
-        size: asset.size,
-        width: asset.width,
-        height: asset.height,
-        thumbnailUrl: asset.thumbnailKey ? s3PublicUrl(asset.thumbnailKey) : undefined,
-        category: asset.category,
-        createdAt: asset.createdAt.toISOString(),
-        source: 's3' as const,
+    // Save metadata to DB
+    const asset = await prisma.mediaAsset.create({
+      data: {
+        id: assetId,
+        accountKey,
+        s3Key,
+        filename: file.name,
+        mimeType,
+        size: buffer.length,
+        width,
+        height,
+        thumbnailKey,
+        category,
+        uploadedBy: session!.user.id,
       },
-    },
-    { status: 201 },
-  );
+    });
+
+    return NextResponse.json(
+      {
+        file: {
+          id: asset.id,
+          name: asset.filename,
+          url: s3PublicUrl(asset.s3Key),
+          type: asset.mimeType,
+          size: asset.size,
+          width: asset.width,
+          height: asset.height,
+          thumbnailUrl: asset.thumbnailKey ? s3PublicUrl(asset.thumbnailKey) : undefined,
+          category: asset.category,
+          createdAt: asset.createdAt.toISOString(),
+          source: 's3' as const,
+        },
+      },
+      { status: 201 },
+    );
+  } catch (err) {
+    console.error('[api/media] upload failed:', err);
+    const { status, error } = describeMediaUploadError(err);
+    return NextResponse.json({ error }, { status });
+  }
 }
