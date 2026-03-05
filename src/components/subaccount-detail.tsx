@@ -1401,7 +1401,11 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
         {/* ════════════ INTEGRATIONS TAB ════════════ */}
         {activeTab === 'integration' && (
           <div className="max-w-7xl space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--foreground)] mb-1">Connected Services</h2>
+              <p className="text-xs text-[var(--muted-foreground)]">Link third-party platforms to sync contacts, campaigns, and engagement data.</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
 
               {providerCards.map((provider) => {
                 const providerId = provider.provider;
@@ -1412,22 +1416,22 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
 
                 return (
                   <div key={providerId} className="glass-card rounded-xl border border-[var(--border)] overflow-hidden flex flex-col">
-                    <div className={`flex items-center justify-center px-6 py-8 ${providerTheme.headerClassName || 'bg-[var(--muted)]'} rounded-t-xl`}>
+                    <div className={`flex items-center justify-center h-32 ${providerTheme.headerClassName || 'bg-[var(--muted)]'} rounded-t-xl`}>
                       {providerTheme.logoSrc ? (
                         <img
                           src={providerTheme.logoSrc}
                           alt={providerTheme.logoAlt || providerLabel}
-                          className="w-full max-w-[180px] object-contain"
+                          className="max-h-20 max-w-[180px] object-contain"
                         />
                       ) : (
-                        <div className="w-14 h-14 rounded-full border border-[var(--border)] bg-[var(--card)] flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                        <div className="w-12 h-12 rounded-full border border-[var(--border)] bg-[var(--card)] flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
                           {providerId.slice(0, 3)}
                         </div>
                       )}
                     </div>
-                    <div className="p-5 flex-1 flex flex-col">
-                      <h3 className="text-base font-semibold text-[var(--foreground)] mb-1">{providerLabel}</h3>
-                      <p className="text-xs text-[var(--muted-foreground)] mb-4 leading-relaxed">
+                    <div className="p-4 flex-1 flex flex-col">
+                      <h3 className="text-sm font-semibold text-[var(--foreground)] mb-0.5">{providerLabel}</h3>
+                      <p className="text-[11px] text-[var(--muted-foreground)] mb-3 leading-relaxed">
                         {providerTheme.description}
                       </p>
 

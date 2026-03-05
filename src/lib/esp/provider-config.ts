@@ -48,7 +48,7 @@ export type EspProviderConfig = {
 
 const ESP_PROVIDER_CONFIG: Record<string, EspProviderConfig> = {
   ghl: {
-    displayName: 'GoHighLevel',
+    displayName: 'HighLevel',
     description: 'CRM, contacts, campaigns, workflows, and messaging in one platform.',
     features: [
       'Contact syncing & analytics',
@@ -64,7 +64,7 @@ const ESP_PROVIDER_CONFIG: Record<string, EspProviderConfig> = {
     iconSrc: 'https://storage.googleapis.com/msgsndr/CVpny6EUSHRxlXfqAFb7/media/6992d3c254da0462343bf828.jpg',
     iconAlt: 'GoHighLevel',
     headerClassName: 'bg-white',
-    connectButtonClassName: 'bg-[#0c2340] text-white hover:bg-[#163a5f]',
+    connectButtonClassName: '',
     customValuesSyncDelayMs: 200,
     portalLinks: {
       getCampaignCreateLinks(locationId) {
@@ -128,7 +128,7 @@ const ESP_PROVIDER_CONFIG: Record<string, EspProviderConfig> = {
     iconSrc: 'https://storage.googleapis.com/msgsndr/CVpny6EUSHRxlXfqAFb7/media/6992d3ac3b3cc9155bdaf06e.png',
     iconAlt: 'Klaviyo',
     headerClassName: 'bg-white',
-    connectButtonClassName: 'bg-black text-white hover:bg-neutral-800',
+    connectButtonClassName: '',
     portalLinks: {
       getCampaignCreateLinks() {
         return {
@@ -166,8 +166,8 @@ const ESP_PROVIDER_CONFIG: Record<string, EspProviderConfig> = {
     logoAlt: 'Twilio',
     iconSrc: 'https://assets.cdn.filesafe.space/CVpny6EUSHRxlXfqAFb7/media/69a93f41618c8d22a7eb0004.jpg',
     iconAlt: 'Twilio',
-    headerClassName: 'bg-white',
-    connectButtonClassName: 'bg-[#F22F46] text-white hover:bg-[#D91C33]',
+    headerClassName: 'bg-[#F22F46]',
+    connectButtonClassName: '',
     portalLinks: {
       getCampaignCreateLinks() {
         return {
