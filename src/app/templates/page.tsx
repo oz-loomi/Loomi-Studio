@@ -38,6 +38,7 @@ import { toast } from '@/lib/toast';
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
 import { LibraryPickerContent } from '@/components/library-picker-content';
+import PrimaryButton from '@/components/primary-button';
 import { getStarterTemplate } from '@/lib/template-starters';
 
 // ── Types ──
@@ -761,9 +762,6 @@ interface ToolbarProps {
   syncLabel: string;
   syncing: boolean;
   handleSync: () => void;
-  effectiveAccountKey: string | null;
-  setShowCreateChoice: (v: boolean) => void;
-  setCreateAccountKey: (v: string | null) => void;
   // Bulk selection
   selectMode: boolean;
   setSelectMode: (v: boolean) => void;
@@ -799,9 +797,6 @@ function Toolbar({
   syncLabel,
   syncing,
   handleSync,
-  effectiveAccountKey,
-  setShowCreateChoice,
-  setCreateAccountKey,
   selectMode,
   setSelectMode,
   selectedIds,
@@ -1035,18 +1030,6 @@ function Toolbar({
           </button>
         )}
 
-        {/* Create */}
-        {(isAdmin || effectiveAccountKey) && (
-          <button
-            onClick={() => {
-              setCreateAccountKey(accountFilter !== 'all' ? accountFilter : null);
-              setShowCreateChoice(true);
-            }}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            <PlusIcon className="w-4 h-4" /> Add Template
-          </button>
-        )}
       </div>
     </div>
   );
@@ -2289,9 +2272,6 @@ export default function TemplatesPage() {
     syncLabel,
     syncing,
     handleSync,
-    effectiveAccountKey,
-    setShowCreateChoice,
-    setCreateAccountKey,
     selectMode,
     setSelectMode,
     selectedIds,
@@ -2327,9 +2307,15 @@ export default function TemplatesPage() {
     onSelect: handleToggleSelect,
   };
   const canCloneToSubAccounts = isAdmin && allAccountKeys.length > 0;
-  const folderPanel = foldersEnabled ? (
+  const showFolderPanel = foldersEnabled && (
+    showNewFolderInput
+    || foldersLoading
+    || currentLevelFolders.length > 0
+    || currentFolderId !== null
+  );
+  const folderPanel = showFolderPanel ? (
     <div className="mb-4 glass-card rounded-xl p-3 border border-[var(--border)]">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1 text-xs flex-wrap">
           {folderPath.map((crumb, index) => {
             const isLast = index === folderPath.length - 1;
@@ -2355,15 +2341,6 @@ export default function TemplatesPage() {
             );
           })}
         </div>
-        <button
-          onClick={() => {
-            setShowNewFolderInput((prev) => !prev);
-            if (showNewFolderInput) setNewFolderName('');
-          }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--foreground)] border border-[var(--border)] rounded-lg hover:bg-[var(--muted)] transition-colors"
-        >
-          <FolderPlusIcon className="w-3.5 h-3.5" /> New Folder
-        </button>
       </div>
 
       {showNewFolderInput && (
@@ -2507,7 +2484,35 @@ export default function TemplatesPage() {
               </div>
             </div>
           </div>
-
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {foldersEnabled && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNewFolderInput((prev) => {
+                    if (prev) setNewFolderName('');
+                    return !prev;
+                  });
+                }}
+                className="inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)] transition-colors"
+              >
+                <FolderPlusIcon className="w-4 h-4" />
+                Add Folder
+              </button>
+            )}
+            {(isAdmin || effectiveAccountKey) && (
+              <PrimaryButton
+                type="button"
+                onClick={() => {
+                  setCreateAccountKey(folderAccountKey);
+                  setShowCreateChoice(true);
+                }}
+              >
+                <PlusIcon className="w-4 h-4" />
+                Add Template
+              </PrimaryButton>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2560,15 +2565,6 @@ export default function TemplatesPage() {
                   {syncing ? 'Syncing...' : syncLabel}
                 </button>
               )}
-              <button
-                onClick={() => {
-                  setCreateAccountKey(null);
-                  setShowCreateChoice(true);
-                }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-              >
-                <PlusIcon className="w-4 h-4" /> Add Template
-              </button>
             </div>
           </div>
 

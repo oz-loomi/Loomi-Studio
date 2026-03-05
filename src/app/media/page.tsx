@@ -2075,26 +2075,31 @@ export default function MediaPage() {
                 }}
                 disabled={uploading}
               >
-                <ArrowUpTrayIcon className="w-3.5 h-3.5" />
+                <ArrowUpTrayIcon className="w-4 h-4" />
                 {uploading ? 'Uploading...' : 'Add Media'}
               </PrimaryButton>
             )}
             {effectiveAccountKey && (
               <>
                 <PrimaryButton
-                  onClick={() => { setUploadDestination('esp'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
-                  disabled={uploading}
-                >
-                  <ArrowUpTrayIcon className="w-3.5 h-3.5" />
-                  {uploading ? 'Uploading...' : 'Add Media'}
-                </PrimaryButton>
+                onClick={() => { setUploadDestination('esp'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
+                disabled={uploading}
+              >
+                <ArrowUpTrayIcon className="w-4 h-4" />
+                {uploading ? 'Uploading...' : 'Add Media'}
+              </PrimaryButton>
                 {capabilities?.canCreateFolders && (
                   <button
-                    onClick={() => setShowNewFolderInput(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                    onClick={() => {
+                      setShowNewFolderInput((prev) => {
+                        if (prev) setNewFolderName('');
+                        return !prev;
+                      });
+                    }}
+                    className="inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)] transition-colors"
                   >
-                    <FolderPlusIcon className="w-3.5 h-3.5" />
-                    New Folder
+                    <FolderPlusIcon className="w-4 h-4" />
+                    Add Folder
                   </button>
                 )}
               </>
