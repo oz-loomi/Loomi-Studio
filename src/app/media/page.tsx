@@ -2256,7 +2256,6 @@ export default function MediaPage() {
           {/* ── Loomi Media Library section ── */}
           {isLoomiOverviewTab && adminMediaLoading && adminMediaFiles.length === 0 && (
             <div className="mb-8">
-              <h3 className="text-sm font-semibold text-[var(--foreground)] mb-3">Loomi Media Library</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
                 {[1, 2, 3, 4].map(i => (
                   <div key={i} className="glass-card rounded-xl animate-pulse">
@@ -2273,8 +2272,7 @@ export default function MediaPage() {
 
           {isLoomiOverviewTab && !adminMediaLoading && filteredAdminMedia.length > 0 && (
             <div className="mb-8">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-[var(--foreground)]">Loomi Media Library</h3>
+              <div className="flex items-center justify-end mb-3">
                 <p className="text-xs text-[var(--muted-foreground)]">
                   {filteredAdminMedia.length} file{filteredAdminMedia.length !== 1 ? 's' : ''}
                   {adminMediaTotal > filteredAdminMedia.length && ` of ${adminMediaTotal}`}

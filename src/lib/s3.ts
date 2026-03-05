@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  S3ServiceException,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -54,15 +55,38 @@ export function buildThumbnailKey(accountKey: string | null, assetId: string): s
 
 /** Upload a buffer to S3. */
 export async function uploadToS3(key: string, body: Buffer, contentType: string): Promise<void> {
-  await getClient().send(
-    new PutObjectCommand({
-      Bucket: getBucket(),
-      Key: key,
-      Body: body,
-      ContentType: contentType,
-      CacheControl: 'public, max-age=31536000, immutable',
-    }),
-  );
+  const bucket = getBucket();
+  const putBase = {
+    Bucket: bucket,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+    CacheControl: 'public, max-age=31536000, immutable',
+  };
+
+  // DO Spaces uploads are private by default; set public-read for persistent media URLs.
+  const aclSetting = (process.env.S3_UPLOAD_ACL || 'public-read').trim().toLowerCase();
+  const wantsPublicRead = aclSetting === 'public-read';
+
+  try {
+    await getClient().send(
+      new PutObjectCommand({
+        ...putBase,
+        ...(wantsPublicRead ? { ACL: 'public-read' } : {}),
+      }),
+    );
+  } catch (err) {
+    // Some S3-compatible backends disable ACLs; retry once without ACL in that case.
+    if (wantsPublicRead && err instanceof S3ServiceException) {
+      const code = `${err.name || ''} ${err.message || ''}`.toLowerCase();
+      const aclUnsupported = code.includes('accesscontrollistnotsupported') || code.includes('acl');
+      if (aclUnsupported) {
+        await getClient().send(new PutObjectCommand(putBase));
+        return;
+      }
+    }
+    throw err;
+  }
 }
 
 /** Delete an object from S3. */
