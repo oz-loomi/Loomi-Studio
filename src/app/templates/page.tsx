@@ -29,6 +29,10 @@ import {
   ArrowTopRightOnSquareIcon,
   DocumentDuplicateIcon,
   PencilIcon,
+  FolderIcon,
+  FolderPlusIcon,
+  HomeIcon,
+  ChevronRightIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount, type AccountData } from '@/contexts/account-context';
@@ -55,6 +59,20 @@ interface EspTemplateRecord {
   lastSyncedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface TemplateFolder {
+  id: string;
+  accountKey: string;
+  name: string;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface FolderBreadcrumb {
+  id: string | null;
+  name: string;
 }
 
 interface ProviderInfo {
@@ -366,11 +384,13 @@ interface TemplateCardProps {
   isSelected: boolean;
   selectMode: boolean;
   downloading: boolean;
+  canMove: boolean;
   accounts: Record<string, AccountData>;
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
   onRename: (t: EspTemplateRecord) => void;
+  onMove: (t: EspTemplateRecord) => void;
   onClone: (t: EspTemplateRecord) => void;
   onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
@@ -384,11 +404,13 @@ function TemplateCard({
   isSelected,
   selectMode,
   downloading,
+  canMove,
   accounts,
   onMenuToggle,
   onPreview,
   onEdit,
   onRename,
+  onMove,
   onClone,
   onDownloadScreenshot,
   onDelete,
@@ -481,6 +503,14 @@ function TemplateCard({
                   >
                     <PencilIcon className="w-4 h-4" /> Rename
                   </button>
+                  {canMove && (
+                    <button
+                      onClick={() => { onMenuToggle(null); onMove(t); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                    >
+                      <FolderIcon className="w-4 h-4" /> Move
+                    </button>
+                  )}
                   <button
                     onClick={() => { onMenuToggle(null); onClone(t); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
@@ -543,11 +573,13 @@ interface TemplateRowProps {
   isSelected: boolean;
   selectMode: boolean;
   downloading: boolean;
+  canMove: boolean;
   accounts: Record<string, AccountData>;
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
   onRename: (t: EspTemplateRecord) => void;
+  onMove: (t: EspTemplateRecord) => void;
   onClone: (t: EspTemplateRecord) => void;
   onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
@@ -561,11 +593,13 @@ function TemplateRow({
   isSelected,
   selectMode,
   downloading,
+  canMove,
   accounts,
   onMenuToggle,
   onPreview,
   onEdit,
   onRename,
+  onMove,
   onClone,
   onDownloadScreenshot,
   onDelete,
@@ -664,6 +698,14 @@ function TemplateRow({
               >
                 <PencilIcon className="w-4 h-4" /> Rename
               </button>
+              {canMove && (
+                <button
+                  onClick={() => { onMenuToggle(null); onMove(t); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                >
+                  <FolderIcon className="w-4 h-4" /> Move
+                </button>
+              )}
               <button
                 onClick={() => { onMenuToggle(null); onClone(t); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
@@ -730,6 +772,8 @@ interface ToolbarProps {
   filteredCount: number;
   filteredIds: string[];
   onBulkDelete: () => void;
+  onBulkMove?: () => void;
+  foldersEnabled?: boolean;
 }
 
 function Toolbar({
@@ -765,6 +809,8 @@ function Toolbar({
   filteredCount,
   filteredIds,
   onBulkDelete,
+  onBulkMove,
+  foldersEnabled = false,
 }: ToolbarProps) {
   // Selection toolbar when items are selected
   if (selectMode) {
@@ -789,6 +835,15 @@ function Toolbar({
           </button>
         </div>
         <div className="flex items-center gap-2">
+          {foldersEnabled && selectedIds.size > 0 && (
+            <button
+              onClick={onBulkMove}
+              disabled={!onBulkMove}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-40"
+            >
+              <FolderIcon className="w-4 h-4" /> Move
+            </button>
+          )}
           {selectedIds.size > 0 && (
             <button
               onClick={onBulkDelete}
@@ -1008,12 +1063,14 @@ interface TemplateListViewProps {
   openMenu: string | null;
   selectMode: boolean;
   selectedIds: Set<string>;
+  canMove: boolean;
   accounts: Record<string, AccountData>;
   downloadingId: string | null;
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
   onRename: (t: EspTemplateRecord) => void;
+  onMove: (t: EspTemplateRecord) => void;
   onClone: (t: EspTemplateRecord) => void;
   onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
@@ -1031,12 +1088,14 @@ function TemplateListView({
   openMenu,
   selectMode,
   selectedIds,
+  canMove,
   accounts,
   downloadingId,
   onMenuToggle,
   onPreview,
   onEdit,
   onRename,
+  onMove,
   onClone,
   onDownloadScreenshot,
   onDelete,
@@ -1091,11 +1150,13 @@ function TemplateListView({
                 isSelected={selectedIds.has(t.id)}
                 selectMode={selectMode}
                 downloading={downloadingId === t.id}
+                canMove={canMove}
                 accounts={accounts}
                 onMenuToggle={onMenuToggle}
                 onPreview={onPreview}
                 onEdit={onEdit}
                 onRename={onRename}
+                onMove={onMove}
                 onClone={onClone}
                 onDownloadScreenshot={onDownloadScreenshot}
                 onDelete={onDelete}
@@ -1114,11 +1175,13 @@ function TemplateListView({
                 isSelected={selectedIds.has(t.id)}
                 selectMode={selectMode}
                 downloading={downloadingId === t.id}
+                canMove={canMove}
                 accounts={accounts}
                 onMenuToggle={onMenuToggle}
                 onPreview={onPreview}
                 onEdit={onEdit}
                 onRename={onRename}
+                onMove={onMove}
                 onClone={onClone}
                 onDownloadScreenshot={onDownloadScreenshot}
                 onDelete={onDelete}
@@ -1135,7 +1198,7 @@ function TemplateListView({
 // ── Page ──
 
 export default function TemplatesPage() {
-  const { isAdmin, isAccount, accountKey, accountData, accounts } = useAccount();
+  const { isAdmin, isAccount, accountKey, accountData, accounts, userRole } = useAccount();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -1170,6 +1233,24 @@ export default function TemplatesPage() {
   const [createMode, setCreateMode] = useState<'visual' | 'code' | null>(null);
   const [createName, setCreateName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [templateFolders, setTemplateFolders] = useState<TemplateFolder[]>([]);
+  const [templateFolderAssignments, setTemplateFolderAssignments] = useState<Record<string, string>>({});
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [folderPath, setFolderPath] = useState<FolderBreadcrumb[]>([{ id: null, name: 'Root' }]);
+  const [showNewFolderInput, setShowNewFolderInput] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
+  const [renameFolderItem, setRenameFolderItem] = useState<TemplateFolder | null>(null);
+  const [renameFolderValue, setRenameFolderValue] = useState('');
+  const [renamingFolder, setRenamingFolder] = useState(false);
+  const [deleteFolderItem, setDeleteFolderItem] = useState<TemplateFolder | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState(false);
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [moveTemplateIds, setMoveTemplateIds] = useState<string[]>([]);
+  const [moveTargetFolderId, setMoveTargetFolderId] = useState<string | null>(null);
+  const [movingTemplates, setMovingTemplates] = useState(false);
   const previewTemplateHtml = useMemo(
     () => (previewTemplate ? getLatestRenderableHtml(previewTemplate) : ''),
     [previewTemplate],
@@ -1195,6 +1276,7 @@ export default function TemplatesPage() {
     const handler = () => {
       if (menuClickRef.current) { menuClickRef.current = false; return; }
       setOpenMenu(null);
+      setFolderMenuId(null);
     };
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
@@ -1214,6 +1296,11 @@ export default function TemplatesPage() {
 
   // Derive the effective account key for single-account mode
   const effectiveAccountKey = isAccount ? accountKey : null;
+  const folderAccountKey = effectiveAccountKey || (accountFilter !== 'all' ? accountFilter : null);
+  const foldersEnabled = Boolean(
+    (userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin')
+    && folderAccountKey,
+  );
 
   // ── Data Loading ──
 
@@ -1265,6 +1352,71 @@ export default function TemplatesPage() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [loadTemplates]);
+
+  const loadTemplateFolders = useCallback(async () => {
+    if (!foldersEnabled || !folderAccountKey) {
+      setTemplateFolders([]);
+      setTemplateFolderAssignments({});
+      return;
+    }
+    setFoldersLoading(true);
+    try {
+      const params = new URLSearchParams({ accountKey: folderAccountKey });
+      const res = await fetch(`/api/esp/template-folders?${params.toString()}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = typeof data?.error === 'string' ? data.error : 'Failed to load folders';
+        toast.error(message);
+        return;
+      }
+      const nextFolders = Array.isArray(data?.folders) ? data.folders as TemplateFolder[] : [];
+      const nextAssignments = data?.assignments && typeof data.assignments === 'object'
+        ? data.assignments as Record<string, string>
+        : {};
+      setTemplateFolders(nextFolders);
+      setTemplateFolderAssignments(nextAssignments);
+    } catch {
+      toast.error('Failed to load folders');
+    } finally {
+      setFoldersLoading(false);
+    }
+  }, [folderAccountKey, foldersEnabled]);
+
+  useEffect(() => {
+    setCurrentFolderId(null);
+    setFolderPath([{ id: null, name: 'Root' }]);
+    setShowNewFolderInput(false);
+    setNewFolderName('');
+    setFolderMenuId(null);
+    if (!foldersEnabled || !folderAccountKey) {
+      setTemplateFolders([]);
+      setTemplateFolderAssignments({});
+      return;
+    }
+    void loadTemplateFolders();
+  }, [folderAccountKey, foldersEnabled, loadTemplateFolders]);
+
+  useEffect(() => {
+    if (!foldersEnabled) return;
+    if (!currentFolderId) {
+      setFolderPath([{ id: null, name: 'Root' }]);
+      return;
+    }
+
+    const byId = new Map<string, TemplateFolder>(
+      templateFolders.map((folder): [string, TemplateFolder] => [folder.id, folder]),
+    );
+    const seen = new Set<string>();
+    const pathItems: FolderBreadcrumb[] = [];
+    let cursor: string | null = currentFolderId;
+    while (cursor && byId.has(cursor) && !seen.has(cursor)) {
+      seen.add(cursor);
+      const nextFolder: TemplateFolder = byId.get(cursor)!;
+      pathItems.unshift({ id: nextFolder.id, name: nextFolder.name });
+      cursor = nextFolder.parentId;
+    }
+    setFolderPath([{ id: null, name: 'Root' }, ...pathItems]);
+  }, [currentFolderId, foldersEnabled, templateFolders]);
 
   // ── Grouped data for admin overview ──
 
@@ -1487,8 +1639,26 @@ export default function TemplatesPage() {
       );
     }
 
+    if (foldersEnabled) {
+      result = result.filter((template) => {
+        const assignedFolderId = templateFolderAssignments[template.id] || null;
+        if (currentFolderId) return assignedFolderId === currentFolderId;
+        return !assignedFolderId;
+      });
+    }
+
     return result;
-  }, [allTemplates, providerFilter, search, accountFilter, isAdmin, accounts]);
+  }, [
+    allTemplates,
+    providerFilter,
+    search,
+    accountFilter,
+    isAdmin,
+    accounts,
+    foldersEnabled,
+    templateFolderAssignments,
+    currentFolderId,
+  ]);
 
   const filteredIds = useMemo(() => filtered.map(t => t.id), [filtered]);
 
@@ -1496,6 +1666,13 @@ export default function TemplatesPage() {
     const set = new Set(allTemplates.map(t => t.provider));
     return Array.from(set).sort();
   }, [allTemplates]);
+
+  const currentLevelFolders = useMemo(() => {
+    if (!foldersEnabled) return [] as TemplateFolder[];
+    return templateFolders
+      .filter((folder) => (folder.parentId || null) === (currentFolderId || null))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [currentFolderId, foldersEnabled, templateFolders]);
 
   const toggleView = (mode: 'card' | 'list') => { setViewMode(mode); saveView(mode); };
 
@@ -1509,6 +1686,180 @@ export default function TemplatesPage() {
     setCreateMode(mode);
     setCreateName('');
   };
+
+  const handleCreateFolder = useCallback(async () => {
+    if (!folderAccountKey) return;
+    const folderName = newFolderName.trim();
+    if (!folderName) return;
+    setCreatingFolder(true);
+    try {
+      const res = await fetch('/api/esp/template-folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountKey: folderAccountKey,
+          name: folderName,
+          parentId: currentFolderId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = typeof data?.error === 'string' ? data.error : 'Failed to create folder';
+        toast.error(message);
+        return;
+      }
+      const created = data?.folder as TemplateFolder | undefined;
+      if (created) {
+        setTemplateFolders((prev) => [...prev, created]);
+      } else {
+        await loadTemplateFolders();
+      }
+      setNewFolderName('');
+      setShowNewFolderInput(false);
+      toast.success('Folder created');
+    } catch {
+      toast.error('Failed to create folder');
+    } finally {
+      setCreatingFolder(false);
+    }
+  }, [currentFolderId, folderAccountKey, loadTemplateFolders, newFolderName]);
+
+  const openRenameFolderModal = useCallback((folder: TemplateFolder) => {
+    setRenameFolderItem(folder);
+    setRenameFolderValue(folder.name);
+  }, []);
+
+  const closeRenameFolderModal = useCallback(() => {
+    if (renamingFolder) return;
+    setRenameFolderItem(null);
+    setRenameFolderValue('');
+  }, [renamingFolder]);
+
+  const handleRenameFolder = useCallback(async () => {
+    if (!renameFolderItem || !folderAccountKey) return;
+    const nextName = renameFolderValue.trim();
+    if (!nextName) {
+      toast.error('Folder name is required');
+      return;
+    }
+    if (nextName === renameFolderItem.name) {
+      closeRenameFolderModal();
+      return;
+    }
+    setRenamingFolder(true);
+    try {
+      const res = await fetch(`/api/esp/template-folders/${encodeURIComponent(renameFolderItem.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountKey: folderAccountKey,
+          name: nextName,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = typeof data?.error === 'string' ? data.error : 'Failed to rename folder';
+        toast.error(message);
+        return;
+      }
+      setTemplateFolders((prev) =>
+        prev.map((folder) => (
+          folder.id === renameFolderItem.id
+            ? { ...folder, name: nextName }
+            : folder
+        )),
+      );
+      closeRenameFolderModal();
+      toast.success('Folder renamed');
+    } catch {
+      toast.error('Failed to rename folder');
+    } finally {
+      setRenamingFolder(false);
+    }
+  }, [closeRenameFolderModal, folderAccountKey, renameFolderItem, renameFolderValue]);
+
+  const handleDeleteFolder = useCallback(async () => {
+    if (!deleteFolderItem || !folderAccountKey) return;
+    setDeletingFolder(true);
+    try {
+      const params = new URLSearchParams({ accountKey: folderAccountKey });
+      const res = await fetch(`/api/esp/template-folders/${encodeURIComponent(deleteFolderItem.id)}?${params.toString()}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = typeof data?.error === 'string' ? data.error : 'Failed to delete folder';
+        toast.error(message);
+        return;
+      }
+
+      const deletedIds = Array.isArray(data?.deletedIds) ? data.deletedIds as string[] : [];
+      const deletedSet = new Set(deletedIds);
+
+      setTemplateFolders(Array.isArray(data?.folders) ? data.folders as TemplateFolder[] : []);
+      setTemplateFolderAssignments(
+        data?.assignments && typeof data.assignments === 'object'
+          ? data.assignments as Record<string, string>
+          : {},
+      );
+      if (currentFolderId && deletedSet.has(currentFolderId)) {
+        setCurrentFolderId(null);
+      }
+      setDeleteFolderItem(null);
+      toast.success('Folder deleted');
+    } catch {
+      toast.error('Failed to delete folder');
+    } finally {
+      setDeletingFolder(false);
+    }
+  }, [currentFolderId, deleteFolderItem, folderAccountKey]);
+
+  const openMoveTemplatesModal = useCallback((templateIds: string[]) => {
+    if (templateIds.length === 0) return;
+    setMoveTemplateIds(Array.from(new Set(templateIds)));
+    setMoveTargetFolderId(currentFolderId);
+    setShowMoveModal(true);
+  }, [currentFolderId]);
+
+  const closeMoveModal = useCallback(() => {
+    if (movingTemplates) return;
+    setShowMoveModal(false);
+    setMoveTemplateIds([]);
+    setMoveTargetFolderId(null);
+  }, [movingTemplates]);
+
+  const handleMoveTemplates = useCallback(async (targetFolderId: string | null) => {
+    if (!folderAccountKey || moveTemplateIds.length === 0) return;
+    setMovingTemplates(true);
+    try {
+      const res = await fetch('/api/esp/template-folders/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountKey: folderAccountKey,
+          templateIds: moveTemplateIds,
+          folderId: targetFolderId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = typeof data?.error === 'string' ? data.error : 'Failed to move templates';
+        toast.error(message);
+        return;
+      }
+      setTemplateFolderAssignments(
+        data?.assignments && typeof data.assignments === 'object'
+          ? data.assignments as Record<string, string>
+          : {},
+      );
+      closeMoveModal();
+      toast.success(`Moved ${moveTemplateIds.length} template${moveTemplateIds.length === 1 ? '' : 's'}`);
+    } catch {
+      toast.error('Failed to move templates');
+    } finally {
+      setMovingTemplates(false);
+    }
+  }, [closeMoveModal, folderAccountKey, moveTemplateIds]);
 
   const openRenameModal = useCallback((template: EspTemplateRecord) => {
     setRenameTemplate(template);
@@ -1850,6 +2201,8 @@ export default function TemplatesPage() {
     filteredCount: filtered.length,
     filteredIds,
     onBulkDelete: handleBulkDelete,
+    onBulkMove: foldersEnabled ? () => openMoveTemplatesModal(Array.from(selectedIds)) : undefined,
+    foldersEnabled,
   };
 
   // Shared list view props
@@ -1862,18 +2215,157 @@ export default function TemplatesPage() {
     openMenu,
     selectMode,
     selectedIds,
+    canMove: foldersEnabled,
     accounts,
     downloadingId,
     onMenuToggle: (id: string | null) => { if (id !== null) menuClickRef.current = true; setOpenMenu(id); },
     onPreview: setPreviewTemplate,
     onEdit: navigateToEditor,
     onRename: openRenameModal,
+    onMove: (template: EspTemplateRecord) => openMoveTemplatesModal([template.id]),
     onClone: openCloneModal,
     onDownloadScreenshot: handleDownloadScreenshot,
     onDelete: setDeleteTemplate,
     onSelect: handleToggleSelect,
   };
   const canCloneToSubAccounts = isAdmin && allAccountKeys.length > 0;
+  const folderPanel = foldersEnabled ? (
+    <div className="mb-4 glass-card rounded-xl p-3 border border-[var(--border)]">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-1 text-xs flex-wrap">
+          {folderPath.map((crumb, index) => {
+            const isLast = index === folderPath.length - 1;
+            const isRoot = index === 0;
+            return (
+              <span key={crumb.id ?? 'root'} className="flex items-center gap-1">
+                {index > 0 && <ChevronRightIcon className="w-3 h-3 text-[var(--muted-foreground)]" />}
+                {isLast ? (
+                  <span className="inline-flex items-center gap-1 font-medium text-[var(--foreground)]">
+                    {isRoot ? <HomeIcon className="w-3.5 h-3.5" /> : <FolderIcon className="w-3.5 h-3.5" />}
+                    {crumb.name}
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setCurrentFolderId(crumb.id)}
+                    className="inline-flex items-center gap-1 text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                  >
+                    {isRoot ? <HomeIcon className="w-3.5 h-3.5" /> : <FolderIcon className="w-3.5 h-3.5" />}
+                    {crumb.name}
+                  </button>
+                )}
+              </span>
+            );
+          })}
+        </div>
+        <button
+          onClick={() => {
+            setShowNewFolderInput((prev) => !prev);
+            if (showNewFolderInput) setNewFolderName('');
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--foreground)] border border-[var(--border)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+        >
+          <FolderPlusIcon className="w-3.5 h-3.5" /> New Folder
+        </button>
+      </div>
+
+      {showNewFolderInput && (
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            type="text"
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void handleCreateFolder();
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setShowNewFolderInput(false);
+                setNewFolderName('');
+              }
+            }}
+            placeholder="Folder name"
+            className="w-full max-w-xs px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--foreground)]"
+            autoFocus
+          />
+          <button
+            onClick={() => { void handleCreateFolder(); }}
+            disabled={creatingFolder || !newFolderName.trim()}
+            className="px-3 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40"
+          >
+            {creatingFolder ? 'Creating...' : 'Create'}
+          </button>
+          <button
+            onClick={() => { setShowNewFolderInput(false); setNewFolderName(''); }}
+            className="px-3 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      <div className="mt-3">
+        {foldersLoading ? (
+          <p className="text-xs text-[var(--muted-foreground)]">Loading folders...</p>
+        ) : currentLevelFolders.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {currentLevelFolders.map((folder) => (
+              <div
+                key={folder.id}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)]"
+              >
+                <button
+                  onClick={() => setCurrentFolderId(folder.id)}
+                  className="flex-1 min-w-0 flex items-center gap-2 text-left hover:text-[var(--primary)] transition-colors"
+                >
+                  <FolderIcon className="w-4 h-4 text-[var(--primary)] flex-shrink-0" />
+                  <span className="text-sm font-medium truncate">{folder.name}</span>
+                </button>
+                <div className="relative">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFolderMenuId((prev) => (prev === folder.id ? null : folder.id));
+                    }}
+                    className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <EllipsisVerticalIcon className="w-4 h-4" />
+                  </button>
+                  {folderMenuId === folder.id && (
+                    <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => {
+                          setFolderMenuId(null);
+                          openRenameFolderModal(folder);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                      >
+                        <PencilIcon className="w-4 h-4" />
+                        Rename
+                      </button>
+                      <button
+                        onClick={() => {
+                          setFolderMenuId(null);
+                          setDeleteFolderItem(folder);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2"
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-[var(--muted-foreground)]">No folders in this location.</p>
+        )}
+      </div>
+    </div>
+  ) : null;
 
   // ── Render ──
 
@@ -1927,6 +2419,7 @@ export default function TemplatesPage() {
       {isAdmin && (
         <>
           <Toolbar showAccountFilter {...toolbarProps} />
+          {folderPanel}
           <TemplateListView templates={filtered} showAccount {...listViewProps} />
         </>
       )}
@@ -1955,6 +2448,7 @@ export default function TemplatesPage() {
           {effectiveAccountKey && (hasConnection || loading) && (
             <>
               <Toolbar {...toolbarProps} />
+              {folderPanel}
               <TemplateListView templates={filtered} {...listViewProps} />
             </>
           )}
@@ -2168,6 +2662,161 @@ export default function TemplatesPage() {
         </div>
         );
       })()}
+
+      {/* ── Rename Folder Modal ── */}
+      {renameFolderItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={closeRenameFolderModal}>
+          <div className="glass-modal w-[440px]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <h3 className="text-base font-semibold">Rename Folder</h3>
+              <button
+                onClick={closeRenameFolderModal}
+                disabled={renamingFolder}
+                className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5">
+              <input
+                type="text"
+                value={renameFolderValue}
+                onChange={(e) => setRenameFolderValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleRenameFolder();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeRenameFolderModal();
+                  }
+                }}
+                placeholder="Folder name"
+                autoFocus
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
+              <button
+                onClick={closeRenameFolderModal}
+                disabled={renamingFolder}
+                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void handleRenameFolder(); }}
+                disabled={renamingFolder || !renameFolderValue.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40"
+              >
+                {renamingFolder ? 'Renaming...' : 'Rename'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Folder Modal ── */}
+      {deleteFolderItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => !deletingFolder && setDeleteFolderItem(null)}>
+          <div className="glass-modal w-[420px]" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[var(--border)]">
+              <h3 className="text-base font-semibold">Delete Folder</h3>
+            </div>
+            <div className="p-5 space-y-2">
+              <p className="text-sm text-[var(--foreground)]">
+                Delete <strong>{deleteFolderItem.name}</strong> and all subfolders?
+              </p>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Templates inside deleted folders are moved back to root.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
+              <button
+                onClick={() => setDeleteFolderItem(null)}
+                disabled={deletingFolder}
+                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void handleDeleteFolder(); }}
+                disabled={deletingFolder}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+              >
+                {deletingFolder ? 'Deleting...' : 'Delete Folder'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Move Templates Modal ── */}
+      {showMoveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={closeMoveModal}>
+          <div className="glass-modal w-[520px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <div>
+                <h3 className="text-base font-semibold">Move Templates</h3>
+                <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                  {moveTemplateIds.length} selected
+                </p>
+              </div>
+              <button
+                onClick={closeMoveModal}
+                disabled={movingTemplates}
+                className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto space-y-2">
+              <button
+                onClick={() => setMoveTargetFolderId(null)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors ${
+                  moveTargetFolderId === null
+                    ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                    : 'border-[var(--border)] hover:bg-[var(--muted)]'
+                }`}
+              >
+                <HomeIcon className="w-4 h-4" />
+                Root
+              </button>
+              {templateFolders.map((folder) => (
+                <button
+                  key={folder.id}
+                  onClick={() => setMoveTargetFolderId(folder.id)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors ${
+                    moveTargetFolderId === folder.id
+                      ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                      : 'border-[var(--border)] hover:bg-[var(--muted)]'
+                  }`}
+                >
+                  <FolderIcon className="w-4 h-4" />
+                  <span className="truncate">{folder.name}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
+              <button
+                onClick={closeMoveModal}
+                disabled={movingTemplates}
+                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void handleMoveTemplates(moveTargetFolderId); }}
+                disabled={movingTemplates}
+                className="px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40"
+              >
+                {movingTemplates ? 'Moving...' : 'Move'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Rename Modal ── */}
       {renameTemplate && (
