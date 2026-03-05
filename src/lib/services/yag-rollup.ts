@@ -1441,21 +1441,70 @@ function resolveScheduledSyncMode(
   config: YagRollupConfigPayload,
   nowUtc: Date,
 ): 'skip' | 'incremental' | 'full' {
-  const minute = nowUtc.getUTCMinutes();
-  const hour = nowUtc.getUTCHours();
+  const nowMs = nowUtc.getTime();
+  const lastSyncedAtMs = parseDateMs(config.lastSyncedAt || '');
+  const hasSyncedSince = (slotMs: number): boolean =>
+    lastSyncedAtMs !== null && lastSyncedAtMs >= slotMs;
 
-  if (
-    config.fullSyncEnabled
-    && hour === config.fullSyncHourUtc
-    && minute === config.fullSyncMinuteUtc
-  ) {
-    return 'full';
+  const latestDailySlotMs = (
+    hourUtc: number,
+    minuteUtc: number,
+  ): number => {
+    const todaySlot = Date.UTC(
+      nowUtc.getUTCFullYear(),
+      nowUtc.getUTCMonth(),
+      nowUtc.getUTCDate(),
+      hourUtc,
+      minuteUtc,
+      0,
+      0,
+    );
+    return todaySlot <= nowMs
+      ? todaySlot
+      : todaySlot - (24 * 60 * 60 * 1000);
+  };
+
+  const latestIncrementalSlotMs = (
+    intervalHours: number,
+    minuteUtc: number,
+  ): number => {
+    const safeInterval = Math.max(1, intervalHours);
+    const slot = new Date(Date.UTC(
+      nowUtc.getUTCFullYear(),
+      nowUtc.getUTCMonth(),
+      nowUtc.getUTCDate(),
+      nowUtc.getUTCHours(),
+      minuteUtc,
+      0,
+      0,
+    ));
+    const hourOffset = slot.getUTCHours() % safeInterval;
+    slot.setUTCHours(slot.getUTCHours() - hourOffset);
+    if (slot.getTime() > nowMs) {
+      slot.setUTCHours(slot.getUTCHours() - safeInterval);
+    }
+    return slot.getTime();
+  };
+
+  if (config.fullSyncEnabled) {
+    const fullSlotMs = latestDailySlotMs(
+      config.fullSyncHourUtc,
+      config.fullSyncMinuteUtc,
+    );
+    if (!hasSyncedSince(fullSlotMs)) {
+      return 'full';
+    }
   }
 
-  if (minute !== config.scheduleMinuteUtc) return 'skip';
-  if (hour % config.scheduleIntervalHours !== 0) return 'skip';
+  const incrementalSlotMs = latestIncrementalSlotMs(
+    config.scheduleIntervalHours,
+    config.scheduleMinuteUtc,
+  );
+  if (!hasSyncedSince(incrementalSlotMs)) {
+    return 'incremental';
+  }
 
-  return 'incremental';
+  return 'skip';
 }
 
 export async function runYagRollupWipe(
