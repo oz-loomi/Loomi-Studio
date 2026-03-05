@@ -18,7 +18,6 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   EyeIcon,
-  ScissorsIcon,
   CheckIcon,
   FolderArrowDownIcon,
   Squares2X2Icon,
@@ -113,6 +112,20 @@ const S3_CAPABILITIES: MediaCapabilities = {
 };
 
 const RECENT_MEDIA_VISIBLE_KEY = 'loomi-media-recent-visible';
+
+function CropIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 48 48"
+      className={className}
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M 11.970703 3.9726562 A 2.0002 2.0002 0 0 0 10 6 L 10 10 L 6 10 A 2.0002 2.0002 0 1 0 6 14 L 10 14 L 10 31 C 10 34.842251 13.157749 38 17 38 L 34 38 L 34 42 A 2.0002 2.0002 0 1 0 38 42 L 38 38 L 42 38 A 2.0002 2.0002 0 1 0 42 34 L 17 34 C 15.320251 34 14 32.679749 14 31 L 14 6 A 2.0002 2.0002 0 0 0 11.970703 3.9726562 z M 16 10 L 16 14 L 31 14 C 32.679749 14 34 15.320251 34 17 L 34 32 L 38 32 L 38 17 C 38 13.157749 34.842251 10 31 10 L 16 10 z" />
+    </svg>
+  );
+}
 
 function providerLabel(provider: string): string {
   return PROVIDER_META[provider]?.displayName || provider;
@@ -467,7 +480,7 @@ function CropEditorModal({ file, saving, onClose, onSave }: CropEditorModalProps
             disabled={!canSave}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            <ScissorsIcon className="w-4 h-4" />
+            <CropIcon className="w-4 h-4" />
             {saving ? 'Cropping...' : 'Crop & Upload'}
           </button>
         </div>
@@ -2486,7 +2499,7 @@ export default function MediaPage() {
               {filteredFolders.map(folder => (
                 <div
                   key={folder.id}
-                  className={`glass-card rounded-xl min-h-[116px] p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up relative ${
+                  className={`glass-card rounded-xl p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up relative ${
                     capabilities?.canMove ? 'cursor-grab active:cursor-grabbing' : ''
                   } ${dropTargetId === folder.id ? 'ring-2 ring-[var(--primary)] bg-[var(--primary)]/10 scale-[1.02] shadow-lg shadow-[var(--primary)]/20' : ''}`}
                   draggable={!!capabilities?.canMove}
@@ -2500,24 +2513,23 @@ export default function MediaPage() {
                   onDrop={(e) => handleMoveDrop(e, folder.id)}
                 >
                   <div
-                    className="flex items-center gap-3 cursor-pointer transition-all duration-200 group-hover:h-full group-hover:justify-center"
+                    className="flex items-center gap-3 cursor-pointer"
                     onClick={() => navigateToFolder(folder)}
                   >
                     <div className="w-10 h-10 rounded-lg bg-[var(--primary)]/10 flex items-center justify-center flex-shrink-0">
                       <FolderIcon className="w-5 h-5 text-[var(--primary)]" />
                     </div>
-                    <div className="min-w-0 flex-1 transition-all duration-200 group-hover:flex-none">
+                    <div className="min-w-0 flex-1">
                       <h3
-                        className="text-xs font-semibold truncate text-left group-hover:text-center group-hover:text-[var(--primary)] transition-colors"
+                        className="text-xs font-semibold truncate"
                         title={folder.name}
                       >
                         {folder.name}
                       </h3>
-                      <span className="text-[10px] text-[var(--muted-foreground)] group-hover:hidden">
+                      <span className="text-[10px] text-[var(--muted-foreground)]">
                         {timeAgo(folder.createdAt)}
                       </span>
                     </div>
-                    <ChevronRightIcon className="w-4 h-4 text-[var(--muted-foreground)] opacity-0 -translate-x-1 group-hover:translate-x-0 group-hover:opacity-100 transition-all" />
                   </div>
                   {/* Folder context menu button */}
                   {(capabilities?.canMove || capabilities?.canDelete) && (
@@ -3412,7 +3424,7 @@ export default function MediaPage() {
                       onClick={() => setCropFile(previewFile)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
                     >
-                      <ScissorsIcon className="w-3.5 h-3.5" /> Crop
+                      <CropIcon className="w-3.5 h-3.5" /> Crop
                     </button>
                   )}
                   <button

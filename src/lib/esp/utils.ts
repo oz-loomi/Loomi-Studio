@@ -6,13 +6,16 @@ import { getDefaultEspProvider } from './registry';
 
 /**
  * Run async tasks with a concurrency limit.
+ * Optional onProgress callback fires after each task settles.
  */
 export async function withConcurrencyLimit<T>(
   tasks: (() => Promise<T>)[],
   limit: number,
+  onProgress?: (completed: number, total: number) => void,
 ): Promise<PromiseSettledResult<T>[]> {
   const results: PromiseSettledResult<T>[] = new Array(tasks.length);
   let nextIndex = 0;
+  let completed = 0;
 
   async function runNext(): Promise<void> {
     while (nextIndex < tasks.length) {
@@ -23,6 +26,8 @@ export async function withConcurrencyLimit<T>(
       } catch (reason) {
         results[index] = { status: 'rejected', reason };
       }
+      completed += 1;
+      onProgress?.(completed, tasks.length);
     }
   }
 

@@ -3824,6 +3824,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
   const [saving, setSaving] = useState(false);
   const [runningMode, setRunningMode] = useState<'dry' | 'incremental' | 'full' | null>(null);
   const [runResult, setRunResult] = useState<YagRollupSyncRunResponse | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{ phase: 'fetch' | 'upsert'; pct: number; label: string } | null>(null);
   const [runningWipeMode, setRunningWipeMode] = useState<'dry-tagged' | 'dry-all' | 'tagged' | 'all' | null>(null);
   const [wipeResult, setWipeResult] = useState<YagRollupWipeRunResponse | null>(null);
   const [sourceSearch, setSourceSearch] = useState('');
@@ -3973,6 +3974,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
 
   async function runSync(mode: 'dry' | 'incremental' | 'full') {
     setRunningMode(mode);
+    setSyncProgress(null);
     try {
       const body = {
         jobKey,
@@ -3984,25 +3986,91 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         throw new Error(typeof data.error === 'string' ? data.error : 'Failed to run YAG sync');
       }
 
-      const result = data as YagRollupSyncRunResponse;
-      setRunResult(result);
-      if (result.status === 'failed') {
-        toast.error('YAG sync finished with errors');
-      } else if (result.status === 'disabled') {
-        toast.warning('YAG sync is disabled in config');
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('ndjson') && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalResult: YagRollupSyncRunResponse | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const event = JSON.parse(line);
+              if (event.type === 'progress') {
+                if (event.phase === 'fetch') {
+                  const pct = event.sourcesTotal > 0
+                    ? Math.round((event.sourcesCompleted / event.sourcesTotal) * 100)
+                    : 0;
+                  setSyncProgress({
+                    phase: 'fetch',
+                    pct,
+                    label: `Fetching sources: ${event.sourcesCompleted}/${event.sourcesTotal}`,
+                  });
+                } else if (event.phase === 'upsert') {
+                  const pct = event.total > 0
+                    ? Math.round((event.completed / event.total) * 100)
+                    : 0;
+                  setSyncProgress({
+                    phase: 'upsert',
+                    pct,
+                    label: `Upserting: ${event.completed.toLocaleString()}/${event.total.toLocaleString()} (${event.succeeded.toLocaleString()} ok, ${event.failed.toLocaleString()} failed)`,
+                  });
+                }
+              } else if (event.type === 'done' && event.result) {
+                finalResult = event.result as YagRollupSyncRunResponse;
+              } else if (event.type === 'error') {
+                throw new Error(event.error || 'Sync failed');
+              }
+            } catch (parseErr) {
+              if (parseErr instanceof SyntaxError) continue;
+              throw parseErr;
+            }
+          }
+        }
+
+        if (finalResult) {
+          setRunResult(finalResult);
+          if (finalResult.status === 'failed') {
+            toast.error('YAG sync finished with errors');
+          } else if (finalResult.status === 'disabled') {
+            toast.warning('YAG sync is disabled in config');
+          } else {
+            toast.success(`YAG sync complete: ${finalResult.totals.upsertsSucceeded.toLocaleString()} upserts`);
+          }
+        }
       } else {
-        toast.success(`YAG sync complete: ${result.totals.upsertsSucceeded.toLocaleString()} upserts`);
+        const data = await res.json().catch(() => ({}));
+        const result = data as YagRollupSyncRunResponse;
+        setRunResult(result);
+        if (result.status === 'failed') {
+          toast.error('YAG sync finished with errors');
+        } else if (result.status === 'disabled') {
+          toast.warning('YAG sync is disabled in config');
+        } else {
+          toast.success(`YAG sync complete: ${result.totals.upsertsSucceeded.toLocaleString()} upserts`);
+        }
       }
+
       await loadSnapshot();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to run YAG sync';
       toast.error(message);
     }
+    setSyncProgress(null);
     setRunningMode(null);
   }
 
@@ -4408,7 +4476,21 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           </PrimaryButton>
         </div>
 
-        {runResult && (
+        {syncProgress && (
+          <div className="mt-4">
+            <div className="h-2 rounded-full bg-[var(--muted)] overflow-hidden">
+              <div
+                className="h-full rounded-full bg-blue-500 transition-all duration-300 ease-out"
+                style={{ width: `${syncProgress.pct}%` }}
+              />
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1.5">
+              {syncProgress.label}
+            </p>
+          </div>
+        )}
+
+        {runResult && !syncProgress && (
           <div className="mt-4 p-3 rounded-lg border border-[var(--border)] bg-[var(--card)]">
             <p className="text-sm font-medium">
               Last run: {runResult.status.toUpperCase()} ({runResult.dryRun ? 'dry run' : runResult.fullSync ? 'full' : 'incremental'})

@@ -20,7 +20,7 @@ const DEFAULT_INCREMENTAL_LOOKBACK_HOURS = 48;
 const DEFAULT_SOURCE_ACCOUNT_CONCURRENCY = 3;
 const DEFAULT_TARGET_UPSERT_CONCURRENCY = 4;
 const DEFAULT_MAX_SOURCE_CONTACTS_PER_ACCOUNT = 50_000;
-const DEFAULT_MAX_UPSERTS_PER_RUN = 10_000;
+const DEFAULT_MAX_UPSERTS_PER_RUN = 250_000;
 const DEFAULT_TARGET_DELETE_CONCURRENCY = 4;
 const DEFAULT_MAX_DELETES_PER_RUN = 50_000;
 const DEFAULT_MAX_TARGET_CONTACTS_FOR_WIPE = 150_000;
@@ -127,6 +127,11 @@ export interface SaveYagRollupConfigInput {
   updatedByUserAvatarUrl?: string | null;
 }
 
+export type YagRollupProgressEvent =
+  | { phase: 'fetch'; sourcesCompleted: number; sourcesTotal: number; fetchedSoFar: number }
+  | { phase: 'upsert'; completed: number; total: number; succeeded: number; failed: number }
+  | { phase: 'done' };
+
 export interface RunYagRollupSyncOptions extends YagRollupRunTriggerInput {
   jobKey?: string;
   dryRun?: boolean;
@@ -134,6 +139,7 @@ export interface RunYagRollupSyncOptions extends YagRollupRunTriggerInput {
   enforceSchedule?: boolean;
   sourceAccountLimit?: number;
   maxUpserts?: number;
+  onProgress?: (event: YagRollupProgressEvent) => void;
 }
 
 export type YagRollupWipeMode = 'all' | 'tagged';
@@ -161,8 +167,14 @@ interface PreparedContact {
   fullName: string;
   email: string;
   phone: string;
+  address1: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
   tags: string[];
   sourceAccountKeys: string[];
+  customFields: { key: string; field_value: string }[];
 }
 
 export interface RunYagRollupSyncResult {
@@ -1142,6 +1154,7 @@ async function fetchSourcePreparedContacts(params: {
     }
 
     const dedupeKey = validEmail ? `email:${validEmail}` : `phone:${validPhone}`;
+    const contactCustomFields = buildContactCustomFields(contact);
     const existing = localMap.get(dedupeKey);
     if (existing) {
       localDuplicatesCollapsed += 1;
@@ -1150,9 +1163,15 @@ async function fetchSourcePreparedContacts(params: {
       if (!existing.fullName && contact.fullName) existing.fullName = contact.fullName;
       if (!existing.email && validEmail) existing.email = validEmail;
       if (!existing.phone && validPhone) existing.phone = validPhone;
+      if (!existing.address1 && contact.address1) existing.address1 = contact.address1;
+      if (!existing.city && contact.city) existing.city = contact.city;
+      if (!existing.state && contact.state) existing.state = contact.state;
+      if (!existing.postalCode && contact.postalCode) existing.postalCode = contact.postalCode;
+      if (!existing.country && contact.country) existing.country = contact.country;
       if (Array.isArray(contact.tags) && contact.tags.length > 0) {
         existing.tags = [...new Set([...existing.tags, ...contact.tags.map(String)])];
       }
+      mergeCustomFields(existing.customFields, contactCustomFields);
       continue;
     }
 
@@ -1163,8 +1182,14 @@ async function fetchSourcePreparedContacts(params: {
       fullName: contact.fullName || '',
       email: validEmail,
       phone: validPhone,
+      address1: contact.address1 || '',
+      city: contact.city || '',
+      state: contact.state || '',
+      postalCode: contact.postalCode || '',
+      country: contact.country || '',
       tags: Array.isArray(contact.tags) ? [...new Set(contact.tags.map(String))] : [],
       sourceAccountKeys: [params.accountKey],
+      customFields: contactCustomFields,
     });
   }
 
@@ -1187,9 +1212,15 @@ function mergePreparedContact(existing: PreparedContact, incoming: PreparedConta
   if (!existing.fullName && incoming.fullName) existing.fullName = incoming.fullName;
   if (!existing.email && incoming.email) existing.email = incoming.email;
   if (!existing.phone && incoming.phone) existing.phone = incoming.phone;
+  if (!existing.address1 && incoming.address1) existing.address1 = incoming.address1;
+  if (!existing.city && incoming.city) existing.city = incoming.city;
+  if (!existing.state && incoming.state) existing.state = incoming.state;
+  if (!existing.postalCode && incoming.postalCode) existing.postalCode = incoming.postalCode;
+  if (!existing.country && incoming.country) existing.country = incoming.country;
 
   existing.tags = [...new Set([...existing.tags, ...incoming.tags])];
   existing.sourceAccountKeys = [...new Set([...existing.sourceAccountKeys, ...incoming.sourceAccountKeys])];
+  mergeCustomFields(existing.customFields, incoming.customFields);
 }
 
 function stripEmpty<T extends Record<string, unknown>>(value: T): T {
@@ -1201,6 +1232,39 @@ function stripEmpty<T extends Record<string, unknown>>(value: T): T {
     out[key] = entry;
   }
   return out as T;
+}
+
+function buildContactCustomFields(
+  contact: { vehicleYear?: string; vehicleMake?: string; vehicleModel?: string; vehicleVin?: string; vehicleMileage?: string; lastServiceDate?: string; nextServiceDate?: string; leaseEndDate?: string; warrantyEndDate?: string; purchaseDate?: string },
+): { key: string; field_value: string }[] {
+  const fields: { key: string; field_value: string }[] = [];
+  const add = (key: string, value: string | undefined) => {
+    if (value) fields.push({ key, field_value: value });
+  };
+  add('vehicle_year', contact.vehicleYear);
+  add('vehicle_make', contact.vehicleMake);
+  add('vehicle_model', contact.vehicleModel);
+  add('vehicle_vin', contact.vehicleVin);
+  add('vehicle_mileage', contact.vehicleMileage);
+  add('last_service_date', contact.lastServiceDate);
+  add('next_service_date', contact.nextServiceDate);
+  add('lease_end_date', contact.leaseEndDate);
+  add('warranty_end_date', contact.warrantyEndDate);
+  add('purchase_date', contact.purchaseDate);
+  return fields;
+}
+
+function mergeCustomFields(
+  existing: { key: string; field_value: string }[],
+  incoming: { key: string; field_value: string }[],
+): void {
+  const seen = new Set(existing.map((f) => f.key));
+  for (const field of incoming) {
+    if (!seen.has(field.key)) {
+      existing.push(field);
+      seen.add(field.key);
+    }
+  }
 }
 
 function buildRollupTags(contact: PreparedContact): string[] {
@@ -1303,27 +1367,32 @@ async function upsertGhlContact(params: {
   locationId: string;
   contact: PreparedContact;
 }): Promise<void> {
-  const baseContact = stripEmpty({
-    locationId: params.locationId,
+  const tags = buildRollupTags(params.contact);
+  const customFields = params.contact.customFields.length > 0
+    ? params.contact.customFields
+    : undefined;
+  const sharedFields = {
     firstName: params.contact.firstName,
     lastName: params.contact.lastName,
     name: params.contact.fullName,
     email: params.contact.email,
     phone: params.contact.phone,
-    tags: buildRollupTags(params.contact),
+    address1: params.contact.address1,
+    city: params.contact.city,
+    state: params.contact.state,
+    postalCode: params.contact.postalCode,
+    country: params.contact.country,
+    tags,
     source: 'Loomi YAG Rollup',
+    customFields,
+  };
+  const baseContact = stripEmpty({
+    locationId: params.locationId,
+    ...sharedFields,
   });
   const wrappedContact = stripEmpty({
     locationId: params.locationId,
-    contact: stripEmpty({
-      firstName: params.contact.firstName,
-      lastName: params.contact.lastName,
-      name: params.contact.fullName,
-      email: params.contact.email,
-      phone: params.contact.phone,
-      tags: buildRollupTags(params.contact),
-      source: 'Loomi YAG Rollup',
-    }),
+    contact: stripEmpty({ ...sharedFields }),
   });
   const bodies = [baseContact, wrappedContact];
 
@@ -1906,7 +1975,9 @@ export async function runYagRollupSync(
     };
   });
 
-  const sourceSettled = await withConcurrencyLimit(sourceTasks, sourceConcurrency);
+  const sourceSettled = await withConcurrencyLimit(sourceTasks, sourceConcurrency, (completed, total) => {
+    options.onProgress?.({ phase: 'fetch', sourcesCompleted: completed, sourcesTotal: total, fetchedSoFar: fetchedContacts });
+  });
   for (let index = 0; index < sourceSettled.length; index += 1) {
     const sourceKey = limitedSourceKeys[index];
     const result = sourceSettled[index];
@@ -1956,16 +2027,27 @@ export async function runYagRollupSync(
       status = 'failed';
       errors.target = `Target provider "${target.adapter.provider}" is not supported for rollup writes yet`;
     } else {
+      const upsertTotal = toUpsert.length;
+      let liveSucceeded = 0;
+      let liveFailed = 0;
       const upsertTasks = toUpsert.map((contact) => async () => {
         upsertsAttempted += 1;
-        await upsertGhlContact({
-          token: target.credentials.token,
-          locationId: target.credentials.locationId,
-          contact,
-        });
+        try {
+          await upsertGhlContact({
+            token: target.credentials.token,
+            locationId: target.credentials.locationId,
+            contact,
+          });
+          liveSucceeded += 1;
+        } catch (err) {
+          liveFailed += 1;
+          throw err;
+        }
       });
 
-      const upsertSettled = await withConcurrencyLimit(upsertTasks, targetConcurrency);
+      const upsertSettled = await withConcurrencyLimit(upsertTasks, targetConcurrency, (completed) => {
+        options.onProgress?.({ phase: 'upsert', completed, total: upsertTotal, succeeded: liveSucceeded, failed: liveFailed });
+      });
       for (let index = 0; index < upsertSettled.length; index += 1) {
         const result = upsertSettled[index];
         if (result.status === 'fulfilled') {
@@ -2016,6 +2098,8 @@ export async function runYagRollupSync(
     errors,
   }, options.jobKey);
   await persistRunHistory(output);
+
+  options.onProgress?.({ phase: 'done' });
 
   return output;
 }
