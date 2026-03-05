@@ -154,6 +154,45 @@ const ESP_PROVIDER_CONFIG: Record<string, EspProviderConfig> = {
       },
     },
   },
+  sendgrid: {
+    displayName: 'SendGrid',
+    description: 'Transactional email delivery with real-time engagement tracking.',
+    features: [
+      'Email campaign sending',
+      'Transactional templates',
+      'Real-time engagement webhooks (opens, clicks, bounces)',
+    ],
+    logoSrc: '/images/sendgrid-logo.png',
+    logoAlt: 'SendGrid',
+    iconSrc: '/images/sendgrid-icon.png',
+    iconAlt: 'SendGrid',
+    headerClassName: 'bg-white',
+    connectButtonClassName: 'bg-[#1A82E2] text-white hover:bg-[#1570C2]',
+    portalLinks: {
+      getCampaignCreateLinks() {
+        return {
+          email: null,
+          text: null,
+          drip: null,
+        };
+      },
+      getCampaignHubUrl() {
+        return 'https://app.sendgrid.com';
+      },
+      getCampaignEditUrl() {
+        return null;
+      },
+      getCampaignStatsUrl() {
+        return 'https://app.sendgrid.com/statistics';
+      },
+      getWorkflowHubUrl() {
+        return null;
+      },
+      getWorkflowEditUrl() {
+        return null;
+      },
+    },
+  },
 };
 
 export function normalizeProvider(provider: string | null | undefined): string {
