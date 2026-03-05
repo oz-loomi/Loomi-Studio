@@ -85,6 +85,7 @@ interface ProviderInfo {
 // ── Helpers ──
 
 const VIEW_KEY = 'loomi-templates-view';
+const RECENT_TEMPLATES_VISIBLE_KEY = 'loomi-templates-recent-visible';
 
 function loadView(): 'card' | 'list' {
   if (typeof window === 'undefined') return 'card';
@@ -1318,9 +1319,18 @@ export default function TemplatesPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const autoSyncedAccountKeysRef = useRef<Set<string>>(new Set());
+  const [showRecentTemplates, setShowRecentTemplates] = useState(true);
+
+  const canSeeRecentTemplates = userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin';
 
   useEffect(() => {
     setViewMode(loadView());
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem(RECENT_TEMPLATES_VISIBLE_KEY);
+    if (stored === '0') setShowRecentTemplates(false);
   }, []);
 
   // Close menus on outside click
@@ -1733,6 +1743,13 @@ export default function TemplatesPage() {
     const set = new Set(allTemplates.map(t => t.provider));
     return Array.from(set).sort();
   }, [allTemplates]);
+
+  const recentTemplates = useMemo(() => {
+    if (!canSeeRecentTemplates) return [] as EspTemplateRecord[];
+    return [...allTemplates]
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 8);
+  }, [allTemplates, canSeeRecentTemplates]);
 
   const currentLevelFolders = useMemo(() => {
     if (!foldersEnabled) return [] as TemplateFolder[];
@@ -2504,6 +2521,74 @@ export default function TemplatesPage() {
           Template Library
         </Link>
       </div>
+
+      {canSeeRecentTemplates && (
+        <div className="mb-6 glass-card rounded-xl border border-[var(--border)] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--foreground)]">Recently Worked On</h3>
+              <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                Quick access to templates you touched most recently.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowRecentTemplates((prev) => {
+                  const next = !prev;
+                  if (typeof window !== 'undefined') {
+                    window.localStorage.setItem(RECENT_TEMPLATES_VISIBLE_KEY, next ? '1' : '0');
+                  }
+                  return next;
+                });
+              }}
+              className="inline-flex items-center h-8 px-3 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] rounded-lg hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            >
+              {showRecentTemplates ? 'Hide' : 'Show'}
+            </button>
+          </div>
+
+          {showRecentTemplates && (
+            <div className="mt-3">
+              {recentTemplates.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+                  {recentTemplates.map((template) => {
+                    const acct = accounts[template.accountKey];
+                    const status = displayStatus(template.status);
+                    const statusColor = statusColors[status];
+                    return (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => navigateToEditor(template.id)}
+                        className="text-left rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 hover:border-[var(--primary)]/40 hover:bg-[var(--muted)] transition-colors"
+                      >
+                        <p className="text-xs font-semibold text-[var(--foreground)] truncate" title={template.name}>
+                          {template.name}
+                        </p>
+                        <p className="text-[11px] text-[var(--muted-foreground)] truncate mt-1">
+                          {acct?.dealer || template.accountKey}
+                        </p>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide"
+                            style={{ background: statusColor.bg, color: statusColor.text }}
+                          >
+                            {status}
+                          </span>
+                          <span className="text-[10px] text-[var(--muted-foreground)]">{timeAgo(template.updatedAt)}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-[var(--muted-foreground)]">No recent template activity yet.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Admin Overview Mode ── */}
       {isAdmin && showAdminOverview && (
