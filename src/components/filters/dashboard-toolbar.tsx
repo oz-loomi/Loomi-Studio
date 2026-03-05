@@ -41,6 +41,8 @@ interface DashboardToolbarProps {
   accounts?: AccountOption[];
   selectedAccounts?: string[];
   onAccountChange?: (keys: string[]) => void;
+  showReset?: boolean;
+  triggerSize?: 'compact' | 'header';
 }
 
 function toInputDate(d: Date): string {
@@ -93,6 +95,8 @@ export function DashboardToolbar({
   accounts,
   selectedAccounts,
   onAccountChange,
+  showReset = true,
+  triggerSize = 'compact',
 }: DashboardToolbarProps) {
   const [openPanel, setOpenPanel] = useState<'date' | 'account' | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -134,6 +138,9 @@ export function DashboardToolbar({
   const selectedKeys = selectedAccounts || [];
   const selectedAccountObjs = (accounts || []).filter(a => selectedKeys.includes(a.key));
   const hasSelectedAccounts = selectedKeys.length > 0;
+  const triggerSizingClass = triggerSize === 'header'
+    ? 'h-10 px-3 text-sm rounded-lg'
+    : 'px-3 py-1.5 text-xs rounded-lg';
 
   const dateLabel =
     dateRange === 'custom' && customRange
@@ -182,7 +189,7 @@ export function DashboardToolbar({
       <div className="relative">
         <button
           onClick={() => setOpenPanel(openPanel === 'date' ? null : 'date')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+          className={`flex items-center gap-1.5 border transition-colors ${triggerSizingClass} ${
             openPanel === 'date'
               ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5'
               : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
@@ -262,7 +269,7 @@ export function DashboardToolbar({
         <div className="relative">
           <button
             onClick={() => setOpenPanel(openPanel === 'account' ? null : 'account')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+            className={`flex items-center gap-1.5 border transition-colors ${triggerSizingClass} ${
               openPanel === 'account'
                 ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5'
                 : hasSelectedAccounts
@@ -336,7 +343,7 @@ export function DashboardToolbar({
       )}
 
       {/* Reset */}
-      {(dateRange !== '6m' || hasSelectedAccounts) && (
+      {showReset && (dateRange !== '6m' || hasSelectedAccounts) && (
         <button
           onClick={() => {
             onDateRangeChange('6m');

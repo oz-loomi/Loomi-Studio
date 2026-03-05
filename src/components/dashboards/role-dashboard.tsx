@@ -27,7 +27,7 @@ import {
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
 import { roleDisplayName } from '@/lib/roles';
-import { type AccountOption, type CustomDateRange } from '@/components/filters/dashboard-toolbar';
+import { DashboardToolbar, type AccountOption, type CustomDateRange } from '@/components/filters/dashboard-toolbar';
 import {
   type DateRangeBounds,
   type DateRangeKey,
@@ -2265,6 +2265,14 @@ function ManagementRoleDashboard({
               <SquaresPlusIcon className="h-4 w-4" />
               <span className="hidden sm:inline">Customize</span>
             </button>
+            <DashboardToolbar
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+              customRange={customRange}
+              onCustomRangeChange={setCustomRange}
+              showReset={false}
+              triggerSize="header"
+            />
             <div className="relative">
               <button
                 type="button"

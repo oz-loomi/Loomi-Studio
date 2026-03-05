@@ -9,6 +9,7 @@ import { FlowList, type AccountMeta } from '@/components/flows/flow-list';
 import type { FlowFilterState, FlowFilterOptions } from '@/components/filters/flow-toolbar';
 import type { RepFilterOption } from '@/components/filters/campaign-toolbar';
 import { FlowFilterSidebar } from '@/components/filters/flow-filter-sidebar';
+import { DashboardToolbar, type CustomDateRange } from '@/components/filters/dashboard-toolbar';
 import {
   ChartBarIcon,
   ListBulletIcon,
@@ -20,6 +21,7 @@ import { getAccountOems, industryHasBrands } from '@/lib/oems';
 import { resolveAccountLocationId, resolveAccountProvider } from '@/lib/account-resolvers';
 import { providerDisplayName } from '@/lib/esp/provider-display';
 import { getWorkflowHubUrl } from '@/lib/esp/provider-links';
+import { DEFAULT_DATE_RANGE, getDateRangeBounds, type DateRangeKey } from '@/lib/date-ranges';
 
 interface Workflow {
   id: string;
@@ -66,6 +68,21 @@ function workflowAccountKey(workflow: Workflow): string | null {
   return workflow.accountKey || null;
 }
 
+function getWorkflowDate(workflow: Workflow): Date | null {
+  const raw = workflow.updatedAt || workflow.createdAt;
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function inRange(workflow: Workflow, start: Date, end: Date): boolean {
+  const date = getWorkflowDate(workflow);
+  if (!date) return false;
+  const value = date.getTime();
+  return value >= start.getTime() && value <= end.getTime();
+}
+
 type PageTab = 'analytics' | 'list';
 
 function AdminFlowsPage() {
@@ -96,6 +113,8 @@ function AdminFlowsPage() {
   const [accountMeta, setAccountMeta] = useState<Record<string, AccountMeta>>({});
   const [accountProviders, setAccountProviders] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [dateRange, setDateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
+  const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [activeTab, setActiveTab] = useState<PageTab>('analytics');
   const [sideRailMounted, setSideRailMounted] = useState(false);
 
@@ -245,6 +264,14 @@ function AdminFlowsPage() {
     };
   }, [workflows, accountNames, accountMeta, accessibleAccountKeys]);
 
+  const bounds = useMemo(
+    () =>
+      dateRange === 'custom' && customRange
+        ? getDateRangeBounds('custom', customRange.start, customRange.end)
+        : getDateRangeBounds(dateRange),
+    [dateRange, customRange],
+  );
+
   const filteredWorkflows = useMemo(() => {
     let result = workflows;
 
@@ -282,8 +309,12 @@ function AdminFlowsPage() {
       });
     }
 
+    if (bounds.start) {
+      result = result.filter((workflow) => inRange(workflow, bounds.start!, bounds.end));
+    }
+
     return result;
-  }, [workflows, filters, accountNames, accountMeta]);
+  }, [workflows, filters, accountNames, accountMeta, bounds]);
 
   const selectedAccountLabel = filters.account.length === 1 ? filters.account[0] : null;
 
@@ -377,6 +408,14 @@ function AdminFlowsPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
+            <DashboardToolbar
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+              customRange={customRange}
+              onCustomRangeChange={setCustomRange}
+              showReset={false}
+              triggerSize="header"
+            />
             <button
               type="button"
               onClick={() => setFiltersOpen((prev) => !prev)}

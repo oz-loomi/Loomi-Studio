@@ -580,6 +580,14 @@ function AdminCampaignsPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
+            <DashboardToolbar
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+              customRange={customRange}
+              onCustomRangeChange={setCustomRange}
+              showReset={false}
+              triggerSize="header"
+            />
             <button
               type="button"
               onClick={() => setFiltersOpen((prev) => !prev)}
@@ -706,10 +714,6 @@ function AdminCampaignsPage() {
             filters={filters}
             onFiltersChange={setFilters}
             options={filterOptions}
-            dateRange={dateRange}
-            onDateRangeChange={setDateRange}
-            customRange={customRange}
-            onCustomRangeChange={setCustomRange}
             className={`glass-panel glass-panel-strong w-full transition-[opacity,transform,max-height] duration-300 ease-out lg:sticky lg:top-24 lg:w-[360px] ${
               filtersOpen
                 ? 'pointer-events-auto max-h-[calc(100vh-8rem)] translate-x-0 opacity-100 animate-slide-in-right'
