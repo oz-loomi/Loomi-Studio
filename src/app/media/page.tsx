@@ -18,7 +18,6 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   EyeIcon,
-  ArrowsPointingOutIcon,
   ScissorsIcon,
   CheckIcon,
   FolderArrowDownIcon,
@@ -29,6 +28,7 @@ import { toast } from '@/lib/toast';
 import { safeJson } from '@/lib/safe-json';
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
+import BulkActionDock from '@/components/bulk-action-dock';
 import PrimaryButton from '@/components/primary-button';
 
 // ── Types ──
@@ -1975,9 +1975,8 @@ export default function MediaPage() {
                     <>
                       <button
                         onClick={backToAllAccounts}
-                        className="inline-flex items-center gap-1 text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                        className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
                       >
-                        <ArrowLeftIcon className="w-3.5 h-3.5" />
                         All Accounts
                       </button>
                       <span className="text-[var(--muted-foreground)]">{'>'}</span>
@@ -2081,13 +2080,6 @@ export default function MediaPage() {
             )}
             {effectiveAccountKey && (
               <>
-                <PrimaryButton
-                onClick={() => { setUploadDestination('esp'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
-                disabled={uploading}
-              >
-                <ArrowUpTrayIcon className="w-4 h-4" />
-                {uploading ? 'Uploading...' : 'Add Media'}
-              </PrimaryButton>
                 {capabilities?.canCreateFolders && (
                   <button
                     onClick={() => {
@@ -2099,9 +2091,16 @@ export default function MediaPage() {
                     className="inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)] transition-colors"
                   >
                     <FolderPlusIcon className="w-4 h-4" />
-                    Add Folder
+                    New Folder
                   </button>
                 )}
+                <PrimaryButton
+                  onClick={() => { setUploadDestination('esp'); setUploadAccountKeys(new Set()); setUploadAccountSearch(''); setStagedFiles([]); setShowUploadModal(true); }}
+                  disabled={uploading}
+                >
+                  <ArrowUpTrayIcon className="w-4 h-4" />
+                  {uploading ? 'Uploading...' : 'Add Media'}
+                </PrimaryButton>
               </>
             )}
           </div>
@@ -2160,61 +2159,13 @@ export default function MediaPage() {
             {isLoomiOverviewTab && adminMediaFiles.length > 0 && !selectMode && (
               <button
                 onClick={() => { setSelectMode(true); setSelectedIds(new Set()); }}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                className="inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
               >
-                <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                <img src="/icons/select-checkbox.svg" alt="" aria-hidden className="w-3.5 h-3.5 invert opacity-80" />
                 Select
               </button>
             )}
           </div>
-
-          {/* Bulk selection toolbar (admin overview) */}
-          {isLoomiOverviewTab && selectMode && (
-            <div className="flex items-center justify-between mb-4 px-4 py-2.5 rounded-lg bg-[var(--primary)]/10 border border-[var(--primary)]/20 animate-fade-in-up">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium text-[var(--foreground)]">
-                  {selectedIds.size} selected
-                </span>
-                <button
-                  onClick={() => {
-                    if (selectedIds.size === filteredAdminMedia.length) {
-                      setSelectedIds(new Set());
-                    } else {
-                      setSelectedIds(new Set(filteredAdminMedia.map(f => f.id)));
-                    }
-                  }}
-                  className="text-xs text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
-                >
-                  {selectedIds.size === filteredAdminMedia.length ? 'Deselect All' : 'Select All'}
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                {connectedAccountKeys.length > 0 && selectedIds.size > 0 && (
-                  <button
-                    onClick={() => { setPushAccountKeys(new Set()); setPushAccountSearch(''); setShowPushModal(true); }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--primary)]/30 text-[var(--primary)] rounded-lg hover:bg-[var(--primary)]/10 transition-colors"
-                  >
-                    <ArrowUpTrayIcon className="w-3.5 h-3.5" /> Push to Sub-accounts
-                  </button>
-                )}
-                {selectedIds.size > 0 && (
-                  <button
-                    onClick={handleBulkDeleteAdmin}
-                    disabled={deleting}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                  >
-                    <TrashIcon className="w-3.5 h-3.5" /> Delete Selected
-                  </button>
-                )}
-                <button
-                  onClick={clearSelection}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* ── Loomi Media Library section ── */}
           {isLoomiOverviewTab && adminMediaLoading && adminMediaFiles.length === 0 && (
@@ -2355,13 +2306,13 @@ export default function MediaPage() {
                 {capabilities?.canMove && filtered.length > 0 && (
                   <button
                     onClick={() => { setSelectMode(prev => !prev); setSelectedIds(new Set()); }}
-                    className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+                    className={`inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border transition-colors ${
                       selectMode
-                        ? 'bg-[var(--primary)] text-white'
-                        : 'border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
+                        ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                        : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
                     }`}
                   >
-                    <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                    <img src="/icons/select-checkbox.svg" alt="" aria-hidden className="w-3.5 h-3.5 invert opacity-80" />
                     {selectMode ? 'Cancel' : 'Select'}
                   </button>
                 )}
@@ -2392,42 +2343,6 @@ export default function MediaPage() {
                 )}
                 {search && ` matching "${search}"`}
               </p>
-            </div>
-          )}
-
-          {/* Bulk selection toolbar */}
-          {selectMode && (
-            <div className="flex items-center justify-between mb-4 px-4 py-2.5 rounded-lg bg-[var(--primary)]/10 border border-[var(--primary)]/20 animate-fade-in-up">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium text-[var(--foreground)]">
-                  {selectedIds.size} selected
-                </span>
-                <button
-                  onClick={selectedIds.size === filtered.length ? clearSelection : selectAllFiles}
-                  className="text-xs text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
-                >
-                  {selectedIds.size === filtered.length ? 'Deselect All' : 'Select All'}
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                {capabilities?.canMove && selectedIds.size > 0 && (
-                  <button
-                    onClick={handleBulkMove}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
-                  >
-                    <FolderArrowDownIcon className="w-3.5 h-3.5" /> Move
-                  </button>
-                )}
-                {capabilities?.canDelete && selectedIds.size > 0 && (
-                  <button
-                    onClick={handleBulkDelete}
-                    disabled={deleting}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                  >
-                    <TrashIcon className="w-3.5 h-3.5" /> Delete
-                  </button>
-                )}
-              </div>
             </div>
           )}
 
@@ -2512,11 +2427,11 @@ export default function MediaPage() {
 
           {/* Folder grid */}
           {!loading && filteredFolders.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 mb-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 mt-8 mb-10">
               {filteredFolders.map(folder => (
                 <div
                   key={folder.id}
-                  className={`glass-card rounded-xl p-4 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up relative ${
+                  className={`glass-card rounded-xl min-h-[116px] p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up relative ${
                     capabilities?.canMove ? 'cursor-grab active:cursor-grabbing' : ''
                   } ${dropTargetId === folder.id ? 'ring-2 ring-[var(--primary)] bg-[var(--primary)]/10 scale-[1.02] shadow-lg shadow-[var(--primary)]/20' : ''}`}
                   draggable={!!capabilities?.canMove}
@@ -2632,6 +2547,84 @@ export default function MediaPage() {
             </div>
           )}
         </>
+      )}
+
+      {showOverview && isLoomiOverviewTab && selectMode && (
+        <BulkActionDock
+          count={selectedIds.size}
+          itemLabel="files"
+          onClose={clearSelection}
+          actions={[
+            {
+              id: 'select-all',
+              label: selectedIds.size === filteredAdminMedia.length ? 'Deselect all' : 'Select all',
+              icon: <CheckIcon className="h-4 w-4" />,
+              onClick: () => {
+                if (selectedIds.size === filteredAdminMedia.length) {
+                  setSelectedIds(new Set());
+                  return;
+                }
+                setSelectedIds(new Set(filteredAdminMedia.map((file) => file.id)));
+              },
+              disabled: filteredAdminMedia.length === 0,
+            },
+            ...(connectedAccountKeys.length > 0
+              ? [{
+                  id: 'push',
+                  label: 'Push',
+                  icon: <ArrowUpTrayIcon className="h-4 w-4" />,
+                  onClick: () => { setPushAccountKeys(new Set()); setPushAccountSearch(''); setShowPushModal(true); },
+                  disabled: selectedIds.size === 0,
+                }]
+              : []),
+            {
+              id: 'delete',
+              label: 'Delete',
+              icon: <TrashIcon className="h-4 w-4" />,
+              onClick: handleBulkDeleteAdmin,
+              disabled: selectedIds.size === 0 || deleting,
+              danger: true,
+            },
+          ]}
+        />
+      )}
+
+      {!showOverview && selectMode && (
+        <BulkActionDock
+          count={selectedIds.size}
+          itemLabel="files"
+          onClose={clearSelection}
+          actions={[
+            {
+              id: 'select-all',
+              label: selectedIds.size === filtered.length ? 'Deselect all' : 'Select all',
+              icon: <CheckIcon className="h-4 w-4" />,
+              onClick: () => {
+                if (selectedIds.size === filtered.length) {
+                  setSelectedIds(new Set());
+                  return;
+                }
+                selectAllFiles();
+              },
+              disabled: filtered.length === 0,
+            },
+            {
+              id: 'move',
+              label: 'Move',
+              icon: <FolderArrowDownIcon className="h-4 w-4" />,
+              onClick: handleBulkMove,
+              disabled: !capabilities?.canMove || selectedIds.size === 0,
+            },
+            {
+              id: 'delete',
+              label: 'Delete',
+              icon: <TrashIcon className="h-4 w-4" />,
+              onClick: handleBulkDelete,
+              disabled: !capabilities?.canDelete || selectedIds.size === 0 || deleting,
+              danger: true,
+            },
+          ]}
+        />
       )}
 
       {/* ── Rename Modal ── */}

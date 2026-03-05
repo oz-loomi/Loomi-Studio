@@ -21,7 +21,6 @@ import {
   ArrowLeftIcon,
   ChevronDownIcon,
   CheckIcon,
-  CheckCircleIcon,
   CursorArrowRaysIcon,
   BookOpenIcon,
   EyeIcon,
@@ -37,6 +36,7 @@ import {
 import { toast } from '@/lib/toast';
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { AccountAvatar } from '@/components/account-avatar';
+import BulkActionDock from '@/components/bulk-action-dock';
 import { LibraryPickerContent } from '@/components/library-picker-content';
 import PrimaryButton from '@/components/primary-button';
 import { getStarterTemplate } from '@/lib/template-starters';
@@ -807,231 +807,237 @@ function Toolbar({
   onBulkMove,
   foldersEnabled = false,
 }: ToolbarProps) {
-  // Selection toolbar when items are selected
-  if (selectMode) {
-    return (
-      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-[var(--foreground)]">
-            <CheckCircleIcon className="w-4 h-4 inline mr-1.5 text-[var(--primary)]" />
-            {selectedIds.size} selected
-          </span>
-          <button
-            onClick={() => {
-              if (selectedIds.size === filteredCount) {
-                setSelectedIds(new Set());
-              } else {
-                setSelectedIds(new Set(filteredIds));
-              }
-            }}
-            className="text-xs text-[var(--primary)] hover:underline"
-          >
-            {selectedIds.size === filteredCount ? 'Deselect All' : 'Select All'}
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          {foldersEnabled && selectedIds.size > 0 && (
-            <button
-              onClick={onBulkMove}
-              disabled={!onBulkMove}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-40"
-            >
-              <FolderIcon className="w-4 h-4" /> Move
-            </button>
-          )}
-          {selectedIds.size > 0 && (
-            <button
-              onClick={onBulkDelete}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-400 border border-red-400/30 rounded-lg hover:bg-red-500/10 transition-colors"
-            >
-              <TrashIcon className="w-4 h-4" /> Delete Selected
-            </button>
-          )}
-          <button
-            onClick={() => { setSelectMode(false); setSelectedIds(new Set()); }}
-            className="px-3 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const closeSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredCount) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(filteredIds));
+  };
 
   return (
-    <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-      <div className="flex items-center gap-3 flex-1 min-w-0">
-        {/* Search */}
-        <div className="relative flex-1 max-w-xs">
-          <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
-            placeholder={isAdmin ? 'Search templates or sub-accounts...' : 'Search templates...'}
-          />
-        </div>
-
-        {/* Account filter dropdown (admin flat list only) */}
-        {showAccountFilter && allAccountKeys.length > 1 && (
-          <div ref={accountDropdownRef} className="relative">
-            <button
-              onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
-              className={`inline-flex items-center gap-1.5 h-[38px] px-3 text-sm rounded-lg border transition-colors ${
-                accountDropdownOpen
-                  ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5'
-                  : accountFilter !== 'all'
-                    ? 'border-[var(--primary)]/50 text-[var(--primary)] bg-[var(--primary)]/5'
-                    : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              {accountFilter !== 'all' ? (
-                <AccountAvatar
-                  name={accountFilterLabel}
-                  accountKey={accountFilter}
-                  storefrontImage={selectedAccountData?.storefrontImage}
-                  logos={selectedAccountData?.logos}
-                  size={16}
-                  className="w-4 h-4 rounded-[3px] object-cover flex-shrink-0 border border-[var(--border)]"
-                />
-              ) : (
-                <BuildingStorefrontIcon className="w-3.5 h-3.5" />
-              )}
-              <span className="max-w-[140px] truncate">{accountFilterLabel}</span>
-              {accountFilter !== 'all' ? (
-                <XMarkIcon
-                  className="w-3 h-3 hover:text-[var(--foreground)]"
-                  onClick={(e) => { e.stopPropagation(); setAccountFilter('all'); setAccountDropdownOpen(false); }}
-                />
-              ) : (
-                <ChevronDownIcon className={`w-3 h-3 transition-transform ${accountDropdownOpen ? 'rotate-180' : ''}`} />
-              )}
-            </button>
-
-            {accountDropdownOpen && (
-              <div className="absolute top-full left-0 mt-2 z-50 glass-dropdown shadow-lg animate-fade-in-up" style={{ minWidth: '260px' }}>
-                <div className="p-1.5">
-                  <p className="px-2 py-1 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
-                    Filter by Account
-                  </p>
-                  <button
-                    onClick={() => { setAccountFilter('all'); setAccountDropdownOpen(false); }}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors ${
-                      accountFilter === 'all'
-                        ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
-                        : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
-                    }`}
-                  >
-                    All Accounts
-                    {accountFilter === 'all' && <CheckIcon className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-                <div className="border-t border-[var(--border)] max-h-[280px] overflow-y-auto p-1.5">
-                  {allAccountKeys.map(k => {
-                    const acct = accounts[k];
-                    const isSelected = accountFilter === k;
-                    const location = [acct?.city, acct?.state].filter(Boolean).join(', ');
-                    return (
-                      <button
-                        key={k}
-                        onClick={() => { setAccountFilter(k); setAccountDropdownOpen(false); }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition-colors ${
-                          isSelected
-                            ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
-                            : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
-                        }`}
-                      >
-                        <AccountAvatar
-                          name={acct?.dealer || k}
-                          accountKey={k}
-                          storefrontImage={acct?.storefrontImage}
-                          logos={acct?.logos}
-                          size={20}
-                          className="w-5 h-5 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
-                        />
-                        <span className="flex-1 min-w-0 text-left">
-                          <span className="block truncate">{acct?.dealer || k}</span>
-                          {location && (
-                            <span className="block text-[10px] text-[var(--muted-foreground)] truncate">{location}</span>
-                          )}
-                        </span>
-                        {isSelected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+    <>
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {/* Search */}
+          <div className="relative flex-1 max-w-xs">
+            <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
+              placeholder={isAdmin ? 'Search templates or sub-accounts...' : 'Search templates...'}
+            />
           </div>
-        )}
 
-        {/* Provider filter */}
-        {uniqueProviders.length > 1 && (
-          <div className="flex items-center gap-1 bg-[var(--muted)] rounded-lg p-0.5">
-            <button
-              onClick={() => setProviderFilter('all')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${providerFilter === 'all' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
-            >
-              All
-            </button>
-            {uniqueProviders.map(p => (
+          {/* Account filter dropdown (admin flat list only) */}
+          {showAccountFilter && allAccountKeys.length > 1 && (
+            <div ref={accountDropdownRef} className="relative">
               <button
-                key={p}
-                onClick={() => setProviderFilter(p)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${providerFilter === p ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
+                onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
+                className={`inline-flex items-center gap-1.5 h-[38px] px-3 text-sm rounded-lg border transition-colors ${
+                  accountDropdownOpen
+                    ? 'border-[var(--primary)] text-[var(--primary)] bg-[var(--primary)]/5'
+                    : accountFilter !== 'all'
+                      ? 'border-[var(--primary)]/50 text-[var(--primary)] bg-[var(--primary)]/5'
+                      : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+                }`}
               >
-                {providerIcon(p) && (
-                  <img src={providerIcon(p)} alt="" className="w-3.5 h-3.5 rounded-full object-cover" />
+                {accountFilter !== 'all' ? (
+                  <AccountAvatar
+                    name={accountFilterLabel}
+                    accountKey={accountFilter}
+                    storefrontImage={selectedAccountData?.storefrontImage}
+                    logos={selectedAccountData?.logos}
+                    size={16}
+                    className="w-4 h-4 rounded-[3px] object-cover flex-shrink-0 border border-[var(--border)]"
+                  />
+                ) : (
+                  <BuildingStorefrontIcon className="w-3.5 h-3.5" />
                 )}
-                {providerLabel(p)}
+                <span className="max-w-[140px] truncate">{accountFilterLabel}</span>
+                {accountFilter !== 'all' ? (
+                  <XMarkIcon
+                    className="w-3 h-3 hover:text-[var(--foreground)]"
+                    onClick={(e) => { e.stopPropagation(); setAccountFilter('all'); setAccountDropdownOpen(false); }}
+                  />
+                ) : (
+                  <ChevronDownIcon className={`w-3 h-3 transition-transform ${accountDropdownOpen ? 'rotate-180' : ''}`} />
+                )}
               </button>
-            ))}
-          </div>
-        )}
-      </div>
 
-      <div className="flex items-center gap-2">
-        {/* Select toggle */}
-        <button
-          onClick={() => setSelectMode(true)}
-          className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors"
-        >
-          <CheckCircleIcon className="w-4 h-4" /> Select
-        </button>
+              {accountDropdownOpen && (
+                <div className="absolute top-full left-0 mt-2 z-50 glass-dropdown shadow-lg animate-fade-in-up" style={{ minWidth: '260px' }}>
+                  <div className="p-1.5">
+                    <p className="px-2 py-1 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+                      Filter by Account
+                    </p>
+                    <button
+                      onClick={() => { setAccountFilter('all'); setAccountDropdownOpen(false); }}
+                      className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors ${
+                        accountFilter === 'all'
+                          ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
+                          : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
+                      }`}
+                    >
+                      All Accounts
+                      {accountFilter === 'all' && <CheckIcon className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  <div className="border-t border-[var(--border)] max-h-[280px] overflow-y-auto p-1.5">
+                    {allAccountKeys.map(k => {
+                      const acct = accounts[k];
+                      const isSelected = accountFilter === k;
+                      const location = [acct?.city, acct?.state].filter(Boolean).join(', ');
+                      return (
+                        <button
+                          key={k}
+                          onClick={() => { setAccountFilter(k); setAccountDropdownOpen(false); }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition-colors ${
+                            isSelected
+                              ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
+                              : 'text-[var(--foreground)] hover:bg-[var(--muted)]'
+                          }`}
+                        >
+                          <AccountAvatar
+                            name={acct?.dealer || k}
+                            accountKey={k}
+                            storefrontImage={acct?.storefrontImage}
+                            logos={acct?.logos}
+                            size={20}
+                            className="w-5 h-5 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
+                          />
+                          <span className="flex-1 min-w-0 text-left">
+                            <span className="block truncate">{acct?.dealer || k}</span>
+                            {location && (
+                              <span className="block text-[10px] text-[var(--muted-foreground)] truncate">{location}</span>
+                            )}
+                          </span>
+                          {isSelected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
-        {/* View toggle */}
-        <div className="flex items-center bg-[var(--muted)] rounded-lg p-0.5">
-          <button
-            onClick={() => toggleView('card')}
-            className={`p-1.5 rounded-md transition-colors ${viewMode === 'card' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
-            title="Card view"
-          >
-            <Squares2X2Icon className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => toggleView('list')}
-            className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
-            title="List view"
-          >
-            <ListBulletIcon className="w-4 h-4" />
-          </button>
+          {/* Provider filter */}
+          {uniqueProviders.length > 1 && (
+            <div className="flex items-center gap-1 bg-[var(--muted)] rounded-lg p-0.5">
+              <button
+                onClick={() => setProviderFilter('all')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${providerFilter === 'all' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
+              >
+                All
+              </button>
+              {uniqueProviders.map(p => (
+                <button
+                  key={p}
+                  onClick={() => setProviderFilter(p)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${providerFilter === p ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
+                >
+                  {providerIcon(p) && (
+                    <img src={providerIcon(p)} alt="" className="w-3.5 h-3.5 rounded-full object-cover" />
+                  )}
+                  {providerLabel(p)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Sync */}
-        {canSync && (
+        <div className="flex items-center gap-2">
+          {/* Select toggle */}
           <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+            onClick={() => {
+              if (selectMode) {
+                closeSelectMode();
+                return;
+              }
+              setSelectMode(true);
+            }}
+            className={`inline-flex items-center gap-2 h-10 px-3 text-sm rounded-lg border transition-colors ${
+              selectMode
+                ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]'
+            }`}
           >
-            <ArrowPathIcon className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing...' : syncLabel}
+            <img src="/icons/select-checkbox.svg" alt="" aria-hidden className="w-3.5 h-3.5 invert opacity-80" />
+            {selectMode ? 'Cancel' : 'Select'}
           </button>
-        )}
 
+          {/* View toggle */}
+          <div className="flex items-center bg-[var(--muted)] rounded-lg p-0.5">
+            <button
+              onClick={() => toggleView('card')}
+              className={`p-1.5 rounded-md transition-colors ${viewMode === 'card' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
+              title="Card view"
+            >
+              <Squares2X2Icon className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => toggleView('list')}
+              className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm' : 'text-[var(--muted-foreground)]'}`}
+              title="List view"
+            >
+              <ListBulletIcon className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Sync */}
+          {canSync && (
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+            >
+              <ArrowPathIcon className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing...' : syncLabel}
+            </button>
+          )}
+        </div>
       </div>
-    </div>
+
+      {selectMode && (
+        <BulkActionDock
+          count={selectedIds.size}
+          itemLabel="templates"
+          onClose={closeSelectMode}
+          actions={[
+            {
+              id: 'select-all',
+              label: selectedIds.size === filteredCount ? 'Deselect all' : 'Select all',
+              icon: <CheckIcon className="h-4 w-4" />,
+              onClick: toggleSelectAll,
+              disabled: filteredCount === 0,
+            },
+            {
+              id: 'move',
+              label: 'Move',
+              icon: <FolderIcon className="h-4 w-4" />,
+              onClick: () => { if (onBulkMove) onBulkMove(); },
+              disabled: !foldersEnabled || !onBulkMove || selectedIds.size === 0,
+            },
+            {
+              id: 'delete',
+              label: 'Delete',
+              icon: <TrashIcon className="h-4 w-4" />,
+              onClick: onBulkDelete,
+              disabled: selectedIds.size === 0,
+              danger: true,
+            },
+          ]}
+        />
+      )}
+    </>
   );
 }
 
@@ -2314,7 +2320,7 @@ export default function TemplatesPage() {
     || currentFolderId !== null
   );
   const folderPanel = showFolderPanel ? (
-    <div className="mb-4 glass-card rounded-xl p-3 border border-[var(--border)]">
+    <div className="my-8 glass-card rounded-xl p-4 border border-[var(--border)]">
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1 text-xs flex-wrap">
           {folderPath.map((crumb, index) => {
@@ -2344,7 +2350,7 @@ export default function TemplatesPage() {
       </div>
 
       {showNewFolderInput && (
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-4 flex items-center gap-2">
           <input
             type="text"
             value={newFolderName}
@@ -2380,15 +2386,15 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      <div className="mt-3">
+      <div className="mt-6 mb-2">
         {foldersLoading ? (
           <p className="text-xs text-[var(--muted-foreground)]">Loading folders...</p>
         ) : currentLevelFolders.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {currentLevelFolders.map((folder) => (
               <div
                 key={folder.id}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)]"
+                className="min-h-[82px] flex items-center gap-2 px-4 py-3 rounded-lg border border-[var(--border)] bg-[var(--card)]"
               >
                 <button
                   onClick={() => setCurrentFolderId(folder.id)}
@@ -2463,9 +2469,8 @@ export default function TemplatesPage() {
                         <>
                           <button
                             onClick={backToAllAccounts}
-                            className="inline-flex items-center gap-1 text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                            className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
                           >
-                            <ArrowLeftIcon className="w-3.5 h-3.5" />
                             All Accounts
                           </button>
                           <span className="text-[var(--muted-foreground)]">{'>'}</span>
