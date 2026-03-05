@@ -27,6 +27,7 @@ import {
   EyeIcon,
   ArrowDownTrayIcon,
   ArrowTopRightOnSquareIcon,
+  DocumentDuplicateIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount, type AccountData } from '@/contexts/account-context';
@@ -136,6 +137,13 @@ function sanitizeFileName(value: string): string {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
   return safe || 'template';
+}
+
+function buildCloneName(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return 'Untitled Template Copy';
+  if (/\scopy$/i.test(trimmed)) return `${trimmed} 2`;
+  return `${trimmed} Copy`;
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -361,6 +369,7 @@ interface TemplateCardProps {
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
+  onClone: (t: EspTemplateRecord) => void;
   onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
   onSelect: (id: string) => void;
@@ -377,6 +386,7 @@ function TemplateCard({
   onMenuToggle,
   onPreview,
   onEdit,
+  onClone,
   onDownloadScreenshot,
   onDelete,
   onSelect,
@@ -463,6 +473,12 @@ function TemplateCard({
                     <PencilSquareIcon className="w-4 h-4" /> Edit
                   </button>
                   <button
+                    onClick={() => { onMenuToggle(null); onClone(t); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <DocumentDuplicateIcon className="w-4 h-4" /> Clone
+                  </button>
+                  <button
                     onClick={() => { onMenuToggle(null); onDownloadScreenshot(t); }}
                     disabled={downloading}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-60"
@@ -522,6 +538,7 @@ interface TemplateRowProps {
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
+  onClone: (t: EspTemplateRecord) => void;
   onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
   onSelect: (id: string) => void;
@@ -538,6 +555,7 @@ function TemplateRow({
   onMenuToggle,
   onPreview,
   onEdit,
+  onClone,
   onDownloadScreenshot,
   onDelete,
   onSelect,
@@ -628,6 +646,12 @@ function TemplateRow({
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
               >
                 <PencilSquareIcon className="w-4 h-4" /> Edit
+              </button>
+              <button
+                onClick={() => { onMenuToggle(null); onClone(t); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+              >
+                <DocumentDuplicateIcon className="w-4 h-4" /> Clone
               </button>
               <button
                 onClick={() => { onMenuToggle(null); onDownloadScreenshot(t); }}
@@ -972,6 +996,7 @@ interface TemplateListViewProps {
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
   onEdit: (id: string) => void;
+  onClone: (t: EspTemplateRecord) => void;
   onDownloadScreenshot: (t: EspTemplateRecord) => void;
   onDelete: (t: EspTemplateRecord) => void;
   onSelect: (id: string) => void;
@@ -993,6 +1018,7 @@ function TemplateListView({
   onMenuToggle,
   onPreview,
   onEdit,
+  onClone,
   onDownloadScreenshot,
   onDelete,
   onSelect,
@@ -1050,6 +1076,7 @@ function TemplateListView({
                 onMenuToggle={onMenuToggle}
                 onPreview={onPreview}
                 onEdit={onEdit}
+                onClone={onClone}
                 onDownloadScreenshot={onDownloadScreenshot}
                 onDelete={onDelete}
                 onSelect={onSelect}
@@ -1071,6 +1098,7 @@ function TemplateListView({
                 onMenuToggle={onMenuToggle}
                 onPreview={onPreview}
                 onEdit={onEdit}
+                onClone={onClone}
                 onDownloadScreenshot={onDownloadScreenshot}
                 onDelete={onDelete}
                 onSelect={onSelect}
@@ -1103,12 +1131,18 @@ export default function TemplatesPage() {
   const [showCreateChoice, setShowCreateChoice] = useState(false);
   const [deleteTemplate, setDeleteTemplate] = useState<EspTemplateRecord | null>(null);
   const [previewTemplate, setPreviewTemplate] = useState<EspTemplateRecord | null>(null);
+  const [cloneTemplate, setCloneTemplate] = useState<EspTemplateRecord | null>(null);
+  const [cloneDestination, setCloneDestination] = useState<'loomi' | 'subaccounts' | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [cloning, setCloning] = useState(false);
 
   // Library picker (inside create modal)
   const [libraryPickerMode, setLibraryPickerMode] = useState(false);
   const [createAccountKey, setCreateAccountKey] = useState<string | null>(null);
+  const [createAccountSearch, setCreateAccountSearch] = useState('');
+  const [cloneAccountSearch, setCloneAccountSearch] = useState('');
+  const [cloneAccountKeys, setCloneAccountKeys] = useState<Set<string>>(new Set());
   const [createMode, setCreateMode] = useState<'visual' | 'code' | null>(null);
   const [createName, setCreateName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -1232,6 +1266,28 @@ export default function TemplatesPage() {
       return nameA.localeCompare(nameB);
     });
   }, [accounts, accountGroups]);
+
+  const createFilteredAccountKeys = useMemo(() => {
+    const q = createAccountSearch.trim().toLowerCase();
+    if (!q) return allAccountKeys;
+    return allAccountKeys.filter((k) => {
+      const acct = accounts[k];
+      const name = (acct?.dealer || k).toLowerCase();
+      const location = [acct?.city, acct?.state].filter(Boolean).join(', ').toLowerCase();
+      return name.includes(q) || location.includes(q) || k.toLowerCase().includes(q);
+    });
+  }, [allAccountKeys, accounts, createAccountSearch]);
+
+  const cloneFilteredAccountKeys = useMemo(() => {
+    const q = cloneAccountSearch.trim().toLowerCase();
+    if (!q) return allAccountKeys;
+    return allAccountKeys.filter((k) => {
+      const acct = accounts[k];
+      const name = (acct?.dealer || k).toLowerCase();
+      const location = [acct?.city, acct?.state].filter(Boolean).join(', ').toLowerCase();
+      return name.includes(q) || location.includes(q) || k.toLowerCase().includes(q);
+    });
+  }, [allAccountKeys, accounts, cloneAccountSearch]);
 
   const syncTemplatesForAccounts = useCallback(async (
     accountKeys: string[],
@@ -1430,6 +1486,107 @@ export default function TemplatesPage() {
     setCreateName('');
   };
 
+  const openCloneModal = useCallback((template: EspTemplateRecord) => {
+    setCloneTemplate(template);
+    setCloneDestination(null);
+    setCloneAccountSearch('');
+    setCloneAccountKeys(new Set());
+  }, []);
+
+  const closeCloneModal = useCallback(() => {
+    setCloneTemplate(null);
+    setCloneDestination(null);
+    setCloneAccountSearch('');
+    setCloneAccountKeys(new Set());
+    setCloning(false);
+  }, []);
+
+  const toggleCloneAccount = useCallback((accountKeyToToggle: string) => {
+    setCloneAccountKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountKeyToToggle)) next.delete(accountKeyToToggle);
+      else next.add(accountKeyToToggle);
+      return next;
+    });
+  }, []);
+
+  const cloneTemplateToAccounts = useCallback(async (
+    template: EspTemplateRecord,
+    targetAccountKeys: string[],
+    destination: 'loomi' | 'subaccounts',
+  ) => {
+    if (targetAccountKeys.length === 0) return;
+
+    setCloning(true);
+    try {
+      const payloadName = buildCloneName(template.name || 'Untitled Template');
+      const results = await Promise.all(
+        targetAccountKeys.map(async (targetAccountKey) => {
+          try {
+            const res = await fetch('/api/esp/templates', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                accountKey: targetAccountKey,
+                name: payloadName,
+                subject: template.subject || undefined,
+                previewText: template.previewText || undefined,
+                html: template.html || '',
+                source: template.source || null,
+                editorType: template.editorType || null,
+                syncToRemote: false,
+              }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              return {
+                ok: false,
+                error: typeof data?.error === 'string' ? data.error : `Clone failed (${res.status})`,
+              };
+            }
+            return { ok: true, error: '' };
+          } catch {
+            return { ok: false, error: 'Network error while cloning' };
+          }
+        }),
+      );
+
+      const succeeded = results.filter((result) => result.ok).length;
+      const failed = results.length - succeeded;
+      if (succeeded > 0 && failed === 0) {
+        toast.success(
+          destination === 'loomi'
+            ? 'Cloned to Loomi'
+            : `Cloned to ${succeeded} sub-account${succeeded === 1 ? '' : 's'}`,
+        );
+      } else if (succeeded > 0) {
+        const firstError = results.find((result) => !result.ok)?.error;
+        toast.warning(`Cloned ${succeeded}/${results.length}. ${firstError || ''}`.trim());
+      } else {
+        const firstError = results.find((result) => !result.ok)?.error;
+        toast.error(firstError || 'Failed to clone template');
+      }
+
+      if (succeeded > 0) {
+        await loadTemplates();
+      }
+    } finally {
+      setCloning(false);
+    }
+  }, [loadTemplates]);
+
+  const handleCloneToLoomi = useCallback(async () => {
+    if (!cloneTemplate) return;
+    await cloneTemplateToAccounts(cloneTemplate, [cloneTemplate.accountKey], 'loomi');
+    closeCloneModal();
+  }, [cloneTemplate, cloneTemplateToAccounts, closeCloneModal]);
+
+  const handleCloneToSubAccounts = useCallback(async () => {
+    if (!cloneTemplate || cloneAccountKeys.size === 0) return;
+    await cloneTemplateToAccounts(cloneTemplate, Array.from(cloneAccountKeys), 'subaccounts');
+    closeCloneModal();
+  }, [cloneTemplate, cloneAccountKeys, cloneTemplateToAccounts, closeCloneModal]);
+
   const handleCreateConfirm = async () => {
     if (!createMode || !createName.trim()) return;
     const createKey = createAccountKey || (accountFilter !== 'all' ? accountFilter : null) || effectiveAccountKey;
@@ -1626,10 +1783,12 @@ export default function TemplatesPage() {
     onMenuToggle: (id: string | null) => { if (id !== null) menuClickRef.current = true; setOpenMenu(id); },
     onPreview: setPreviewTemplate,
     onEdit: navigateToEditor,
+    onClone: openCloneModal,
     onDownloadScreenshot: handleDownloadScreenshot,
     onDelete: setDeleteTemplate,
     onSelect: handleToggleSelect,
   };
+  const canCloneToSubAccounts = isAdmin && allAccountKeys.length > 0;
 
   // ── Render ──
 
@@ -1725,7 +1884,7 @@ export default function TemplatesPage() {
 
         // Determine modal title based on current step
         const modalTitle = needsAccountPicker
-          ? 'Select Account'
+          ? 'Select Sub-account'
           : libraryPickerMode
             ? 'Select from Library'
             : createMode
@@ -1743,6 +1902,7 @@ export default function TemplatesPage() {
             setLibraryPickerMode(false);
           } else {
             setCreateAccountKey(null);
+            setCreateAccountSearch('');
           }
         };
 
@@ -1750,6 +1910,7 @@ export default function TemplatesPage() {
           setShowCreateChoice(false);
           setLibraryPickerMode(false);
           setCreateAccountKey(null);
+          setCreateAccountSearch('');
           setCreateMode(null);
           setCreateName('');
         };
@@ -1782,9 +1943,19 @@ export default function TemplatesPage() {
               {/* Account picker step for admins */}
               {needsAccountPicker ? (
                 <>
-                  <p className="text-sm text-[var(--muted-foreground)] mb-4">Which account should this template be created for?</p>
+                  <p className="text-sm text-[var(--muted-foreground)] mb-4">Which sub-account should this template be created for?</p>
+                  <div className="relative mb-3">
+                    <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                    <input
+                      type="text"
+                      value={createAccountSearch}
+                      onChange={(e) => setCreateAccountSearch(e.target.value)}
+                      placeholder="Search sub-accounts..."
+                      className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
+                    />
+                  </div>
                   <div className="max-h-[360px] overflow-y-auto space-y-1">
-                    {allAccountKeys.map(k => {
+                    {createFilteredAccountKeys.map(k => {
                       const acct = accounts[k];
                       const location = [acct?.city, acct?.state].filter(Boolean).join(', ');
                       return (
@@ -1810,6 +1981,9 @@ export default function TemplatesPage() {
                         </button>
                       );
                     })}
+                    {createFilteredAccountKeys.length === 0 && (
+                      <p className="text-xs text-[var(--muted-foreground)] px-1 py-2">No sub-accounts found.</p>
+                    )}
                   </div>
                 </>
               ) : createMode ? (
@@ -1909,6 +2083,172 @@ export default function TemplatesPage() {
         </div>
         );
       })()}
+
+      {/* ── Clone Modal ── */}
+      {cloneTemplate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={closeCloneModal}>
+          <div className="glass-modal w-[680px] max-w-[calc(100vw-2rem)]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <div className="flex items-center gap-2">
+                {cloneDestination === 'subaccounts' && (
+                  <button
+                    onClick={() => setCloneDestination(null)}
+                    className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    title="Back"
+                  >
+                    <ArrowLeftIcon className="w-4 h-4" />
+                  </button>
+                )}
+                <h3 className="text-base font-semibold">
+                  {cloneDestination === 'subaccounts' ? 'Select Sub-accounts' : 'Clone Template'}
+                </h3>
+              </div>
+              <button onClick={closeCloneModal} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            {cloneDestination === 'subaccounts' ? (
+              <div className="p-5">
+                <p className="text-sm text-[var(--muted-foreground)] mb-3">
+                  Select one or more sub-accounts to clone <span className="text-[var(--foreground)] font-medium">{cloneTemplate.name}</span>.
+                </p>
+                <div className="relative mb-3">
+                  <MagnifyingGlassIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                  <input
+                    type="text"
+                    value={cloneAccountSearch}
+                    onChange={(e) => setCloneAccountSearch(e.target.value)}
+                    placeholder="Search sub-accounts..."
+                    className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    {cloneAccountKeys.size} selected
+                  </p>
+                  <button
+                    onClick={() => {
+                      if (cloneFilteredAccountKeys.length === 0) return;
+                      const allFilteredSelected = cloneFilteredAccountKeys.every((key) => cloneAccountKeys.has(key));
+                      if (allFilteredSelected) {
+                        setCloneAccountKeys((prev) => {
+                          const next = new Set(prev);
+                          cloneFilteredAccountKeys.forEach((key) => next.delete(key));
+                          return next;
+                        });
+                      } else {
+                        setCloneAccountKeys((prev) => {
+                          const next = new Set(prev);
+                          cloneFilteredAccountKeys.forEach((key) => next.add(key));
+                          return next;
+                        });
+                      }
+                    }}
+                    className="text-xs text-[var(--primary)] hover:underline"
+                  >
+                    {cloneFilteredAccountKeys.length > 0 && cloneFilteredAccountKeys.every((key) => cloneAccountKeys.has(key))
+                      ? 'Deselect Filtered'
+                      : 'Select Filtered'}
+                  </button>
+                </div>
+
+                <div className="max-h-[320px] overflow-y-auto space-y-1.5 pr-0.5">
+                  {cloneFilteredAccountKeys.map((k) => {
+                    const acct = accounts[k];
+                    const location = [acct?.city, acct?.state].filter(Boolean).join(', ');
+                    const selected = cloneAccountKeys.has(k);
+                    return (
+                      <button
+                        key={k}
+                        onClick={() => toggleCloneAccount(k)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all text-left ${
+                          selected
+                            ? 'border-[var(--primary)] bg-[var(--primary)]/10'
+                            : 'border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/5'
+                        }`}
+                      >
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                          selected ? 'bg-[var(--primary)] border-[var(--primary)] text-white' : 'border-[var(--border)]'
+                        }`}>
+                          {selected && <CheckIcon className="w-3 h-3" />}
+                        </div>
+                        <AccountAvatar
+                          name={acct?.dealer || k}
+                          accountKey={k}
+                          storefrontImage={acct?.storefrontImage}
+                          logos={acct?.logos}
+                          size={30}
+                          className="w-8 h-8 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
+                        />
+                        <div className="min-w-0">
+                          <span className="block text-sm font-medium truncate">{acct?.dealer || k}</span>
+                          {location && (
+                            <span className="block text-[11px] text-[var(--muted-foreground)] truncate">{location}</span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {cloneFilteredAccountKeys.length === 0 && (
+                    <p className="text-xs text-[var(--muted-foreground)] px-1 py-2">No sub-accounts found.</p>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-[var(--muted-foreground)] mt-3">
+                  Clones are saved as Loomi drafts only. They are not auto-published to ESP.
+                </p>
+
+                <div className="flex items-center justify-end gap-2 mt-4">
+                  <button
+                    onClick={closeCloneModal}
+                    className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCloneToSubAccounts}
+                    disabled={cloning || cloneAccountKeys.size === 0}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {cloning ? 'Cloning...' : `Clone to ${cloneAccountKeys.size} Sub-account${cloneAccountKeys.size === 1 ? '' : 's'}`}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-5">
+                <p className="text-sm text-[var(--muted-foreground)] mb-4">
+                  Where do you want to clone <span className="text-[var(--foreground)] font-medium">{cloneTemplate.name}</span>?
+                </p>
+                <div className={`grid gap-3 ${canCloneToSubAccounts ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                  <button
+                    onClick={handleCloneToLoomi}
+                    disabled={cloning}
+                    className="group flex flex-col items-start gap-2 p-4 rounded-xl border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/5 transition-all text-left disabled:opacity-50"
+                  >
+                    <h4 className="text-sm font-semibold">Clone to Loomi</h4>
+                    <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
+                      Create a local draft in the current sub-account only.
+                    </p>
+                  </button>
+                  {canCloneToSubAccounts && (
+                    <button
+                      onClick={() => setCloneDestination('subaccounts')}
+                      className="group flex flex-col items-start gap-2 p-4 rounded-xl border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/5 transition-all text-left"
+                    >
+                      <h4 className="text-sm font-semibold">Clone to Sub-account(s)</h4>
+                      <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
+                        Choose one or more sub-accounts to receive Loomi draft copies.
+                      </p>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Delete Confirmation Modal ── */}
       {deleteTemplate && (() => {
