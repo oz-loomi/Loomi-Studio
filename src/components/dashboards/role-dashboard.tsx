@@ -584,7 +584,6 @@ function ManagementRoleDashboard({
   const [superAdminPresets, setSuperAdminPresets] = useState<SuperAdminFilterPreset[]>([]);
   const [superAdminPresetsHydrated, setSuperAdminPresetsHydrated] = useState(false);
   const lastFocusedRef = useRef<string | null>(null);
-  const filterDropdownRef = useRef<HTMLDivElement>(null);
 
   const [emails, setEmails] = useState<EmailListItem[]>([]);
   const [loomiEmailCampaigns, setLoomiEmailCampaigns] = useState<LoomiEmailCampaign[]>([]);
@@ -723,18 +722,11 @@ function ManagementRoleDashboard({
 
   useEffect(() => {
     if (!filtersPanelOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target as Node)) {
-        setFiltersPanelOpen(false);
-      }
-    }
     function handleEscape(e: KeyboardEvent) {
       if (e.key === 'Escape') setFiltersPanelOpen(false);
     }
-    document.addEventListener('mousedown', handleClick);
     document.addEventListener('keydown', handleEscape);
     return () => {
-      document.removeEventListener('mousedown', handleClick);
       document.removeEventListener('keydown', handleEscape);
     };
   }, [filtersPanelOpen]);
@@ -1865,24 +1857,24 @@ function ManagementRoleDashboard({
   );
 
   const filtersDropdown = filtersPanelOpen ? (
-    <div
-      ref={filterDropdownRef}
-      className="absolute right-0 top-full mt-2 z-50 glass-panel glass-panel-strong w-[420px] max-h-[calc(100vh-8rem)] rounded-2xl flex flex-col overflow-hidden animate-fade-in-up"
-    >
-      <div className="border-b border-[var(--sidebar-border-soft)] px-5 py-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <FunnelIcon className="h-4 w-4 text-[var(--primary)]" />
-            <h3 className="text-sm font-bold tracking-tight">Filters</h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFiltersPanelOpen(false)}
-            className="rounded-xl p-1.5 text-[var(--sidebar-muted-foreground)] transition-colors hover:bg-[var(--sidebar-muted)] hover:text-[var(--sidebar-foreground)]"
-          >
-            <XMarkIcon className="h-4 w-4" />
-          </button>
+    <div className="fixed inset-0 z-[80]">
+      <div
+        className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+        onClick={() => setFiltersPanelOpen(false)}
+      />
+      <aside className="glass-panel glass-panel-strong fixed right-3 top-3 bottom-3 w-[350px] rounded-2xl flex flex-col overflow-hidden">
+      <div className="p-5 border-b border-[var(--sidebar-border-soft)] flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <FunnelIcon className="w-5 h-5 text-black dark:text-[var(--primary)]" />
+          <h3 className="text-sm font-bold tracking-tight">Filters</h3>
         </div>
+        <button
+          type="button"
+          onClick={() => setFiltersPanelOpen(false)}
+          className="p-1.5 rounded-xl text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)] transition-colors"
+        >
+          <XMarkIcon className="w-4 h-4" />
+        </button>
       </div>
 
       <div className="themed-scrollbar flex-1 space-y-5 overflow-y-auto p-4">
@@ -2108,16 +2100,17 @@ function ManagementRoleDashboard({
           onClick={clearSuperAdminFilters}
           className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
         >
-          Reset
+          Reset All
         </button>
         <button
           type="button"
           onClick={() => setFiltersPanelOpen(false)}
-          className="rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 px-3 py-1.5 text-xs text-white transition-colors hover:bg-[var(--primary)]"
+          className="px-3 py-2 text-xs rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors"
         >
           Done
         </button>
       </div>
+      </aside>
     </div>
   ) : null;
 

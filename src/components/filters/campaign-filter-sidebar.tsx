@@ -243,7 +243,6 @@ function AccountSection({
   options: CampaignFilterOptions['accounts'];
 }) {
   const [query, setQuery] = useState('');
-  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const filteredAccounts = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -271,7 +270,7 @@ function AccountSection({
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button"
-          onClick={() => { onChange([]); setDropdownOpen(false); }}
+          onClick={() => onChange([])}
           className={`${PILL_BASE_CLASS} ${
             values.length === 0 ? PILL_ACTIVE_CLASS : PILL_INACTIVE_CLASS
           }`}
@@ -297,71 +296,62 @@ function AccountSection({
             <XMarkIcon className="w-3 h-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => setDropdownOpen(!dropdownOpen)}
-          className={`${PILL_BASE_CLASS} ${PILL_INACTIVE_CLASS}`}
-        >
-          {dropdownOpen ? 'Close' : '+ Add'}
-        </button>
       </div>
 
-      {/* Collapsible dropdown with search + list */}
-      {dropdownOpen && (
-        <div className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-2 space-y-2">
-          <div className="relative">
-            <MagnifyingGlassIcon className="w-3.5 h-3.5 text-[var(--sidebar-muted-foreground)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Filter sub-accounts..."
-              className="w-full h-8 rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 pl-8 pr-2 text-[11px] text-[var(--sidebar-foreground)] placeholder:text-[var(--sidebar-muted-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30"
-            />
-          </div>
-          <div className="themed-scrollbar space-y-1 max-h-64 overflow-y-auto pr-1">
-            {filteredAccounts.map((account) => {
-              const selected = values.includes(account.label);
-              const location = [account.city, account.state].filter(Boolean).join(', ');
-              return (
-                <button
-                  key={account.label}
-                  type="button"
-                  onClick={() => onChange(toggleSelection(values, account.label))}
-                  className={`w-full px-2 py-1.5 rounded-lg border text-[11px] text-left flex items-center gap-2 transition-colors ${
-                    selected
-                      ? 'border-[var(--primary)]/45 bg-[var(--primary)]/12 text-[var(--primary)]'
-                      : 'border-transparent text-[var(--sidebar-foreground)] hover:border-[var(--sidebar-border-soft)] hover:bg-[var(--sidebar-muted)]/70'
-                  }`}
-                >
-                  <AccountAvatar
-                    name={account.label}
-                    accountKey={account.key || account.label}
-                    storefrontImage={account.storefrontImage}
-                    logos={account.logos}
-                    size={22}
-                    className="w-[22px] h-[22px] rounded-md object-cover flex-shrink-0 border border-[var(--sidebar-border-soft)]"
-                  />
-                  <span className="flex-1 min-w-0">
-                    <span className="block truncate">{account.label}</span>
-                    {location && (
-                      <span className="block text-[10px] text-[var(--sidebar-muted-foreground)] truncate">
-                        {location}
-                      </span>
-                    )}
-                  </span>
-                  {selected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
-                </button>
-              );
-            })}
-            {filteredAccounts.length === 0 && (
-              <p className="px-1 py-2 text-[11px] text-[var(--sidebar-muted-foreground)]">
-                No matching sub-accounts.
-              </p>
-            )}
-          </div>
+      {/* Search + list (always visible) */}
+      <div className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-2 space-y-2">
+        <div className="relative">
+          <MagnifyingGlassIcon className="w-3.5 h-3.5 text-[var(--sidebar-muted-foreground)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Filter sub-accounts..."
+            className="w-full h-8 rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 pl-8 pr-2 text-[11px] text-[var(--sidebar-foreground)] placeholder:text-[var(--sidebar-muted-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30"
+          />
         </div>
-      )}
+        <div className="themed-scrollbar space-y-1 max-h-64 overflow-y-auto pr-1">
+          {filteredAccounts.map((account) => {
+            const selected = values.includes(account.label);
+            const location = [account.city, account.state].filter(Boolean).join(', ');
+            return (
+              <button
+                key={account.label}
+                type="button"
+                onClick={() => onChange(toggleSelection(values, account.label))}
+                className={`w-full px-2 py-1.5 rounded-lg border text-[11px] text-left flex items-center gap-2 transition-colors ${
+                  selected
+                    ? 'border-[var(--primary)]/45 bg-[var(--primary)]/12 text-[var(--primary)]'
+                    : 'border-transparent text-[var(--sidebar-foreground)] hover:border-[var(--sidebar-border-soft)] hover:bg-[var(--sidebar-muted)]/70'
+                }`}
+              >
+                <AccountAvatar
+                  name={account.label}
+                  accountKey={account.key || account.label}
+                  storefrontImage={account.storefrontImage}
+                  logos={account.logos}
+                  size={22}
+                  className="w-[22px] h-[22px] rounded-md object-cover flex-shrink-0 border border-[var(--sidebar-border-soft)]"
+                />
+                <span className="flex-1 min-w-0">
+                  <span className="block truncate">{account.label}</span>
+                  {location && (
+                    <span className="block text-[10px] text-[var(--sidebar-muted-foreground)] truncate">
+                      {location}
+                    </span>
+                  )}
+                </span>
+                {selected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
+              </button>
+            );
+          })}
+          {filteredAccounts.length === 0 && (
+            <p className="px-1 py-2 text-[11px] text-[var(--sidebar-muted-foreground)]">
+              No matching sub-accounts.
+            </p>
+          )}
+        </div>
+      </div>
     </section>
   );
 }
@@ -375,8 +365,6 @@ function RepDropdownSection({
   onChange: (values: string[]) => void;
   options: RepFilterOption[];
 }) {
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-
   if (options.length === 0) return null;
 
   const selectedReps = options.filter((r) => values.includes(r.id));
@@ -395,7 +383,7 @@ function RepDropdownSection({
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button"
-          onClick={() => { onChange([]); setDropdownOpen(false); }}
+          onClick={() => onChange([])}
           className={`${PILL_BASE_CLASS} ${
             values.length === 0 ? PILL_ACTIVE_CLASS : PILL_INACTIVE_CLASS
           }`}
@@ -413,39 +401,30 @@ function RepDropdownSection({
             <XMarkIcon className="w-3 h-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => setDropdownOpen(!dropdownOpen)}
-          className={`${PILL_BASE_CLASS} ${PILL_INACTIVE_CLASS}`}
-        >
-          {dropdownOpen ? 'Close' : '+ Add'}
-        </button>
       </div>
 
-      {dropdownOpen && (
-        <div className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-2 space-y-1">
-          <div className="themed-scrollbar space-y-1 max-h-48 overflow-y-auto pr-1">
-            {options.map((rep) => {
-              const selected = values.includes(rep.id);
-              return (
-                <button
-                  key={rep.id}
-                  type="button"
-                  onClick={() => onChange(toggleSelection(values, rep.id))}
-                  className={`w-full px-2 py-1.5 rounded-lg border text-[11px] text-left flex items-center justify-between gap-2 transition-colors ${
-                    selected
-                      ? 'border-[var(--primary)]/45 bg-[var(--primary)]/12 text-[var(--primary)]'
-                      : 'border-transparent text-[var(--sidebar-foreground)] hover:border-[var(--sidebar-border-soft)] hover:bg-[var(--sidebar-muted)]/70'
-                  }`}
-                >
-                  <span className="truncate">{rep.label} ({rep.accountCount})</span>
-                  {selected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
-                </button>
-              );
-            })}
-          </div>
+      <div className="rounded-xl border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-muted)]/30 p-2 space-y-1">
+        <div className="themed-scrollbar space-y-1 max-h-48 overflow-y-auto pr-1">
+          {options.map((rep) => {
+            const selected = values.includes(rep.id);
+            return (
+              <button
+                key={rep.id}
+                type="button"
+                onClick={() => onChange(toggleSelection(values, rep.id))}
+                className={`w-full px-2 py-1.5 rounded-lg border text-[11px] text-left flex items-center justify-between gap-2 transition-colors ${
+                  selected
+                    ? 'border-[var(--primary)]/45 bg-[var(--primary)]/12 text-[var(--primary)]'
+                    : 'border-transparent text-[var(--sidebar-foreground)] hover:border-[var(--sidebar-border-soft)] hover:bg-[var(--sidebar-muted)]/70'
+                }`}
+              >
+                <span className="truncate">{rep.label} ({rep.accountCount})</span>
+                {selected && <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />}
+              </button>
+            );
+          })}
         </div>
-      )}
+      </div>
     </section>
   );
 }
