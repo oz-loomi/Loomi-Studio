@@ -19,6 +19,7 @@ import {
   ArrowRightIcon,
   EyeIcon,
   ArrowsPointingOutIcon,
+  ScissorsIcon,
   CheckIcon,
   FolderArrowDownIcon,
   Squares2X2Icon,
@@ -156,6 +157,321 @@ function mediaItemKey(file: MediaFile): string {
 function hasFilePayload(dataTransfer: DataTransfer | null): boolean {
   if (!dataTransfer?.types) return false;
   return Array.from(dataTransfer.types).includes('Files');
+}
+
+interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function defaultCropRect(aspectRatio: number | null): CropRect {
+  if (!aspectRatio) {
+    return { x: 0.1, y: 0.1, width: 0.8, height: 0.8 };
+  }
+
+  const maxWidth = 0.82;
+  const maxHeight = 0.82;
+  let width = maxWidth;
+  let height = width / aspectRatio;
+
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * aspectRatio;
+  }
+
+  return {
+    x: (1 - width) / 2,
+    y: (1 - height) / 2,
+    width,
+    height,
+  };
+}
+
+function computeDragCrop(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  aspectRatio: number | null,
+): CropRect {
+  if (!aspectRatio) {
+    const x = Math.min(start.x, end.x);
+    const y = Math.min(start.y, end.y);
+    const width = Math.abs(end.x - start.x);
+    const height = Math.abs(end.y - start.y);
+    return {
+      x: clampNumber(x, 0, 1),
+      y: clampNumber(y, 0, 1),
+      width: clampNumber(width, 0, 1),
+      height: clampNumber(height, 0, 1),
+    };
+  }
+
+  const dragRight = end.x >= start.x;
+  const dragDown = end.y >= start.y;
+
+  let width = Math.abs(end.x - start.x);
+  let maxWidth = dragRight ? 1 - start.x : start.x;
+  maxWidth = clampNumber(maxWidth, 0, 1);
+
+  width = Math.min(width, maxWidth);
+  let height = width / aspectRatio;
+
+  const maxHeight = dragDown ? 1 - start.y : start.y;
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * aspectRatio;
+  }
+
+  const x = dragRight ? start.x : start.x - width;
+  const y = dragDown ? start.y : start.y - height;
+
+  return {
+    x: clampNumber(x, 0, 1),
+    y: clampNumber(y, 0, 1),
+    width: clampNumber(width, 0, 1),
+    height: clampNumber(height, 0, 1),
+  };
+}
+
+function cropOutputMimeType(inputType: string | undefined): string {
+  if (inputType === 'image/jpeg' || inputType === 'image/png' || inputType === 'image/webp') {
+    return inputType;
+  }
+  return 'image/png';
+}
+
+function extensionFromMimeType(mimeType: string): string {
+  if (mimeType === 'image/jpeg') return 'jpg';
+  if (mimeType === 'image/png') return 'png';
+  if (mimeType === 'image/webp') return 'webp';
+  return 'png';
+}
+
+function makeCroppedFileName(originalName: string, mimeType: string): string {
+  const trimmed = (originalName || '').trim();
+  const dotIndex = trimmed.lastIndexOf('.');
+  const baseName = dotIndex > 0 ? trimmed.slice(0, dotIndex) : (trimmed || 'image');
+  const ext = extensionFromMimeType(mimeType);
+  return `${baseName}-cropped.${ext}`;
+}
+
+interface CropEditorModalProps {
+  file: MediaFile;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (crop: CropRect) => void;
+}
+
+function CropEditorModal({ file, saving, onClose, onSave }: CropEditorModalProps) {
+  const imageWrapRef = useRef<HTMLDivElement>(null);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+  const [crop, setCrop] = useState<CropRect>(() => defaultCropRect(null));
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const dragMovedRef = useRef(false);
+  const cropBeforeDragRef = useRef<CropRect>(crop);
+
+  const hasSelection = crop.width >= 0.01 && crop.height >= 0.01;
+  const canSave = !saving && hasSelection && naturalSize.width > 0 && naturalSize.height > 0;
+
+  const getPoint = useCallback((clientX: number, clientY: number) => {
+    const wrapper = imageWrapRef.current;
+    if (!wrapper) return null;
+    const bounds = wrapper.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return null;
+    return {
+      x: clampNumber((clientX - bounds.left) / bounds.width, 0, 1),
+      y: clampNumber((clientY - bounds.top) / bounds.height, 0, 1),
+    };
+  }, []);
+
+  const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (saving) return;
+    const point = getPoint(event.clientX, event.clientY);
+    if (!point) return;
+    event.preventDefault();
+    dragStartRef.current = point;
+    dragMovedRef.current = false;
+    cropBeforeDragRef.current = crop;
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const start = dragStartRef.current;
+      if (!start) return;
+      const point = getPoint(event.clientX, event.clientY);
+      if (!point) return;
+
+      dragMovedRef.current = true;
+      setCrop(computeDragCrop(start, point, aspectRatio));
+    };
+
+    const handleMouseUp = () => {
+      if (!dragStartRef.current) return;
+      if (!dragMovedRef.current) {
+        setCrop(cropBeforeDragRef.current);
+      }
+      dragStartRef.current = null;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [aspectRatio, getPoint]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, saving]);
+
+  const setAspectPreset = (value: number | null) => {
+    setAspectRatio(value);
+    setCrop(defaultCropRect(value));
+  };
+
+  const handleSave = () => {
+    if (!canSave) return;
+
+    const safeX = Math.min(Math.max(Math.round(crop.x * naturalSize.width), 0), Math.max(0, naturalSize.width - 1));
+    const safeY = Math.min(Math.max(Math.round(crop.y * naturalSize.height), 0), Math.max(0, naturalSize.height - 1));
+    const maxWidth = Math.max(1, naturalSize.width - safeX);
+    const maxHeight = Math.max(1, naturalSize.height - safeY);
+    const safeWidth = Math.max(1, Math.min(Math.round(crop.width * naturalSize.width), maxWidth));
+    const safeHeight = Math.max(1, Math.min(Math.round(crop.height * naturalSize.height), maxHeight));
+
+    onSave({
+      x: safeX,
+      y: safeY,
+      width: safeWidth,
+      height: safeHeight,
+    });
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 animate-overlay-in"
+      onClick={() => { if (!saving) onClose(); }}
+    >
+      <div className="glass-modal w-full max-w-5xl max-h-[92vh] flex flex-col" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold">Crop Image</h3>
+            <p className="text-[11px] text-[var(--muted-foreground)] truncate mt-0.5" title={file.name}>
+              {file.name}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+          >
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4 overflow-y-auto">
+          <div className="rounded-xl bg-black/20 min-h-[320px]">
+            <div className="w-full h-full flex items-center justify-center p-4">
+              <div
+                ref={imageWrapRef}
+                onMouseDown={handleMouseDown}
+                className="relative inline-block cursor-crosshair select-none touch-none"
+              >
+                <img
+                  src={file.url}
+                  alt={file.name}
+                  className="block max-w-full max-h-[60vh] object-contain pointer-events-none"
+                  onLoad={(event) => {
+                    setNaturalSize({
+                      width: event.currentTarget.naturalWidth,
+                      height: event.currentTarget.naturalHeight,
+                    });
+                  }}
+                />
+
+                {hasSelection && (
+                  <div
+                    className="absolute border-2 border-white rounded-[2px] pointer-events-none"
+                    style={{
+                      left: `${crop.x * 100}%`,
+                      top: `${crop.y * 100}%`,
+                      width: `${crop.width * 100}%`,
+                      height: `${crop.height * 100}%`,
+                      boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)',
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-[var(--muted-foreground)]">Drag on the image to set the crop area.</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { label: 'Free', value: null as number | null },
+                { label: '1:1', value: 1 },
+                { label: '4:3', value: 4 / 3 },
+                { label: '16:9', value: 16 / 9 },
+              ].map((option) => {
+                const selected = option.value === aspectRatio;
+                return (
+                  <button
+                    key={option.label}
+                    onClick={() => setAspectPreset(option.value)}
+                    className={`px-2.5 py-1 text-[11px] font-medium rounded-md border transition-colors ${
+                      selected
+                        ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                        : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setCrop(defaultCropRect(aspectRatio))}
+                className="px-2.5 py-1 text-[11px] font-medium rounded-md border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!canSave}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            <ScissorsIcon className="w-4 h-4" />
+            {saving ? 'Cropping...' : 'Crop & Upload'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Extracted sub-components (stable references — never defined inside a render) ──
@@ -560,6 +876,8 @@ export default function MediaPage() {
   const [deleteFile, setDeleteFile] = useState<MediaFile | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [previewFile, setPreviewFile] = useState<MediaFile | null>(null);
+  const [cropFile, setCropFile] = useState<MediaFile | null>(null);
+  const [cropping, setCropping] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
 
   // Bulk selection
@@ -1156,6 +1474,115 @@ export default function MediaPage() {
       toast.success('URL copied to clipboard');
     } catch {
       toast.error('Failed to copy URL');
+    }
+  };
+
+  const handleCropSave = async (crop: CropRect) => {
+    const fileToCrop = cropFile;
+    if (!fileToCrop?.url) return;
+
+    const targetAccountKey = effectiveAccountKey;
+    if (fileToCrop.source !== 's3' && !targetAccountKey) {
+      toast.error('No account selected');
+      return;
+    }
+
+    setCropping(true);
+
+    try {
+      const sourceRes = await fetch(fileToCrop.url);
+      if (!sourceRes.ok) {
+        throw new Error('Could not load image for cropping');
+      }
+      const sourceBlob = await sourceRes.blob();
+      const objectUrl = URL.createObjectURL(sourceBlob);
+
+      let croppedFile: File;
+      try {
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('Could not decode image'));
+          img.src = objectUrl;
+        });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = crop.width;
+        canvas.height = crop.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          throw new Error('Canvas is not available in this browser');
+        }
+
+        ctx.drawImage(
+          image,
+          crop.x,
+          crop.y,
+          crop.width,
+          crop.height,
+          0,
+          0,
+          crop.width,
+          crop.height,
+        );
+
+        const outputType = cropOutputMimeType(fileToCrop.type);
+        const quality = outputType === 'image/jpeg' || outputType === 'image/webp' ? 0.92 : undefined;
+        const croppedBlob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error('Could not encode cropped image'));
+          }, outputType, quality);
+        });
+
+        croppedFile = new File(
+          [croppedBlob],
+          makeCroppedFileName(fileToCrop.name, outputType),
+          { type: outputType },
+        );
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+
+      if (fileToCrop.source === 's3') {
+        const formData = new FormData();
+        formData.append('file', croppedFile);
+        formData.append('category', 'general');
+
+        const res = await fetch('/api/media', { method: 'POST', body: formData });
+        const { ok, data, error } = await safeJson<{ file: MediaFile }>(res);
+        if (!ok || !data?.file) {
+          throw new Error(error || 'Failed to upload cropped image');
+        }
+
+        const created: MediaFile = { ...data.file, source: 's3' };
+        setAdminMediaFiles(prev => [created, ...prev]);
+        setAdminMediaTotal(prev => prev + 1);
+        setPreviewFile(created);
+      } else {
+        const formData = new FormData();
+        formData.append('accountKey', targetAccountKey as string);
+        formData.append('file', croppedFile);
+        if (currentFolderId) formData.append('parentId', currentFolderId);
+
+        const res = await fetch('/api/esp/media', { method: 'POST', body: formData });
+        const { ok, data, error } = await safeJson<{ file: MediaFile }>(res);
+        if (!ok || !data?.file) {
+          throw new Error(error || 'Failed to upload cropped image');
+        }
+
+        const created: MediaFile = { ...data.file, source: 'esp' };
+        setFiles(prev => [created, ...prev]);
+        setPreviewFile(created);
+      }
+
+      toast.success('Cropped image uploaded');
+      setCropFile(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to crop image';
+      toast.error(message);
+    } finally {
+      setCropping(false);
     }
   };
 
@@ -2704,6 +3131,15 @@ export default function MediaPage() {
         </div>
       )}
 
+      {cropFile && (
+        <CropEditorModal
+          file={cropFile}
+          saving={cropping}
+          onClose={() => { if (!cropping) setCropFile(null); }}
+          onSave={handleCropSave}
+        />
+      )}
+
       {/* ── Image Preview Modal ── */}
       {previewFile && (() => {
         const previewIsImage = previewFile.type?.startsWith('image') || previewFile.url?.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
@@ -2792,6 +3228,14 @@ export default function MediaPage() {
                   {previewFile.createdAt && <span>{timeAgo(previewFile.createdAt)}</span>}
                 </div>
                 <div className="flex items-center gap-2">
+                  {previewIsImage && (
+                    <button
+                      onClick={() => setCropFile(previewFile)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
+                    >
+                      <ScissorsIcon className="w-3.5 h-3.5" /> Crop
+                    </button>
+                  )}
                   <button
                     onClick={() => copyUrl(previewFile.url)}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors"
