@@ -2272,6 +2272,21 @@ export default function TemplatesPage() {
     setFolderPath([{ id: null, name: 'Root' }]);
   }, []);
 
+  const resetToAccountRoot = useCallback(() => {
+    setSearch('');
+    setCurrentFolderId(null);
+    setFolderPath([{ id: null, name: 'Root' }]);
+  }, []);
+
+  const activeFolderName = folderPath.length > 1 ? folderPath[folderPath.length - 1]?.name : null;
+
+  const jumpToFolderCrumb = useCallback((pathIndex: number) => {
+    const crumb = folderPath[pathIndex];
+    if (!crumb) return;
+    setCurrentFolderId(crumb.id);
+    setFolderPath(folderPath.slice(0, pathIndex + 1));
+  }, [folderPath]);
+
   // Shared toolbar props
   const toolbarProps = {
     search,
@@ -2330,100 +2345,71 @@ export default function TemplatesPage() {
     onSelect: handleToggleSelect,
   };
   const canCloneToSubAccounts = isAdmin && allAccountKeys.length > 0;
-  const showFolderPanel = foldersEnabled && (
-    foldersLoading
-    || currentLevelFolders.length > 0
-    || currentFolderId !== null
-  );
-  const folderPanel = showFolderPanel ? (
-    <div className="my-8 glass-card rounded-xl p-4 border border-[var(--border)]">
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-1 text-xs flex-wrap">
-          {folderPath.map((crumb, index) => {
-            const isLast = index === folderPath.length - 1;
-            const isRoot = index === 0;
-            return (
-              <span key={crumb.id ?? 'root'} className="flex items-center gap-1">
-                {index > 0 && <ChevronRightIcon className="w-3 h-3 text-[var(--muted-foreground)]" />}
-                {isLast ? (
-                  <span className="inline-flex items-center gap-1 font-medium text-[var(--foreground)]">
-                    {isRoot ? <HomeIcon className="w-3.5 h-3.5" /> : <FolderIcon className="w-3.5 h-3.5" />}
-                    {crumb.name}
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => setCurrentFolderId(crumb.id)}
-                    className="inline-flex items-center gap-1 text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
-                  >
-                    {isRoot ? <HomeIcon className="w-3.5 h-3.5" /> : <FolderIcon className="w-3.5 h-3.5" />}
-                    {crumb.name}
-                  </button>
-                )}
-              </span>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="mt-6 mb-2">
-        {foldersLoading ? (
-          <p className="text-xs text-[var(--muted-foreground)]">Loading folders...</p>
-        ) : currentLevelFolders.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {currentLevelFolders.map((folder) => (
-              <div
-                key={folder.id}
-                className="min-h-[82px] flex items-center gap-2 px-4 py-3 rounded-lg border border-[var(--border)] bg-[var(--card)]"
+  const inlineFolderGrid = foldersEnabled && !foldersLoading && currentLevelFolders.length > 0 ? (
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 mb-6">
+      {currentLevelFolders.map((folder) => (
+        <div
+          key={folder.id}
+          className="glass-card rounded-xl p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up relative"
+        >
+          <div
+            className="flex items-center gap-3 cursor-pointer"
+            onClick={() => setCurrentFolderId(folder.id)}
+          >
+            <div className="w-10 h-10 rounded-lg bg-[var(--primary)]/10 flex items-center justify-center flex-shrink-0">
+              <FolderIcon className="w-5 h-5 text-[var(--primary)]" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3
+                className="text-xs font-semibold truncate"
+                title={folder.name}
               >
-                <button
-                  onClick={() => setCurrentFolderId(folder.id)}
-                  className="flex-1 min-w-0 flex items-center gap-2 text-left hover:text-[var(--primary)] transition-colors"
-                >
-                  <FolderIcon className="w-4 h-4 text-[var(--primary)] flex-shrink-0" />
-                  <span className="text-sm font-medium truncate">{folder.name}</span>
-                </button>
-                <div className="relative">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFolderMenuId((prev) => (prev === folder.id ? null : folder.id));
-                    }}
-                    className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                  >
-                    <EllipsisVerticalIcon className="w-4 h-4" />
-                  </button>
-                  {folderMenuId === folder.id && (
-                    <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => {
-                          setFolderMenuId(null);
-                          openRenameFolderModal(folder);
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
-                      >
-                        <PencilIcon className="w-4 h-4" />
-                        Rename
-                      </button>
-                      <button
-                        onClick={() => {
-                          setFolderMenuId(null);
-                          setDeleteFolderItem(folder);
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2"
-                      >
-                        <TrashIcon className="w-4 h-4" />
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+                {folder.name}
+              </h3>
+              <span className="text-[10px] text-[var(--muted-foreground)]">
+                {timeAgo(folder.createdAt)}
+              </span>
+            </div>
           </div>
-        ) : (
-          <p className="text-xs text-[var(--muted-foreground)]">No folders in this location.</p>
-        )}
-      </div>
+          <div className="absolute top-2 right-2">
+            <button
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                menuClickRef.current = true;
+                setFolderMenuId((prev) => (prev === folder.id ? null : folder.id));
+              }}
+              className={`p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors ${folderMenuId === folder.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+            >
+              <EllipsisVerticalIcon className="w-4 h-4" />
+            </button>
+            {folderMenuId === folder.id && (
+              <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onMouseDown={(e) => { e.stopPropagation(); menuClickRef.current = true; }}>
+                <button
+                  onClick={() => {
+                    setFolderMenuId(null);
+                    openRenameFolderModal(folder);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
+                >
+                  <PencilIcon className="w-4 h-4" />
+                  Rename
+                </button>
+                <button
+                  onClick={() => {
+                    setFolderMenuId(null);
+                    setDeleteFolderItem(folder);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   ) : null;
 
@@ -2455,14 +2441,82 @@ export default function TemplatesPage() {
                           <span className="text-[var(--muted-foreground)]">{'>'}</span>
                         </>
                       )}
-                      <span className="text-[var(--muted-foreground)]">{activeAccountName}</span>
+                      {activeFolderName ? (
+                        <button
+                          onClick={resetToAccountRoot}
+                          className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                        >
+                          {activeAccountName}
+                        </button>
+                      ) : (
+                        <span className="text-[var(--muted-foreground)]">{activeAccountName}</span>
+                      )}
+                      {folderPath.slice(1).map((crumb, idx) => {
+                        const pathIndex = idx + 1;
+                        const isLast = pathIndex === folderPath.length - 1;
+                        return (
+                          <span
+                            key={`${crumb.id || 'root'}-${pathIndex}`}
+                            className="inline-flex items-center gap-2"
+                          >
+                            <span className="text-[var(--muted-foreground)]">{'>'}</span>
+                            {isLast ? (
+                              <span className="text-[var(--muted-foreground)]">{crumb.name}</span>
+                            ) : (
+                              <button
+                                onClick={() => jumpToFolderCrumb(pathIndex)}
+                                className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                              >
+                                {crumb.name}
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })}
                     </>
                   )
+                ) : effectiveAccountKey ? (
+                  <>
+                    {activeFolderName ? (
+                      <button
+                        onClick={resetToAccountRoot}
+                        className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                      >
+                        {activeAccountName}
+                      </button>
+                    ) : (
+                      <span className="text-[var(--muted-foreground)]">
+                        {isAccount && accountData
+                          ? `Email templates for ${accountData.dealer}`
+                          : 'Manage your email templates'}
+                      </span>
+                    )}
+                    {folderPath.slice(1).map((crumb, idx) => {
+                      const pathIndex = idx + 1;
+                      const isLast = pathIndex === folderPath.length - 1;
+                      return (
+                        <span
+                          key={`${crumb.id || 'root'}-${pathIndex}`}
+                          className="inline-flex items-center gap-2"
+                        >
+                          <span className="text-[var(--muted-foreground)]">{'>'}</span>
+                          {isLast ? (
+                            <span className="text-[var(--muted-foreground)]">{crumb.name}</span>
+                          ) : (
+                            <button
+                              onClick={() => jumpToFolderCrumb(pathIndex)}
+                              className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors"
+                            >
+                              {crumb.name}
+                            </button>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </>
                 ) : (
                   <span className="text-[var(--muted-foreground)]">
-                    {isAccount && accountData
-                      ? `Email templates for ${accountData.dealer}`
-                      : 'Manage your email templates'}
+                    Manage your email templates
                   </span>
                 )}
               </div>
@@ -2522,7 +2576,7 @@ export default function TemplatesPage() {
         </Link>
       </div>
 
-      {canSeeRecentTemplates && (
+      {canSeeRecentTemplates && showAdminOverview && (
         <div className="mb-6 glass-card rounded-xl border border-[var(--border)] p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -2657,7 +2711,7 @@ export default function TemplatesPage() {
       {isAdmin && !showAdminOverview && (
         <>
           <Toolbar showAccountFilter={!effectiveAccountKey} {...toolbarProps} />
-          {folderPanel}
+          {inlineFolderGrid}
           <TemplateListView templates={filtered} {...listViewProps} />
         </>
       )}
@@ -2686,7 +2740,7 @@ export default function TemplatesPage() {
           {effectiveAccountKey && (hasConnection || loading) && (
             <>
               <Toolbar {...toolbarProps} />
-              {folderPanel}
+              {inlineFolderGrid}
               <TemplateListView templates={filtered} {...listViewProps} />
             </>
           )}
