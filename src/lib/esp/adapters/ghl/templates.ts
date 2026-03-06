@@ -4,9 +4,20 @@
 import { GHL_BASE, API_VERSION } from './constants';
 import type { EspEmailTemplate, CreateEspTemplateInput, UpdateEspTemplateInput } from '../../types';
 
+// ── GHL Template Folder (remote) ──
+
+export interface GhlTemplateFolder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── In-memory cache (5 min TTL, same pattern as campaigns) ──
 
 const templateCache = new Map<string, { data: EspEmailTemplate[]; fetchedAt: number }>();
+const folderCache = new Map<string, { data: GhlTemplateFolder[]; fetchedAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const TEMPLATE_PAGE_SIZE = 100;
 const MAX_TEMPLATE_PAGES = 50;
@@ -33,6 +44,7 @@ function setCache(locationId: string, data: EspEmailTemplate[]): void {
 
 function invalidateCache(locationId: string): void {
   templateCache.delete(cacheKey(locationId));
+  folderCache.delete(cacheKey(locationId));
 }
 
 // ── Helpers ──
@@ -158,6 +170,26 @@ function extractBuilderTotal(payload: JsonRecord): number | null {
   return null;
 }
 
+// ── Folder detection ──
+
+function isGhlFolder(row: JsonRecord): boolean {
+  const type = String(row.type || '').toLowerCase();
+  const templateType = String(row.templateType || '').toLowerCase();
+  return type === 'folder' || templateType === 'folder';
+}
+
+function toGhlFolder(row: JsonRecord): GhlTemplateFolder {
+  return {
+    id: String(row.id || row._id || ''),
+    name: String(row.name || ''),
+    parentId: typeof row.parentId === 'string' && row.parentId ? row.parentId : null,
+    createdAt: String(row.dateAdded || row.createdAt || ''),
+    updatedAt: String(row.dateUpdated || row.updatedAt || ''),
+  };
+}
+
+// ── Template mapping ──
+
 function toEspTemplate(t: JsonRecord): EspEmailTemplate {
   return {
     id: String(t.id || t._id || ''),
@@ -170,16 +202,30 @@ function toEspTemplate(t: JsonRecord): EspEmailTemplate {
     thumbnailUrl: String(t.previewUrl || t.thumbnailUrl || ''),
     createdAt: String(t.dateAdded || t.createdAt || ''),
     updatedAt: String(t.dateUpdated || t.updatedAt || ''),
+    parentId: typeof t.parentId === 'string' && t.parentId ? t.parentId : undefined,
   };
 }
 
-async function fetchTemplatesFromLocationEndpoint(
+// ── Location endpoint fetch (templates + folder detection) ──
+
+interface LocationEndpointResult {
+  templates: EspEmailTemplate[];
+  folders: GhlTemplateFolder[];
+}
+
+async function fetchFromLocationEndpoint(
   token: string,
   locationId: string,
-): Promise<EspEmailTemplate[]> {
+  options?: { parentId?: string },
+): Promise<LocationEndpointResult> {
   const templatesById = new Map<string, EspEmailTemplate>();
+  const foldersById = new Map<string, GhlTemplateFolder>();
+
+  const baseParams = new URLSearchParams({ type: 'email', limit: String(TEMPLATE_PAGE_SIZE) });
+  if (options?.parentId) baseParams.set('parentId', options.parentId);
+
   let nextUrl: string | null =
-    `${GHL_BASE}/locations/${encodeURIComponent(locationId)}/templates?type=email&limit=${TEMPLATE_PAGE_SIZE}`;
+    `${GHL_BASE}/locations/${encodeURIComponent(locationId)}/templates?${baseParams.toString()}`;
   const seenUrls = new Set<string>();
 
   for (let page = 0; page < MAX_TEMPLATE_PAGES && nextUrl; page += 1) {
@@ -202,6 +248,11 @@ async function fetchTemplatesFromLocationEndpoint(
 
     const countBefore = templatesById.size;
     for (const row of rows) {
+      if (isGhlFolder(row)) {
+        const folder = toGhlFolder(row);
+        if (folder.id) foldersById.set(folder.id, folder);
+        continue;
+      }
       const template = toEspTemplate(row);
       if (!template.id) continue;
       templatesById.set(template.id, template);
@@ -229,7 +280,18 @@ async function fetchTemplatesFromLocationEndpoint(
     nextUrl = null;
   }
 
-  return Array.from(templatesById.values());
+  return {
+    templates: Array.from(templatesById.values()),
+    folders: Array.from(foldersById.values()),
+  };
+}
+
+async function fetchTemplatesFromLocationEndpoint(
+  token: string,
+  locationId: string,
+): Promise<EspEmailTemplate[]> {
+  const result = await fetchFromLocationEndpoint(token, locationId);
+  return result.templates;
 }
 
 async function fetchTemplatesFromBuilderEndpoint(
@@ -368,7 +430,7 @@ export async function fetchTemplateById(
 //
 // GHL's POST /emails/builder creates a shell template that ignores `name` and
 // `html` in the request body.  We work around this by creating the shell first,
-// then immediately pushing the real name + HTML via the update endpoint.
+// then immediately pushing the real name + HTML via the PATCH update endpoint.
 
 export async function createTemplate(
   token: string,
@@ -403,24 +465,43 @@ export async function createTemplate(
     throw new Error('GHL did not return a template ID after creation');
   }
 
-  // Step 2 — push the real name + HTML via the update/data endpoint
-  const updateBody: Record<string, unknown> = { locationId, templateId };
-  if (input.name) updateBody.name = input.name;
-  if (input.html) updateBody.html = input.html;
+  // Step 2 — push the real name + HTML via the PATCH endpoint
+  // Uses PATCH /emails/builder/{templateId} (the current GHL v2 endpoint)
+  const patchUrl = `${GHL_BASE}/emails/builder/${encodeURIComponent(templateId)}`;
+  const patchBody: Record<string, unknown> = { locationId };
+  if (input.name) patchBody.name = input.name;
+  if (input.html) {
+    patchBody.html = input.html;
+    // Also send in the newer editorType/editorContent format for compatibility
+    patchBody.editorType = 'html';
+    patchBody.editorContent = input.html;
+  }
 
-  const updateUrl = `${GHL_BASE}/emails/builder/data`;
-  const updateRes = await fetch(updateUrl, {
-    method: 'POST',
+  const patchRes = await fetch(patchUrl, {
+    method: 'PATCH',
     headers: ghlHeaders(token),
-    body: JSON.stringify(updateBody),
+    body: JSON.stringify(patchBody),
   });
 
-  if (!updateRes.ok) {
-    // Non-fatal — the shell was created; log but don't throw so the caller
-    // still gets a usable remote ID.
-    console.error(
-      `[GHL] Created template ${templateId} but failed to push name/HTML (${updateRes.status})`,
-    );
+  if (!patchRes.ok) {
+    // Try the legacy POST /emails/builder/data endpoint as fallback
+    const legacyBody: Record<string, unknown> = { locationId, templateId };
+    if (input.name) legacyBody.name = input.name;
+    if (input.html) legacyBody.html = input.html;
+
+    const legacyRes = await fetch(`${GHL_BASE}/emails/builder/data`, {
+      method: 'POST',
+      headers: ghlHeaders(token),
+      body: JSON.stringify(legacyBody),
+    });
+
+    if (!legacyRes.ok) {
+      const errData = await legacyRes.json().catch(() => ({}));
+      const errMsg = (errData as Record<string, string>)?.message
+        || (errData as Record<string, string>)?.error
+        || `Failed to push name/HTML to GHL template (${legacyRes.status})`;
+      throw new Error(errMsg);
+    }
   }
 
   invalidateCache(locationId);
@@ -450,6 +531,9 @@ export async function createTemplate(
 }
 
 // ── Update template ──
+//
+// Uses PATCH /emails/builder/{templateId} (GHL v2 endpoint).
+// Falls back to legacy POST /emails/builder/data if PATCH is not supported.
 
 export async function updateTemplate(
   token: string,
@@ -457,23 +541,40 @@ export async function updateTemplate(
   templateId: string,
   input: UpdateEspTemplateInput,
 ): Promise<EspEmailTemplate> {
-  const url = `${GHL_BASE}/emails/builder/data`;
-  const body: Record<string, unknown> = { locationId, templateId };
-  if (input.name !== undefined) body.name = input.name;
-  if (input.html !== undefined) body.html = input.html;
+  const patchUrl = `${GHL_BASE}/emails/builder/${encodeURIComponent(templateId)}`;
+  const patchBody: Record<string, unknown> = { locationId };
+  if (input.name !== undefined) patchBody.name = input.name;
+  if (input.html !== undefined) {
+    patchBody.html = input.html;
+    patchBody.editorType = 'html';
+    patchBody.editorContent = input.html;
+  }
 
-  const res = await fetch(url, {
-    method: 'POST',
+  const res = await fetch(patchUrl, {
+    method: 'PATCH',
     headers: ghlHeaders(token),
-    body: JSON.stringify(body),
+    body: JSON.stringify(patchBody),
   });
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    const msg = (data as Record<string, string>)?.message
-      || (data as Record<string, string>)?.error
-      || `GHL API error (${res.status})`;
-    throw new Error(msg);
+    // Fallback to legacy endpoint
+    const legacyBody: Record<string, unknown> = { locationId, templateId };
+    if (input.name !== undefined) legacyBody.name = input.name;
+    if (input.html !== undefined) legacyBody.html = input.html;
+
+    const legacyRes = await fetch(`${GHL_BASE}/emails/builder/data`, {
+      method: 'POST',
+      headers: ghlHeaders(token),
+      body: JSON.stringify(legacyBody),
+    });
+
+    if (!legacyRes.ok) {
+      const data = await legacyRes.json().catch(() => ({}));
+      const msg = (data as Record<string, string>)?.message
+        || (data as Record<string, string>)?.error
+        || `GHL API error (${legacyRes.status})`;
+      throw new Error(msg);
+    }
   }
 
   invalidateCache(locationId);
@@ -495,13 +596,15 @@ export async function updateTemplate(
 }
 
 // ── Delete template ──
+//
+// Uses DELETE /locations/{locationId}/templates/{templateId} (GHL v2 endpoint).
 
 export async function deleteTemplate(
   token: string,
   locationId: string,
   templateId: string,
 ): Promise<void> {
-  const url = `${GHL_BASE}/emails/builder/${encodeURIComponent(locationId)}/${encodeURIComponent(templateId)}`;
+  const url = `${GHL_BASE}/locations/${encodeURIComponent(locationId)}/templates/${encodeURIComponent(templateId)}`;
   const res = await fetch(url, {
     method: 'DELETE',
     headers: ghlHeaders(token),
@@ -516,4 +619,136 @@ export async function deleteTemplate(
   }
 
   invalidateCache(locationId);
+}
+
+// ── Template Folders (GHL remote) ──
+
+/**
+ * Fetch all template folders for a location from the GHL locations endpoint.
+ * Folders are items with type "folder" in the templates response.
+ */
+export async function fetchTemplateFolders(
+  token: string,
+  locationId: string,
+  options?: { forceRefresh?: boolean },
+): Promise<GhlTemplateFolder[]> {
+  if (!options?.forceRefresh) {
+    const entry = folderCache.get(cacheKey(locationId));
+    if (entry && Date.now() - entry.fetchedAt < CACHE_TTL_MS) {
+      return entry.data;
+    }
+  }
+
+  const result = await fetchFromLocationEndpoint(token, locationId);
+  folderCache.set(cacheKey(locationId), { data: result.folders, fetchedAt: Date.now() });
+  return result.folders;
+}
+
+/**
+ * Create a template folder in GHL via POST /locations/{locationId}/templates.
+ */
+export async function createTemplateFolder(
+  token: string,
+  locationId: string,
+  name: string,
+  parentId?: string | null,
+): Promise<GhlTemplateFolder> {
+  const url = `${GHL_BASE}/locations/${encodeURIComponent(locationId)}/templates`;
+  const body: Record<string, unknown> = {
+    name,
+    type: 'folder',
+  };
+  if (parentId) body.parentId = parentId;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: ghlHeaders(token),
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const msg = (data as Record<string, string>)?.message
+      || (data as Record<string, string>)?.error
+      || `GHL API error (${res.status})`;
+    throw new Error(msg);
+  }
+
+  const data = await res.json();
+  const raw = (data as Record<string, unknown>)?.template || data;
+  const record = raw as Record<string, unknown>;
+
+  invalidateCache(locationId);
+
+  return {
+    id: String(record.id || record._id || ''),
+    name: String(record.name || name),
+    parentId: typeof record.parentId === 'string' && record.parentId ? record.parentId : parentId || null,
+    createdAt: String(record.dateAdded || record.createdAt || new Date().toISOString()),
+    updatedAt: String(record.dateUpdated || record.updatedAt || new Date().toISOString()),
+  };
+}
+
+/**
+ * Delete a template folder in GHL via DELETE /locations/{locationId}/templates/{folderId}.
+ */
+export async function deleteTemplateFolder(
+  token: string,
+  locationId: string,
+  folderId: string,
+): Promise<void> {
+  const url = `${GHL_BASE}/locations/${encodeURIComponent(locationId)}/templates/${encodeURIComponent(folderId)}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: ghlHeaders(token),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const msg = (data as Record<string, string>)?.message
+      || (data as Record<string, string>)?.error
+      || `GHL API error (${res.status})`;
+    throw new Error(msg);
+  }
+
+  invalidateCache(locationId);
+}
+
+/**
+ * Rename a template folder in GHL via PUT /locations/{locationId}/templates/{folderId}.
+ */
+export async function updateTemplateFolder(
+  token: string,
+  locationId: string,
+  folderId: string,
+  name: string,
+): Promise<GhlTemplateFolder> {
+  const url = `${GHL_BASE}/locations/${encodeURIComponent(locationId)}/templates/${encodeURIComponent(folderId)}`;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: ghlHeaders(token),
+    body: JSON.stringify({ name }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const msg = (data as Record<string, string>)?.message
+      || (data as Record<string, string>)?.error
+      || `GHL API error (${res.status})`;
+    throw new Error(msg);
+  }
+
+  const data = await res.json();
+  const raw = (data as Record<string, unknown>)?.template || data;
+  const record = raw as Record<string, unknown>;
+
+  invalidateCache(locationId);
+
+  return {
+    id: String(record.id || record._id || folderId),
+    name: String(record.name || name),
+    parentId: typeof record.parentId === 'string' && record.parentId ? record.parentId : null,
+    createdAt: String(record.dateAdded || record.createdAt || ''),
+    updatedAt: String(record.dateUpdated || record.updatedAt || new Date().toISOString()),
+  };
 }

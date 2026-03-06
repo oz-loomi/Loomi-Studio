@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
 import { MANAGEMENT_ROLES } from '@/lib/roles';
+import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-helpers';
 import {
   readEspTemplateFolderStore,
   writeEspTemplateFolderStore,
@@ -9,6 +10,7 @@ import {
   createAccountFolder,
   folderExistsForAccount,
 } from '@/lib/esp-template-folders-store';
+import { createTemplateFolder as createGhlFolder } from '@/lib/esp/adapters/ghl/templates';
 
 function canAccessAccount(
   session: { user: { role: string; accountKeys?: string[] } },
@@ -65,11 +67,38 @@ export async function POST(req: NextRequest) {
     }
 
     const store = readEspTemplateFolderStore();
-    if (parentId && !folderExistsForAccount(store, accountKey, parentId)) {
-      return NextResponse.json({ error: 'Parent folder not found' }, { status: 404 });
+
+    // If parentId is a local folder ID, resolve its remoteId for GHL
+    let remoteParentId: string | null = null;
+    if (parentId) {
+      if (!folderExistsForAccount(store, accountKey, parentId)) {
+        return NextResponse.json({ error: 'Parent folder not found' }, { status: 404 });
+      }
+      const parentFolder = store.folders.find(
+        (f) => f.id === parentId && f.accountKey === accountKey,
+      );
+      remoteParentId = parentFolder?.remoteId ?? null;
     }
 
-    const folder = createAccountFolder(store, accountKey, name, parentId);
+    // Try to create folder in GHL first
+    let remoteId: string | null = null;
+    const resolved = await resolveAdapterAndCredentials(accountKey, {});
+    if (!isResolveError(resolved) && resolved.adapter.provider === 'ghl') {
+      try {
+        const ghlFolder = await createGhlFolder(
+          resolved.credentials.token,
+          resolved.credentials.locationId,
+          name,
+          remoteParentId,
+        );
+        remoteId = ghlFolder.id;
+      } catch (ghlErr) {
+        console.error('[template-folders] Failed to create GHL folder:', ghlErr);
+        // Non-fatal: still create locally
+      }
+    }
+
+    const folder = createAccountFolder(store, accountKey, name, parentId, remoteId);
     writeEspTemplateFolderStore(store);
 
     return NextResponse.json({ folder }, { status: 201 });

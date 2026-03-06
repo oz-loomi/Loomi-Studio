@@ -9,6 +9,8 @@ export interface EspTemplateFolder {
   accountKey: string;
   name: string;
   parentId: string | null;
+  /** GHL remote folder ID (set when synced from ESP) */
+  remoteId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -94,6 +96,7 @@ export function createAccountFolder(
   accountKey: string,
   name: string,
   parentId: string | null,
+  remoteId?: string | null,
 ): EspTemplateFolder {
   const now = new Date().toISOString();
   const folder: EspTemplateFolder = {
@@ -101,11 +104,23 @@ export function createAccountFolder(
     accountKey,
     name,
     parentId,
+    ...(remoteId ? { remoteId } : {}),
     createdAt: now,
     updatedAt: now,
   };
   store.folders.push(folder);
   return folder;
+}
+
+/** Find a local folder by its GHL remote ID. */
+export function findFolderByRemoteId(
+  store: EspTemplateFolderStore,
+  accountKey: string,
+  remoteId: string,
+): EspTemplateFolder | null {
+  return store.folders.find(
+    (f) => f.accountKey === accountKey && f.remoteId === remoteId,
+  ) ?? null;
 }
 
 export function updateAccountFolder(

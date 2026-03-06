@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
 import { MANAGEMENT_ROLES } from '@/lib/roles';
+import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-helpers';
 import {
   readEspTemplateFolderStore,
   writeEspTemplateFolderStore,
@@ -10,6 +11,10 @@ import {
   deleteAccountFolder,
   folderExistsForAccount,
 } from '@/lib/esp-template-folders-store';
+import {
+  updateTemplateFolder as updateGhlFolder,
+  deleteTemplateFolder as deleteGhlFolder,
+} from '@/lib/esp/adapters/ghl/templates';
 
 function canAccessAccount(
   session: { user: { role: string; accountKeys?: string[] } },
@@ -54,6 +59,29 @@ export async function PATCH(
       return NextResponse.json({ error: 'Parent folder not found' }, { status: 404 });
     }
 
+    // Find the local folder to get its remoteId
+    const localFolder = store.folders.find(
+      (f) => f.id === id && f.accountKey === accountKey,
+    );
+
+    // Update on GHL if this folder has a remoteId and name is changing
+    if (localFolder?.remoteId && name) {
+      const resolved = await resolveAdapterAndCredentials(accountKey, {});
+      if (!isResolveError(resolved) && resolved.adapter.provider === 'ghl') {
+        try {
+          await updateGhlFolder(
+            resolved.credentials.token,
+            resolved.credentials.locationId,
+            localFolder.remoteId,
+            name,
+          );
+        } catch (ghlErr) {
+          console.error('[template-folders] Failed to update GHL folder:', ghlErr);
+          // Non-fatal: still update locally
+        }
+      }
+    }
+
     const updated = updateAccountFolder(store, accountKey, id, {
       ...(name !== undefined ? { name } : {}),
       ...(parentId !== undefined ? { parentId } : {}),
@@ -87,6 +115,29 @@ export async function DELETE(
 
   try {
     const store = readEspTemplateFolderStore();
+
+    // Find the local folder to get its remoteId
+    const localFolder = store.folders.find(
+      (f) => f.id === id && f.accountKey === accountKey,
+    );
+
+    // Delete from GHL if this folder has a remoteId
+    if (localFolder?.remoteId) {
+      const resolved = await resolveAdapterAndCredentials(accountKey, {});
+      if (!isResolveError(resolved) && resolved.adapter.provider === 'ghl') {
+        try {
+          await deleteGhlFolder(
+            resolved.credentials.token,
+            resolved.credentials.locationId,
+            localFolder.remoteId,
+          );
+        } catch (ghlErr) {
+          console.error('[template-folders] Failed to delete GHL folder:', ghlErr);
+          // Non-fatal: still delete locally
+        }
+      }
+    }
+
     const { deletedIds } = deleteAccountFolder(store, accountKey, id);
     if (deletedIds.length === 0) {
       return NextResponse.json({ error: 'Folder not found' }, { status: 404 });

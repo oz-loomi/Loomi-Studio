@@ -36,6 +36,7 @@ const subaccountAdminNavItems = [
   { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
   { href: '/contacts', label: 'Contacts', icon: UserGroupIcon },
   { href: '/templates', label: 'Templates', icon: EnvelopeIcon },
+  { href: '/media', label: 'Media', icon: PhotoIcon },
   { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
   { href: '/flows', label: 'Flows', icon: FlowIcon },
 ];

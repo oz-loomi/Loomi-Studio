@@ -311,6 +311,8 @@ export interface EspEmailTemplate {
   thumbnailUrl?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** GHL folder ID this template belongs to (if inside a folder) */
+  parentId?: string;
 }
 
 export interface CreateEspTemplateInput {

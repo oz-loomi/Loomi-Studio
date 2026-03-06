@@ -3,11 +3,20 @@ import { requireAuth } from '@/lib/api-auth';
 import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-helpers';
 import { unsupportedCapabilityPayload } from '@/lib/esp/unsupported';
 import { prisma } from '@/lib/prisma';
+import {
+  readEspTemplateFolderStore,
+  writeEspTemplateFolderStore,
+  findFolderByRemoteId,
+  createAccountFolder,
+  assignTemplatesToFolder,
+} from '@/lib/esp-template-folders-store';
+import { fetchTemplateFolders } from '@/lib/esp/adapters/ghl/templates';
 
 /**
  * POST /api/esp/templates/sync?accountKey=xxx
  *
  * Pull latest templates from the ESP and upsert into local EspTemplate table.
+ * Also syncs GHL template folders into local folder store.
  * Returns a sync summary.
  */
 export async function POST(req: NextRequest) {
@@ -48,6 +57,73 @@ export async function POST(req: NextRequest) {
       credentials.locationId,
     );
 
+    // ── Sync GHL folders ──
+    // Fetch remote folders and upsert into local folder store.
+    // Map GHL remoteId → local folderId so we can assign templates to folders.
+    const remoteFolderIdToLocalId = new Map<string, string>();
+    let foldersSynced = 0;
+
+    if (adapter.provider === 'ghl') {
+      try {
+        const remoteFolders = await fetchTemplateFolders(
+          credentials.token,
+          credentials.locationId,
+          { forceRefresh: true },
+        );
+
+        if (remoteFolders.length > 0) {
+          const store = readEspTemplateFolderStore();
+
+          for (const remoteFolder of remoteFolders) {
+            if (!remoteFolder.id) continue;
+
+            const existing = findFolderByRemoteId(store, accountKey, remoteFolder.id);
+            if (existing) {
+              // Update name if changed
+              if (existing.name !== remoteFolder.name) {
+                existing.name = remoteFolder.name;
+                existing.updatedAt = new Date().toISOString();
+              }
+              remoteFolderIdToLocalId.set(remoteFolder.id, existing.id);
+            } else {
+              // Create local folder matching the remote one
+              const localFolder = createAccountFolder(
+                store,
+                accountKey,
+                remoteFolder.name,
+                null, // parentId resolved in second pass
+                remoteFolder.id,
+              );
+              remoteFolderIdToLocalId.set(remoteFolder.id, localFolder.id);
+              foldersSynced++;
+            }
+          }
+
+          // Second pass: resolve parent folder IDs (remote → local)
+          for (const remoteFolder of remoteFolders) {
+            if (!remoteFolder.parentId) continue;
+            const localId = remoteFolderIdToLocalId.get(remoteFolder.id);
+            const localParentId = remoteFolderIdToLocalId.get(remoteFolder.parentId);
+            if (localId && localParentId) {
+              const localFolder = store.folders.find(
+                (f) => f.id === localId && f.accountKey === accountKey,
+              );
+              if (localFolder) {
+                localFolder.parentId = localParentId;
+              }
+            }
+          }
+
+          writeEspTemplateFolderStore(store);
+        }
+      } catch (folderErr) {
+        // Non-fatal: folder sync failure shouldn't block template sync
+        console.error('[sync] Failed to sync GHL folders:', folderErr);
+      }
+    }
+
+    // ── Sync templates ──
+
     // Back-compat: templates published via `publishedTo` may not have legacy `remoteId` populated.
     // Build a lookup so sync updates those rows instead of creating duplicates.
     const publishedCandidates = await prisma.espTemplate.findMany({
@@ -75,6 +151,9 @@ export async function POST(req: NextRequest) {
     let created = 0;
     let updated = 0;
     let unchanged = 0;
+
+    // Collect template IDs that belong to a GHL folder for assignment after sync
+    const templateFolderAssignments: Array<{ localTemplateId: string; localFolderId: string }> = [];
 
     for (const remote of remoteTemplates) {
       if (!remote.id) continue;
@@ -150,9 +229,20 @@ export async function POST(req: NextRequest) {
           });
           unchanged++;
         }
+
+        // Track folder assignment if template has a GHL parentId
+        if (remote.parentId) {
+          const localFolderId = remoteFolderIdToLocalId.get(remote.parentId);
+          if (localFolderId) {
+            templateFolderAssignments.push({
+              localTemplateId: existing.id,
+              localFolderId,
+            });
+          }
+        }
       } else {
         // Create new local record
-        await prisma.espTemplate.create({
+        const newTemplate = await prisma.espTemplate.create({
           data: {
             accountKey,
             provider: adapter.provider,
@@ -168,6 +258,30 @@ export async function POST(req: NextRequest) {
           },
         });
         created++;
+
+        // Track folder assignment if template has a GHL parentId
+        if (remote.parentId) {
+          const localFolderId = remoteFolderIdToLocalId.get(remote.parentId);
+          if (localFolderId) {
+            templateFolderAssignments.push({
+              localTemplateId: newTemplate.id,
+              localFolderId,
+            });
+          }
+        }
+      }
+    }
+
+    // ── Assign templates to their GHL folders ──
+    if (templateFolderAssignments.length > 0) {
+      try {
+        const store = readEspTemplateFolderStore();
+        for (const { localTemplateId, localFolderId } of templateFolderAssignments) {
+          assignTemplatesToFolder(store, accountKey, [localTemplateId], localFolderId);
+        }
+        writeEspTemplateFolderStore(store);
+      } catch (assignErr) {
+        console.error('[sync] Failed to assign templates to folders:', assignErr);
       }
     }
 
@@ -179,6 +293,7 @@ export async function POST(req: NextRequest) {
         created,
         updated,
         unchanged,
+        foldersSynced,
       },
     });
   } catch (err) {
