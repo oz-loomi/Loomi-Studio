@@ -8728,13 +8728,24 @@ export default function TemplateEditorPage() {
             <ArrowLeftIcon className="w-4 h-4" />
             Back
           </button>
+          {templateTypeLabel && (
+            <span
+              className={`inline-flex items-center rounded-full border px-3.5 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] ${
+                isDragDropTemplate
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                  : "border-sky-500/30 bg-sky-500/10 text-sky-300"
+              }`}
+            >
+              {templateTypeLabel}
+            </span>
+          )}
           <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
+            className={`inline-flex items-center gap-1.5 text-xs font-medium ${
               autoSaveStatus.tone === "error"
-                ? "border-red-500/30 bg-red-500/10 text-red-400"
+                ? "text-red-400"
                 : autoSaveStatus.tone === "saving" || autoSaveStatus.tone === "pending"
-                  ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
-                  : "border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]"
+                  ? "text-amber-400"
+                  : "text-emerald-400"
             }`}
           >
             {autoSaveStatus.tone === "saving" ? (
@@ -8787,11 +8798,6 @@ export default function TemplateEditorPage() {
             ) : (
               <div className="group/title flex items-center justify-center gap-1.5 min-w-0">
                 <h2 className="text-lg font-bold capitalize truncate max-w-[40rem]">{designLabel}</h2>
-                {templateTypeLabel && (
-                  <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                    {templateTypeLabel}
-                  </span>
-                )}
                 <button
                   onClick={() => {
                     setEditTitleValue(espMode ? (espTemplateName || parsed?.frontmatter?.title || designLabel) : (parsed?.frontmatter?.title || designLabel));
