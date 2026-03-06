@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import Link from 'next/link';
 import {
   PlusIcon,
@@ -159,6 +160,7 @@ export default function TemplateLibraryPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const subHref = useSubaccountHref();
   const { userRole } = useAccount();
   const campaignDraftQuery = searchParams.get('campaignDraft') === '1' ? '?campaignDraft=1' : '';
 
@@ -191,9 +193,9 @@ export default function TemplateLibraryPage() {
       {/* Route-based tab bar */}
       <div className="flex items-center gap-1 mb-6 border-b border-[var(--border)]">
         <Link
-          href={`/templates${campaignDraftQuery}`}
+          href={`${subHref('/templates')}${campaignDraftQuery}`}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-            pathname === '/templates'
+            pathname.endsWith('/templates')
               ? 'border-[var(--primary)] text-[var(--primary)]'
               : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}
@@ -201,9 +203,9 @@ export default function TemplateLibraryPage() {
           Account Templates
         </Link>
         <Link
-          href={`/templates/library${campaignDraftQuery}`}
+          href={`${subHref('/templates/library')}${campaignDraftQuery}`}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-            pathname === '/templates/library'
+            pathname.endsWith('/templates/library')
               ? 'border-[var(--primary)] text-[var(--primary)]'
               : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}

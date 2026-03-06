@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import {
   PlusIcon,
   XMarkIcon,
@@ -1256,6 +1257,7 @@ export default function TemplatesPage() {
   const { confirm } = useLoomiDialog();
   const router = useRouter();
   const pathname = usePathname();
+  const subHref = useSubaccountHref();
 
   // State
   const [allTemplates, setAllTemplates] = useState<EspTemplateRecord[]>([]);
@@ -2615,9 +2617,9 @@ export default function TemplatesPage() {
       {/* Route-based tab bar */}
       <div className="flex items-center gap-1 mb-6 border-b border-[var(--border)]">
         <Link
-          href="/templates"
+          href={subHref('/templates')}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-            pathname === '/templates'
+            pathname.endsWith('/templates')
               ? 'border-[var(--primary)] text-[var(--primary)]'
               : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}
@@ -2625,9 +2627,9 @@ export default function TemplatesPage() {
           Account Templates
         </Link>
         <Link
-          href="/templates/library"
+          href={subHref('/templates/library')}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-            pathname === '/templates/library'
+            pathname.endsWith('/templates/library')
               ? 'border-[var(--primary)] text-[var(--primary)]'
               : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}
