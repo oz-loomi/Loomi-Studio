@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import type { UserRole } from '@/lib/auth';
 
 export interface AccountData {
-  slug: string;
+  slug?: string;
   dealer: string;
   category?: string;
   oem?: string;
