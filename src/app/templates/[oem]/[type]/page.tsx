@@ -2950,6 +2950,13 @@ export default function TemplateEditorPage() {
     .join(" ");
   const lineCount = code.split("\n").length;
   const backHref = isAccount ? "/emails" : "/templates";
+  const handleBackClick = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push(backHref);
+  }, [backHref, router]);
   const autoSaveStatus = useMemo(() => {
     if (saving) {
       return { label: "Autosaving...", tone: "saving" as const };
@@ -2973,13 +2980,13 @@ export default function TemplateEditorPage() {
       {/* Top toolbar */}
       <div className="grid grid-cols-[minmax(220px,1fr)_auto_minmax(220px,1fr)] items-center gap-3 pb-4 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <Link
-            href={backHref}
+          <button
+            onClick={handleBackClick}
             className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
           >
             <ArrowLeftIcon className="w-4 h-4" />
             Back
-          </Link>
+          </button>
           <span
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
               autoSaveStatus.tone === "error"

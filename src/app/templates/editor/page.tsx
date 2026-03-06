@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeftIcon,
   DevicePhoneMobileIcon,
@@ -6092,6 +6092,7 @@ function hasVisualTemplateScaffold(raw: string): boolean {
 }
 
 export default function TemplateEditorPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { confirm } = useLoomiDialog();
   const designParam = searchParams.get("design") || "";
@@ -8690,6 +8691,13 @@ export default function TemplateEditorPage() {
     : null;
   const lineCount = code.split("\n").length;
   const backHref = espMode ? "/templates" : isAccount ? "/emails" : "/templates/library";
+  const handleBackClick = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push(backHref);
+  }, [backHref, router]);
   const autoSaveStatus = useMemo(() => {
     if (saving || savingTemplate) {
       return { label: "Autosaving...", tone: "saving" as const };
@@ -8713,13 +8721,13 @@ export default function TemplateEditorPage() {
       {/* Top toolbar */}
       <div className="grid grid-cols-[minmax(220px,1fr)_auto_minmax(220px,1fr)] items-center gap-3 pb-4 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <Link
-            href={backHref}
+          <button
+            onClick={handleBackClick}
             className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
           >
             <ArrowLeftIcon className="w-4 h-4" />
             Back
-          </Link>
+          </button>
           <span
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
               autoSaveStatus.tone === "error"
