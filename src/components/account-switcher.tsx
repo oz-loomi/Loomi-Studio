@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useRouter, usePathname } from 'next/navigation';
 import {
   ChevronUpDownIcon,
   MagnifyingGlassIcon,
@@ -12,6 +13,11 @@ import { useAccount, type AccountData } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { AccountAvatar } from '@/components/account-avatar';
 import { formatAccountCityState, resolveAccountCity, resolveAccountState } from '@/lib/account-resolvers';
+import {
+  accountKeyToSlug,
+  subaccountPath,
+  pathnameToPage,
+} from '@/lib/account-slugs';
 
 interface AccountSwitcherProps {
   onSwitch?: () => void;
@@ -53,6 +59,8 @@ function resolveAccountCityStateLabel(accountData: AccountData): string | null {
 export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
   const { account, setAccount, accounts, accountsLoaded, userRole } = useAccount();
   const { confirmNavigation } = useUnsavedChanges();
+  const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -110,10 +118,22 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
   const handleSelect = (key: string | '__admin__') => {
     const destinationLabel = key === '__admin__' ? 'Admin Account' : (accounts[key]?.dealer || key);
     confirmNavigation(() => {
+      const currentPage = pathnameToPage(pathname);
+
       if (key === '__admin__') {
         setAccount({ mode: 'admin' });
+        // Navigate to admin route equivalent
+        const adminPath = currentPage === 'dashboard' ? '/dashboard' : `/${currentPage}`;
+        router.push(adminPath);
       } else {
-        setAccount({ mode: 'account', accountKey: key });
+        const slug = accountKeyToSlug(key, accounts);
+        if (slug) {
+          // Navigate to sub-account route — the layout will sync context
+          router.push(subaccountPath(slug, currentPage));
+        } else {
+          // Fallback: just set context (slug not yet loaded)
+          setAccount({ mode: 'account', accountKey: key });
+        }
       }
       setOpen(false);
       setSearch('');

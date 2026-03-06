@@ -8,6 +8,44 @@ const ACCOUNT_REP_SELECT = {
   avatarUrl: true,
 } as const;
 
+// ── Slug helpers ──
+
+export function dealerToSlug(dealer: string): string {
+  return dealer
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+export async function generateUniqueSlug(dealer: string, city?: string | null): Promise<string> {
+  let base = dealerToSlug(dealer);
+  if (!base) base = 'account';
+
+  const existing = await prisma.account.findUnique({ where: { slug: base }, select: { id: true } });
+  if (!existing) return base;
+
+  if (city) {
+    const withCity = `${base}-${dealerToSlug(city)}`;
+    const existsWithCity = await prisma.account.findUnique({ where: { slug: withCity }, select: { id: true } });
+    if (!existsWithCity) return withCity;
+  }
+
+  let counter = 2;
+  for (;;) {
+    const candidate = `${base}-${counter}`;
+    const exists = await prisma.account.findUnique({ where: { slug: candidate }, select: { id: true } });
+    if (!exists) return candidate;
+    counter++;
+  }
+}
+
+export async function getAccountBySlug(slug: string) {
+  return prisma.account.findUnique({
+    where: { slug },
+    include: { accountRep: { select: ACCOUNT_REP_SELECT } },
+  });
+}
+
 /**
  * Internal account keys (e.g. `_customValueDefaults`) start with `_`.
  * NOTE: Do NOT use Prisma `startsWith('_')` to filter these — SQL LIKE treats
@@ -45,6 +83,7 @@ export async function getAccount(key: string) {
 export async function createAccount(data: {
   key: string;
   dealer: string;
+  slug?: string;
   espProvider: string;
   category?: string;
   oem?: string;
@@ -65,7 +104,8 @@ export async function createAccount(data: {
   customValues?: string;
   accountRepId?: string;
 }) {
-  return prisma.account.create({ data });
+  const slug = data.slug || await generateUniqueSlug(data.dealer, data.city);
+  return prisma.account.create({ data: { ...data, slug } });
 }
 
 export async function updateAccount(

@@ -47,6 +47,7 @@ import Link from "next/link";
 import { VariablePickerButton } from "@/components/variable-picker";
 import { AccountAvatar } from "@/components/account-avatar";
 import { useAccount } from "@/contexts/account-context";
+import { useSubaccountHref } from "@/hooks/use-subaccount-href";
 import { useUnsavedChanges } from "@/contexts/unsaved-changes-context";
 import { useLoomiDialog } from "@/contexts/loomi-dialog-context";
 import {
@@ -6103,6 +6104,7 @@ export default function TemplateEditorPage() {
   const accountKeyParam = searchParams.get("accountKey") || "";
   const libraryTemplateSlug = searchParams.get("libraryTemplate") || "";
   const { isAdmin, isAccount, accountKey, accountData, accounts } = useAccount();
+  const subHref = useSubaccountHref();
   const { markClean, markDirty } = useUnsavedChanges();
   // Track account key from loaded ESP template (may not be in URL)
   const [espAccountKey, setEspAccountKey] = useState(accountKeyParam || "");
@@ -8690,7 +8692,7 @@ export default function TemplateEditorPage() {
     ? (isDragDropTemplate ? "Drag & Drop" : "HTML")
     : null;
   const lineCount = code.split("\n").length;
-  const backHref = espMode ? "/templates" : isAccount ? "/emails" : "/templates/library";
+  const backHref = subHref(espMode ? "/templates" : isAccount ? "/emails" : "/templates/library");
   const handleBackClick = useCallback(() => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();

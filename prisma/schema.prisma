@@ -70,6 +70,7 @@ model DashboardLayoutPreference {
 model Account {
   id             String   @id @default(cuid())
   key            String   @unique // "youngHonda", "smithToyota"
+  slug           String   @unique // URL-safe kebab-case: "young-honda"
   dealer         String // "Young Honda"
   category       String? // "Automotive", "Healthcare", etc.
   oem            String? // single OEM key

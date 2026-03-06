@@ -122,8 +122,10 @@ async function main() {
         const dealer = `Demo Account ${String(sequence).padStart(3, '0')}`;
         const websiteSlug = key.toLowerCase();
 
+        const slug = dealer.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         return {
           key,
+          slug,
           dealer,
           category,
           espProvider: isKlaviyoAccount ? 'klaviyo' : 'ghl',

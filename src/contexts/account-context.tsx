@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import type { UserRole } from '@/lib/auth';
 
 export interface AccountData {
+  slug: string;
   dealer: string;
   category?: string;
   oem?: string;
@@ -118,9 +119,14 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [accountsLoaded, setAccountsLoaded] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
-  // Set default mode when session loads
+  // Set default mode when session loads.
+  // If on a sub-account route, defer to the SubaccountLayout which syncs from URL.
   useEffect(() => {
     if (status === 'authenticated' && !initialized) {
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/subaccount/')) {
+        setInitialized(true);
+        return;
+      }
       if (userRole === 'client' && userAccountKeys.length > 0) {
         setAccountState({ mode: 'account', accountKey: userAccountKeys[0] });
       } else {

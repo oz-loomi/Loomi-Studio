@@ -40,6 +40,7 @@ declare module 'next-auth/jwt' {
     avatarUrl: string | null;
     role: UserRole;
     accountKeys: string[];
+    defaultAccountSlug?: string | null;
     originalUserId?: string;
     _roleCheckedAt?: number;
   }
@@ -51,6 +52,19 @@ async function getAllAccountKeys(): Promise<string[]> {
     return accounts.filter((a) => !a.key.startsWith('_')).map((a) => a.key);
   } catch {
     return [];
+  }
+}
+
+async function getDefaultAccountSlug(accountKeys: string[]): Promise<string | null> {
+  if (accountKeys.length === 0) return null;
+  try {
+    const account = await prisma.account.findUnique({
+      where: { key: accountKeys[0] },
+      select: { slug: true },
+    });
+    return account?.slug ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -121,6 +135,9 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role;
         const accountKeys = Array.isArray(user.accountKeys) ? user.accountKeys : [];
         token.accountKeys = accountKeys;
+        if (user.role === 'client' && accountKeys.length > 0) {
+          token.defaultAccountSlug = await getDefaultAccountSlug(accountKeys);
+        }
       }
 
       if (trigger === 'update' && session) {
@@ -197,7 +214,11 @@ export const authOptions: NextAuthOptions = {
           });
           if (freshUser) {
             token.role = freshUser.role as UserRole;
-            token.accountKeys = parseStoredAccountKeys(freshUser.accountKeys);
+            const freshKeys = parseStoredAccountKeys(freshUser.accountKeys);
+            token.accountKeys = freshKeys;
+            if (freshUser.role === 'client' && freshKeys.length > 0) {
+              token.defaultAccountSlug = await getDefaultAccountSlug(freshKeys);
+            }
           }
         } catch {
           // Swallow — keep existing token values on DB failure

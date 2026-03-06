@@ -18,9 +18,11 @@ import { SectionsIcon, FlowIcon } from '@/components/icon-map';
 import { AccountSwitcher } from '@/components/account-switcher';
 import { DevImpersonate } from '@/components/dev-impersonate';
 import { AppLogo } from '@/components/app-logo';
+import { accountKeyToSlug, isSubaccountRoute, stripSubaccountPrefix } from '@/lib/account-slugs';
 
+// Admin-level nav (when in admin mode)
 const adminNavItems = [
-  { href: '/', label: 'Dashboard', icon: Squares2X2Icon },
+  { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
   { href: '/contacts', label: 'Contacts', icon: UserGroupIcon },
   { href: '/components', label: 'Sections', icon: SectionsIcon },
   { href: '/templates', label: 'Templates', icon: EnvelopeIcon },
@@ -29,24 +31,69 @@ const adminNavItems = [
   { href: '/flows', label: 'Flows', icon: FlowIcon },
 ];
 
-const clientNavItems = [
-  { href: '/', label: 'Dashboard', icon: Squares2X2Icon },
+// Sub-account nav for admin/developer users viewing a sub-account
+const subaccountAdminNavItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
   { href: '/contacts', label: 'Contacts', icon: UserGroupIcon },
   { href: '/templates', label: 'Templates', icon: EnvelopeIcon },
-  { href: '/media', label: 'Media', icon: PhotoIcon },
+  { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
+  { href: '/flows', label: 'Flows', icon: FlowIcon },
+];
+
+// Sub-account nav for client users
+const subaccountClientNavItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: Squares2X2Icon },
+  { href: '/contacts', label: 'Contacts', icon: UserGroupIcon },
+  { href: '/templates', label: 'Templates', icon: EnvelopeIcon },
   { href: '/campaigns', label: 'Campaigns', icon: PaperAirplaneIcon },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { userRole, isAccount } = useAccount();
+  const { userRole, isAdmin, isAccount, accountKey, accounts } = useAccount();
   const { theme, toggleTheme } = useTheme();
 
   const isClientRole = userRole === 'client';
-  const navItems = isClientRole ? clientNavItems : adminNavItems;
-  const settingsHref = isClientRole ? '/settings/subaccount' : (isAccount ? '/settings/subaccount' : '/settings/subaccounts');
+  const slug = accountKey ? accountKeyToSlug(accountKey, accounts) : null;
+  const inSubaccountRoute = isSubaccountRoute(pathname);
 
-  const settingsActive = pathname === '/settings' || pathname.startsWith('/settings') || pathname.startsWith('/users') || pathname.startsWith('/subaccounts');
+  // Determine which nav items to show and how to prefix them
+  let navItems: typeof adminNavItems;
+  let prefix = '';
+
+  if (isAdmin && !inSubaccountRoute) {
+    // Admin mode — show full admin nav at top-level
+    navItems = adminNavItems;
+  } else if (slug) {
+    // Sub-account mode — prefix all links with /subaccount/[slug]
+    prefix = `/subaccount/${slug}`;
+    navItems = isClientRole ? subaccountClientNavItems : subaccountAdminNavItems;
+  } else {
+    // Fallback: use client nav without prefix
+    navItems = isClientRole ? subaccountClientNavItems : adminNavItems;
+  }
+
+  // Resolve nav item hrefs with the prefix
+  const resolvedNavItems = navItems.map((item) => ({
+    ...item,
+    href: prefix ? `${prefix}${item.href}` : item.href,
+  }));
+
+  // Normalize pathname for active-link detection
+  const normalizedPath = inSubaccountRoute ? stripSubaccountPrefix(pathname) : pathname;
+
+  // Settings href
+  const settingsHref = isClientRole
+    ? (slug ? `/subaccount/${slug}/settings` : '/settings/subaccount')
+    : isAccount && slug
+      ? `/subaccount/${slug}/settings`
+      : '/settings/subaccounts';
+
+  const settingsActive =
+    normalizedPath === '/settings' ||
+    normalizedPath.startsWith('/settings') ||
+    pathname.startsWith('/users') ||
+    pathname.startsWith('/subaccounts');
 
   return (
     <aside className="glass-panel fixed left-3 top-3 bottom-3 w-60 rounded-2xl text-[var(--sidebar-foreground)] flex flex-col z-50 overflow-hidden">
@@ -60,9 +107,12 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 p-3 space-y-0.5">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href ||
-            (item.href !== '/' && pathname.startsWith(item.href));
+        {resolvedNavItems.map((item) => {
+          // Active check: compare the normalized (prefix-stripped) path segment
+          const itemPage = item.href.replace(prefix, '');
+          const isActive = itemPage === '/dashboard'
+            ? normalizedPath === '/dashboard' || normalizedPath === '/'
+            : normalizedPath.startsWith(itemPage);
           return (
             <Link
               key={item.href}

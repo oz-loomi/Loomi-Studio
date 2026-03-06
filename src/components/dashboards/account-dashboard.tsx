@@ -30,6 +30,7 @@ import {
   type EmailListItem,
 } from '@/lib/email-list-payload';
 import { iconColorClass } from '@/lib/icon-colors';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 
 interface TemplateEntry {
   design: string;
@@ -70,6 +71,7 @@ function formatRelativeDate(iso: string) {
 
 export function AccountDashboard() {
   const { accountKey, accountData } = useAccount();
+  const href = useSubaccountHref();
   const [emails, setEmails] = useState<EmailListItem[]>([]);
   const [templates, setTemplates] = useState<TemplateEntry[]>([]);
   const [contactCount, setContactCount] = useState<number | null>(null);
@@ -156,21 +158,21 @@ export function AccountDashboard() {
       label: 'Active Emails',
       value: activeEmails,
       sub: draftEmails > 0 ? `${draftEmails} draft` : undefined,
-      href: '/templates',
+      href: href('/templates'),
       icon: CheckCircleIcon,
       color: 'text-green-400',
     },
     {
       label: 'Total Emails',
       value: emails.length,
-      href: '/templates',
+      href: href('/templates'),
       icon: EnvelopeIcon,
       color: 'text-blue-400',
     },
     {
       label: 'Templates',
       value: templates.length,
-      href: '/templates/library',
+      href: href('/templates/library'),
       icon: BookOpenIcon,
       color: iconColorClass('general'),
     },
@@ -259,7 +261,7 @@ export function AccountDashboard() {
               <EnvelopeIcon className="w-3.5 h-3.5" />
               Email Analytics
             </h3>
-            <Link href="/templates" className="text-[10px] text-[var(--primary)] hover:underline">
+            <Link href={href('/templates')} className="text-[10px] text-[var(--primary)] hover:underline">
               View all emails
             </Link>
           </div>
@@ -299,14 +301,14 @@ export function AccountDashboard() {
       {/* Quick actions */}
       <div className="flex gap-3 mb-8">
         <Link
-          href="/templates/library"
+          href={href('/templates/library')}
           className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[var(--primary)] text-white font-medium text-sm hover:opacity-90 transition-opacity"
         >
           <BookOpenIcon className="w-4 h-4" />
           Browse Templates
         </Link>
         <Link
-          href="/templates"
+          href={href('/templates')}
           className="flex-1 flex items-center justify-center gap-2 py-3 px-4 glass-card rounded-xl font-medium text-sm"
         >
           <EnvelopeIcon className="w-4 h-4" />
@@ -331,14 +333,14 @@ export function AccountDashboard() {
           <ClockIcon className="w-3.5 h-3.5" />
           Recent Emails
         </h3>
-        <Link href="/templates" className="text-[10px] text-[var(--primary)] hover:underline">
+        <Link href={href('/templates')} className="text-[10px] text-[var(--primary)] hover:underline">
           View all
         </Link>
       </div>
       {recentEmails.length === 0 ? (
         <div className="text-center py-12 border border-dashed border-[var(--border)] rounded-xl">
           <p className="text-[var(--muted-foreground)] text-sm">No emails yet.</p>
-          <Link href="/templates/library" className="text-[var(--primary)] text-sm mt-2 inline-block hover:underline">
+          <Link href={href('/templates/library')} className="text-[var(--primary)] text-sm mt-2 inline-block hover:underline">
             Browse templates to get started
           </Link>
         </div>

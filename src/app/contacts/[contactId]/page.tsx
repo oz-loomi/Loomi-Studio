@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState, type ComponentType, type SVGProps } from 'react';
 import { useAccount } from '@/contexts/account-context';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import { providerUnsupportedMessage } from '@/lib/esp/provider-display';
 import {
   ArrowLeftIcon,
@@ -421,6 +422,7 @@ function normalizeContactCapabilities(value: unknown): ContactCapabilities {
 
 export default function ContactDetailPage() {
   const { isAccount } = useAccount();
+  const subHref = useSubaccountHref();
   const params = useParams<{ contactId: string | string[] }>();
   const searchParams = useSearchParams();
   const contactId = Array.isArray(params.contactId) ? params.contactId[0] : params.contactId;
@@ -714,7 +716,7 @@ export default function ContactDetailPage() {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
             <Link
-              href="/contacts"
+              href={subHref('/contacts')}
               className="mt-0.5 p-2 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)]/40 transition-colors"
             >
               <ArrowLeftIcon className="w-4 h-4" />

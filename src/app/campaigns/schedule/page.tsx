@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAccount, type AccountData } from '@/contexts/account-context';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import type { Contact } from '@/components/contacts/contacts-table';
 import { LIFECYCLE_PRESETS } from '@/lib/smart-list-presets';
 import { evaluateFilter } from '@/lib/smart-list-engine';
@@ -195,6 +196,7 @@ export default function ScheduleCampaignPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAccount, accountKey, accounts } = useAccount();
+  const subHref = useSubaccountHref();
 
   const design = (searchParams.get('design') || '').trim();
   const templateType = (searchParams.get('type') || 'template').trim();
@@ -593,7 +595,7 @@ export default function ScheduleCampaignPage() {
             </Link>
             <button
               type="button"
-              onClick={() => router.push('/campaigns')}
+              onClick={() => router.push(subHref('/campaigns'))}
               className="inline-flex items-center gap-1.5 px-3 h-10 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/40"
             >
               View Campaigns

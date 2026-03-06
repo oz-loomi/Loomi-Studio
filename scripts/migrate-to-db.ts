@@ -100,9 +100,11 @@ async function migrateAccounts() {
       );
     }
 
+    const slug = String(data.dealer || key).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || key;
     await prisma.account.create({
       data: {
         key,
+        slug,
         dealer: String(data.dealer || key),
         espProvider: resolvedProvider,
         category: data.category ? String(data.category) : null,

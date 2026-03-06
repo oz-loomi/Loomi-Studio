@@ -4,21 +4,23 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { TopUtilityBar } from '@/components/top-utility-bar';
+import { stripSubaccountPrefix } from '@/lib/account-slugs';
 
 export function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const normalizedPath = stripSubaccountPrefix(pathname);
   const mainRef = useRef<HTMLElement>(null);
   const [isMainScrolled, setIsMainScrolled] = useState(false);
   const isFullScreen =
-    pathname.startsWith('/preview')
-    || pathname.startsWith('/login')
-    || pathname.startsWith('/onboarding');
+    normalizedPath.startsWith('/preview')
+    || normalizedPath.startsWith('/login')
+    || normalizedPath.startsWith('/onboarding');
 
   // Template editor gets full-width layout (no sidebar)
-  const isTemplateEditor = pathname === '/templates/editor'
-    || /^\/templates\/folder\/[^/]+$/.test(pathname)
-    || /^\/components\/[^/]+$/.test(pathname)
-    || /^\/components\/folder\/[^/]+$/.test(pathname);
+  const isTemplateEditor = normalizedPath === '/templates/editor'
+    || /^\/templates\/folder\/[^/]+$/.test(normalizedPath)
+    || /^\/components\/[^/]+$/.test(normalizedPath)
+    || /^\/components\/folder\/[^/]+$/.test(normalizedPath);
 
   useEffect(() => {
     if (isFullScreen || isTemplateEditor) {

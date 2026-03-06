@@ -26,6 +26,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useAccount, type AccountData } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 import { roleDisplayName } from '@/lib/roles';
 import { DashboardToolbar, type AccountOption, type CustomDateRange } from '@/components/filters/dashboard-toolbar';
 import {
@@ -2265,33 +2266,35 @@ function ManagementRoleDashboard({
               showReset={false}
               triggerSize="header"
             />
-            <button
-              type="button"
-              onClick={() => {
-                if (filtersPanelOpen) {
-                  setFiltersPanelOpen(false);
-                  return;
-                }
-                dashboardCustomization.setEditMode(false);
-                setCustomizePanelOpen(false);
-                setManagementSideRailMounted(false);
-                setDraggedWidgetId(null);
-                setFiltersPanelOpen(true);
-              }}
-              className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
-                filtersPanelOpen
-                  ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                  : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              <FunnelIcon className="h-4 w-4" />
-              <span className="hidden sm:inline">Filters</span>
-              {activeFilterCount > 0 ? (
-                <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--primary)]">
-                  {activeFilterCount}
-                </span>
-              ) : null}
-            </button>
+            {!isAccountMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (filtersPanelOpen) {
+                    setFiltersPanelOpen(false);
+                    return;
+                  }
+                  dashboardCustomization.setEditMode(false);
+                  setCustomizePanelOpen(false);
+                  setManagementSideRailMounted(false);
+                  setDraggedWidgetId(null);
+                  setFiltersPanelOpen(true);
+                }}
+                className={`inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
+                  filtersPanelOpen
+                    ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
+                    : 'border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--foreground)]'
+                }`}
+              >
+                <FunnelIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">Filters</span>
+                {activeFilterCount > 0 ? (
+                  <span className="rounded-full bg-[var(--primary)]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--primary)]">
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -2755,6 +2758,7 @@ function ClientRoleDashboard({
   accountData: AccountData | null;
   userName: string | null;
 }) {
+  const subHref = useSubaccountHref();
   const [loading, setLoading] = useState(true);
   const [dateRange] = useState<DateRangeKey>(DEFAULT_DATE_RANGE);
   const [customRange] = useState<CustomDateRange | null>(null);
@@ -3223,16 +3227,16 @@ function ClientRoleDashboard({
             {renderClientWidget('client_overview', (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                <StatCard label="Campaigns" value={filteredEspCampaigns.length} icon={PaperAirplaneIcon} href="/campaigns" />
-                <StatCard label="Scheduled" value={scheduledEsp} icon={ArrowPathIcon} href="/campaigns/schedule" />
-                <StatCard label="Sent / Completed" value={sentEsp} icon={CheckCircleIcon} href="/campaigns" />
-                <StatCard label="Loomi Email" value={filteredLoomiEmailCampaigns.length} icon={BookOpenIcon} href="/campaigns" />
+                <StatCard label="Campaigns" value={filteredEspCampaigns.length} icon={PaperAirplaneIcon} href={subHref('/campaigns')} />
+                <StatCard label="Scheduled" value={scheduledEsp} icon={ArrowPathIcon} href={subHref('/campaigns/schedule')} />
+                <StatCard label="Sent / Completed" value={sentEsp} icon={CheckCircleIcon} href={subHref('/campaigns')} />
+                <StatCard label="Loomi Email" value={filteredLoomiEmailCampaigns.length} icon={BookOpenIcon} href={subHref('/campaigns')} />
                 <StatCard
                   label="Loomi SMS"
                   value={filteredLoomiSmsCampaigns.length}
                   sub={`OR ${formatRatePct(clientEngagement.openRate)}`}
                   icon={ChartBarIcon}
-                  href="/campaigns"
+                  href={subHref('/campaigns')}
                 />
               </div>
 
@@ -3268,7 +3272,7 @@ function ClientRoleDashboard({
             <div>
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">ESP Campaign Performance</h3>
-                <Link href="/campaigns" className="text-[10px] text-[var(--primary)] hover:underline">
+                <Link href={subHref('/campaigns')} className="text-[10px] text-[var(--primary)] hover:underline">
                   Open campaign center
                 </Link>
               </div>

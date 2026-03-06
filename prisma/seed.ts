@@ -45,6 +45,7 @@ async function main() {
   const accounts = [
     {
       key: 'youngHondaOgden',
+      slug: 'young-honda-ogden',
       dealer: 'Young Honda Ogden',
       category: 'Automotive',
       oem: 'Honda',
@@ -60,6 +61,7 @@ async function main() {
     },
     {
       key: 'ridersEdgePowersports',
+      slug: 'riders-edge-powersports',
       dealer: "Rider's Edge Powersports",
       category: 'Powersports',
       oem: 'Kawasaki',
@@ -75,6 +77,7 @@ async function main() {
     },
     {
       key: 'peakOutdoorGear',
+      slug: 'peak-outdoor-gear',
       dealer: 'Peak Outdoor Gear',
       category: 'Ecommerce',
       espProvider: 'klaviyo',

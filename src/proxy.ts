@@ -2,6 +2,9 @@ import { getToken } from 'next-auth/jwt';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+// Top-level pages that have sub-account equivalents
+const ADMIN_PAGES = ['/dashboard', '/contacts', '/campaigns', '/flows', '/templates', '/settings'];
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -28,6 +31,18 @@ export async function proxy(request: NextRequest) {
 
     const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Redirect client-role users from top-level admin routes to their sub-account
+  if (token.role === 'client' && token.defaultAccountSlug) {
+    const isAdminPage = ADMIN_PAGES.some(
+      (page) => pathname === page || pathname.startsWith(`${page}/`)
+    );
+    if (isAdminPage) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/subaccount/${token.defaultAccountSlug}${pathname}`;
+      return NextResponse.redirect(url);
+    }
   }
 
   return NextResponse.next();

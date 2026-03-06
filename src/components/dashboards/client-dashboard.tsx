@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAccount } from '@/contexts/account-context';
+import { useSubaccountHref } from '@/hooks/use-subaccount-href';
 
 interface Email {
   id: string;
@@ -29,6 +30,7 @@ function formatDate(iso: string) {
 
 export function ClientDashboard() {
   const { accountKey: clientKey, accountData: clientData } = useAccount();
+  const href = useSubaccountHref();
   const [emails, setEmails] = useState<Email[]>([]);
   const [templates, setTemplates] = useState<TemplateEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -57,8 +59,8 @@ export function ClientDashboard() {
     .slice(0, 5);
 
   const stats = [
-    { label: 'Emails', value: emails.length, href: '/emails' },
-    { label: 'Available Templates', value: templates.length, href: '/library' },
+    { label: 'Emails', value: emails.length, href: href('/emails') },
+    { label: 'Available Templates', value: templates.length, href: href('/library') },
   ];
 
   return (
@@ -97,13 +99,13 @@ export function ClientDashboard() {
       {/* Quick actions */}
       <div className="flex gap-3 mb-8">
         <Link
-          href="/library"
+          href={href('/library')}
           className="flex-1 text-center py-3 px-4 rounded-xl bg-[var(--primary)] text-white font-medium text-sm hover:opacity-90 transition-opacity"
         >
           Browse Templates
         </Link>
         <Link
-          href="/emails"
+          href={href('/emails')}
           className="flex-1 text-center py-3 px-4 rounded-xl border border-[var(--border)] bg-[var(--card)] font-medium text-sm hover:border-[var(--primary)] transition-colors"
         >
           View All Emails
@@ -117,7 +119,7 @@ export function ClientDashboard() {
       {recentEmails.length === 0 ? (
         <div className="text-center py-12 border border-dashed border-[var(--border)] rounded-xl">
           <p className="text-[var(--muted-foreground)] text-sm">No emails yet.</p>
-          <Link href="/library" className="text-[var(--primary)] text-sm mt-2 inline-block hover:underline">
+          <Link href={href('/library')} className="text-[var(--primary)] text-sm mt-2 inline-block hover:underline">
             Browse templates to get started
           </Link>
         </div>

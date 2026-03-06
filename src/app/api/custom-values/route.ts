@@ -30,7 +30,7 @@ async function writeDefaults(defaults: Record<string, CustomValueDef>): Promise<
   await prisma.account.upsert({
     where: { key: DEFAULTS_KEY },
     update: { customValues: serialized },
-    create: { key: DEFAULTS_KEY, dealer: '_system', customValues: serialized, espProvider: defaultProvider },
+    create: { key: DEFAULTS_KEY, slug: '_system', dealer: '_system', customValues: serialized, espProvider: defaultProvider },
   });
 }
 

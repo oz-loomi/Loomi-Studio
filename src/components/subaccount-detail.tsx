@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeftIcon,
@@ -17,9 +17,12 @@ import {
   TrashIcon,
   ExclamationTriangleIcon,
   QuestionMarkCircleIcon,
+  CogIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { AdminOnly } from '@/components/route-guard';
+import { UsersTab } from '@/components/settings/users-tab';
+import { AppearanceTab } from '@/components/settings/appearance-tab';
 import { OemMultiSelect } from '@/components/oem-multi-select';
 import { UserAvatar } from '@/components/user-avatar';
 import { AccountAvatar } from '@/components/account-avatar';
@@ -96,7 +99,7 @@ function providerSecretPlaceholder(auth: EspCapabilities['auth']): string {
   return 'Enter credential';
 }
 
-type DetailTab = 'company' | 'branding' | 'integration' | 'custom-values' | 'contacts';
+type DetailTab = 'company' | 'branding' | 'integration' | 'custom-values' | 'contacts' | 'users' | 'appearance';
 type AccountImageVariant = 'light' | 'dark' | 'white' | 'black' | 'storefront';
 type GhlAgencyStatus = {
   connected: boolean;
@@ -159,17 +162,31 @@ const TABS: { key: DetailTab; label: string }[] = [
   { key: 'contacts', label: 'Contacts' },
 ];
 
+const SETTINGS_TABS: { key: DetailTab; label: string }[] = [
+  { key: 'company', label: 'Company' },
+  { key: 'branding', label: 'Branding' },
+  { key: 'users', label: 'Users' },
+  { key: 'integration', label: 'Integrations' },
+  { key: 'custom-values', label: 'Custom Values' },
+  { key: 'appearance', label: 'Appearance' },
+];
+
 interface SubAccountDetailPageProps {
   /** Base path for navigation, e.g. '/subaccounts' or '/settings/subaccounts' */
   basePath: string;
+  /** When true, renders as a sub-account settings page with settings-style header and extra tabs */
+  settingsMode?: boolean;
+  /** Account key to use (for settings mode, where there's no :key route param) */
+  accountKeyProp?: string;
 }
 
-export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
+export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }: SubAccountDetailPageProps) {
   const params = useParams();
+  const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { confirm, prompt } = useLoomiDialog();
-  const key = params.key as string;
+  const key = settingsMode ? (accountKeyProp || '') : (params.key as string);
   const { refreshAccounts: refreshAccountList, userRole } = useAccount();
   const { markClean } = useUnsavedChanges();
 
@@ -544,13 +561,48 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
     };
   }, [key]);
 
-  // Handle ?tab= query param for deep-linking to a specific tab
+  // ── Settings mode: resolve tab from URL path ──
+  const settingsUrlTab = useMemo(() => {
+    if (!settingsMode) return undefined;
+    const segments = pathname.split('/').filter(Boolean);
+    const settingsIdx = segments.indexOf('settings');
+    return settingsIdx >= 0 ? segments[settingsIdx + 1] : undefined;
+  }, [settingsMode, pathname]);
+
+  // Settings mode: sync activeTab from URL on initial load and popstate
   useEffect(() => {
+    if (!settingsMode) return;
+    const allTabKeys = SETTINGS_TABS.map(t => t.key);
+    const syncFromUrl = () => {
+      const segments = window.location.pathname.split('/').filter(Boolean);
+      const settingsIdx = segments.indexOf('settings');
+      const tab = settingsIdx >= 0 ? segments[settingsIdx + 1] : 'company';
+      if (allTabKeys.includes(tab as DetailTab)) {
+        setActiveTab(tab as DetailTab);
+      }
+    };
+    // Sync on mount — if no tab in URL, push default tab into the URL
+    if (settingsUrlTab && allTabKeys.includes(settingsUrlTab as DetailTab)) {
+      setActiveTab(settingsUrlTab as DetailTab);
+    } else if (!settingsUrlTab) {
+      // No tab segment — add /company to URL
+      const segments = pathname.split('/').filter(Boolean);
+      const slug = segments[1];
+      window.history.replaceState({}, '', `/subaccount/${slug}/settings/company`);
+    }
+    // Sync on browser back/forward
+    window.addEventListener('popstate', syncFromUrl);
+    return () => window.removeEventListener('popstate', syncFromUrl);
+  }, [settingsMode, settingsUrlTab, pathname]);
+
+  // Handle ?tab= query param for deep-linking to a specific tab (non-settings mode)
+  useEffect(() => {
+    if (settingsMode) return;
     const tabParam = searchParams.get('tab') as DetailTab | null;
     if (tabParam && ['company', 'branding', 'integration', 'custom-values', 'contacts'].includes(tabParam)) {
       setActiveTab(tabParam);
     }
-  }, [searchParams]);
+  }, [settingsMode, searchParams]);
 
   // Handle OAuth callback query params.
   useEffect(() => {
@@ -558,7 +610,9 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
     const errorMessage = searchParams.get('esp_error');
     const provider = searchParams.get('esp_provider');
     const label = providerDisplayName(provider);
-    const currentDetailPath = `${basePath}/${key}`;
+    const currentDetailPath = settingsMode
+      ? pathname.replace(/\?.*$/, '')
+      : `${basePath}/${key}`;
 
     if (connected === 'true') {
       toast.success(`Successfully connected to ${label}!`);
@@ -571,7 +625,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
       setActiveTab('integration');
       router.replace(currentDetailPath, { scroll: false });
     }
-  }, [searchParams, basePath, key, router]);
+  }, [searchParams, basePath, key, router, settingsMode, pathname]);
 
   useEffect(() => {
     if (!isGhlAgencyIntegrationModal) {
@@ -908,20 +962,22 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
   }
 
   if (loading) {
-    return <AdminOnly><div className="text-[var(--muted-foreground)]">Loading...</div></AdminOnly>;
+    const loadingEl = <div className="text-[var(--muted-foreground)]">Loading...</div>;
+    return settingsMode ? loadingEl : <AdminOnly>{loadingEl}</AdminOnly>;
   }
 
   if (!account) {
-    return (
-      <AdminOnly>
-        <div className="text-center py-16">
-          <p className="text-[var(--muted-foreground)]">Sub-account not found</p>
+    const notFoundEl = (
+      <div className="text-center py-16">
+        <p className="text-[var(--muted-foreground)]">Sub-account not found</p>
+        {!settingsMode && (
           <Link href={basePath} className="text-sm text-[var(--primary)] mt-2 inline-block hover:underline">
             Back to Sub-Accounts
           </Link>
-        </div>
-      </AdminOnly>
+        )}
+      </div>
     );
+    return settingsMode ? notFoundEl : <AdminOnly>{notFoundEl}</AdminOnly>;
   }
 
   const inputClass = 'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]';
@@ -931,11 +987,17 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
   const isSettingsEmbed = basePath.startsWith('/settings/');
   const showContactsTab = !isSettingsEmbed;
   const canSeeCustomValues = userRole === 'developer' || userRole === 'super_admin';
-  const visibleTabs = TABS.filter((tab) => {
-    if (tab.key === 'contacts' && !showContactsTab) return false;
-    if (tab.key === 'custom-values' && !canSeeCustomValues) return false;
-    return true;
-  });
+  const visibleTabs = settingsMode
+    ? SETTINGS_TABS.filter((tab) => {
+        if (tab.key === 'custom-values' && !canSeeCustomValues) return false;
+        return true;
+      })
+    : TABS.filter((tab) => {
+        if (tab.key === 'contacts' && !showContactsTab) return false;
+        if (tab.key === 'custom-values' && !canSeeCustomValues) return false;
+        return true;
+      });
+  const showSaveButton = !settingsMode || !['users', 'appearance'].includes(activeTab);
   const backHref = basePath;
   const showBrandsSelector = industryHasBrands(category);
   const isAutomotiveIndustry = category.trim().toLowerCase() === 'automotive';
@@ -980,91 +1042,128 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
   const canSyncCustomValuesToActiveProvider = activeProviderSyncReadiness.readyForSync;
   const hasAnyProviderConnection = providerStatusResolver.hasAnyProviderConnection;
 
-  return (
-    <AdminOnly>
+  // ── Settings mode: tab click navigates via pushState (no full route transition) ──
+  const handleTabClick = (tabKey: DetailTab) => {
+    if (settingsMode) {
+      const segments = pathname.split('/').filter(Boolean);
+      const slug = segments[1]; // /subaccount/[slug]/settings/...
+      const newUrl = `/subaccount/${slug}/settings/${tabKey}`;
+      window.history.pushState({}, '', newUrl);
+      setActiveTab(tabKey);
+    } else {
+      setActiveTab(tabKey);
+    }
+  };
+
+  const content = (
       <div>
         {/* ── Header ── */}
-        <div className="page-sticky-header flex items-center gap-3 mb-6">
-          <Link
-            href={backHref}
-            className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-          >
-            <ArrowLeftIcon className="w-4 h-4" />
-          </Link>
-          <AccountAvatar
-            name={dealer || key}
-            accountKey={key}
-            storefrontImage={storefrontImage}
-            logos={{ light: logoLight, dark: logoDark, white: logoWhite, black: logoBlack }}
-            size={40}
-            className="rounded-xl flex-shrink-0 border border-[var(--border)]"
-          />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              {isEditingDealerName ? (
-                <input
-                  type="text"
-                  value={dealer}
-                  onChange={(event) => setDealer(event.target.value)}
-                  onBlur={() => setIsEditingDealerName(false)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      setIsEditingDealerName(false);
-                    }
-                    if (event.key === 'Escape') {
-                      event.preventDefault();
-                      setDealer(account?.dealer || '');
-                      setIsEditingDealerName(false);
-                    }
-                  }}
-                  className="w-full max-w-2xl min-w-0 bg-transparent border-b border-[var(--border)] text-2xl font-bold text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
-                  autoFocus
-                />
-              ) : (
-                <h2 className="text-2xl font-bold truncate">{dealer || key}</h2>
-              )}
-              <button
-                type="button"
-                onClick={() => setIsEditingDealerName((prev) => !prev)}
-                className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                title="Edit sub-account name"
-              >
-                <PencilSquareIcon className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-              <span className="font-mono">{key}</span>
-              {connectedProviderBadges.map((provider) => (
-                <span
-                  key={provider.provider}
-                  className="inline-flex items-center gap-1 text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+        {settingsMode ? (
+          <div className="page-sticky-header mb-8">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="flex items-center gap-2 text-2xl font-bold text-[var(--foreground)]">
+                  <CogIcon className="w-6 h-6" />
+                  Settings for {dealer || key}
+                </h1>
+                <p className="text-sm text-[var(--muted-foreground)] mt-1">
+                  Manage settings and configuration for this sub-account
+                </p>
+              </div>
+              {showSaveButton && (
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex-shrink-0"
                 >
-                  {provider.status.oauthConnected ? (
-                    <ShieldCheckIcon className="w-2.5 h-2.5" />
-                  ) : (
-                    <LinkIcon className="w-2.5 h-2.5" />
-                  )}
-                  {providerDisplayName(provider.provider)}
-                </span>
-              ))}
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+              )}
             </div>
           </div>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex-shrink-0"
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+        ) : (
+          <div className="page-sticky-header flex items-center gap-3 mb-6">
+            <Link
+              href={backHref}
+              className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            >
+              <ArrowLeftIcon className="w-4 h-4" />
+            </Link>
+            <AccountAvatar
+              name={dealer || key}
+              accountKey={key}
+              storefrontImage={storefrontImage}
+              logos={{ light: logoLight, dark: logoDark, white: logoWhite, black: logoBlack }}
+              size={40}
+              className="rounded-xl flex-shrink-0 border border-[var(--border)]"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                {isEditingDealerName ? (
+                  <input
+                    type="text"
+                    value={dealer}
+                    onChange={(event) => setDealer(event.target.value)}
+                    onBlur={() => setIsEditingDealerName(false)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        setIsEditingDealerName(false);
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault();
+                        setDealer(account?.dealer || '');
+                        setIsEditingDealerName(false);
+                      }
+                    }}
+                    className="w-full max-w-2xl min-w-0 bg-transparent border-b border-[var(--border)] text-2xl font-bold text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
+                    autoFocus
+                  />
+                ) : (
+                  <h2 className="text-2xl font-bold truncate">{dealer || key}</h2>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsEditingDealerName((prev) => !prev)}
+                  className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  title="Edit sub-account name"
+                >
+                  <PencilSquareIcon className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+                <span className="font-mono">{key}</span>
+                {connectedProviderBadges.map((provider) => (
+                  <span
+                    key={provider.provider}
+                    className="inline-flex items-center gap-1 text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+                  >
+                    {provider.status.oauthConnected ? (
+                      <ShieldCheckIcon className="w-2.5 h-2.5" />
+                    ) : (
+                      <LinkIcon className="w-2.5 h-2.5" />
+                    )}
+                    {providerDisplayName(provider.provider)}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex-shrink-0"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        )}
 
         {/* ── Tabs ── */}
         <div className="flex gap-1 mb-8 border-b border-[var(--border)]">
           {visibleTabs.map(tab => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => handleTabClick(tab.key)}
               className={`px-4 py-2.5 text-sm font-medium transition-colors relative ${
                 activeTab === tab.key
                   ? 'text-[var(--foreground)]'
@@ -2274,9 +2373,16 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
           <AccountContactsTab accountKey={key} isConnected={hasAnyProviderConnection} />
         )}
 
+        {/* ════════════ USERS TAB (settings mode only) ════════════ */}
+        {settingsMode && activeTab === 'users' && <UsersTab />}
+
+        {/* ════════════ APPEARANCE TAB (settings mode only) ════════════ */}
+        {settingsMode && activeTab === 'appearance' && <AppearanceTab />}
+
       </div>
-    </AdminOnly>
   );
+
+  return settingsMode ? content : <AdminOnly>{content}</AdminOnly>;
 }
 
 // ════════════════════════════════════════
