@@ -27,6 +27,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount } from '@/contexts/account-context';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { TemplatePreview } from '@/components/template-preview';
 import { CloneToAccountsModal } from '@/components/clone-to-accounts-modal';
 import {
@@ -224,6 +225,7 @@ export default function TemplateLibraryPage() {
 
 function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const router = useRouter();
+  const { confirm } = useLoomiDialog();
   const [templates, setTemplates] = useState<TemplateEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showCreateChoice, setShowCreateChoice] = useState(false);
@@ -325,7 +327,13 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   };
 
   const deleteTemplate = async (design: string) => {
-    if (!confirm(`Delete "${formatDesign(design)}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete Template',
+      message: `Delete "${formatDesign(design)}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       const res = await fetch(`/api/templates?design=${encodeURIComponent(design)}`, { method: 'DELETE' });
       if (!res.ok) { toast.error('Failed to delete'); return; }
@@ -421,7 +429,13 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const handleBulkDelete = async () => {
     if (selectedDesigns.size === 0) return;
     const count = selectedDesigns.size;
-    if (!confirm(`Delete ${count} template${count !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete Templates',
+      message: `Delete ${count} template${count !== 1 ? 's' : ''}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!confirmed) return;
 
     const results = await Promise.allSettled(
       Array.from(selectedDesigns).map((design) =>
@@ -1194,6 +1208,7 @@ function ManageTagsModal({
   tplMap: Record<string, TemplateEntry>;
   onSave: (data: TagData) => void; onClose: () => void;
 }) {
+  const { confirm } = useLoomiDialog();
   const [local, setLocal] = useState<TagData>(JSON.parse(JSON.stringify(tagData)));
   const [newTagName, setNewTagName] = useState('');
   const [editingTag, setEditingTag] = useState<string | null>(null);
@@ -1230,9 +1245,17 @@ function ManageTagsModal({
     setEditingTag(null);
   };
 
-  const deleteTag = (tagName: string) => {
+  const deleteTag = async (tagName: string) => {
     const count = Object.values(local.assignments).filter((tags) => tags.includes(tagName)).length;
-    if (count > 0 && !confirm(`Remove "${tagName}" tag from ${count} template${count > 1 ? 's' : ''}?`)) return;
+    if (count > 0) {
+      const confirmed = await confirm({
+        title: 'Remove Tag',
+        message: `Remove "${tagName}" tag from ${count} template${count > 1 ? 's' : ''}?`,
+        confirmLabel: 'Remove',
+        destructive: true,
+      });
+      if (!confirmed) return;
+    }
     const newTags = local.tags.filter((t) => t !== tagName);
     const newAssignments: Record<string, string[]> = {};
     for (const [key, tags] of Object.entries(local.assignments)) {
@@ -1301,7 +1324,7 @@ function ManageTagsModal({
                   <button onClick={() => { setEditingTag(tag); setEditTagValue(tag); }} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors" title="Rename">
                     <PencilIcon className="w-3 h-3" />
                   </button>
-                  <button onClick={() => deleteTag(tag)} className="p-1 rounded text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete tag">
+                  <button onClick={() => { void deleteTag(tag); }} className="p-1 rounded text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete tag">
                     <XMarkIcon className="w-3 h-3" />
                   </button>
                 </div>

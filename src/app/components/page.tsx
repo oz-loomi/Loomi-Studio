@@ -17,6 +17,7 @@ import { toast } from '@/lib/toast';
 import { AdminOnly } from '@/components/route-guard';
 import { SectionsIcon } from '@/components/icon-map';
 import PrimaryButton from '@/components/primary-button';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 
 interface ComponentEntry {
   name: string;
@@ -41,6 +42,7 @@ function saveView(view: 'card' | 'list') {
 
 export default function ComponentsPage() {
   const router = useRouter();
+  const { confirm } = useLoomiDialog();
   const [components, setComponents] = useState<ComponentEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
@@ -151,7 +153,21 @@ export default function ComponentsPage() {
         </button>
         {isOpen && (
           <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => { setOpenMenu(null); if (confirm(`Delete "${componentMap[name]?.label || name}"? This will remove the .html file permanently.`)) handleDeleteComponent(name); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors">
+            <button
+              onClick={async () => {
+                setOpenMenu(null);
+                const confirmed = await confirm({
+                  title: 'Delete Section',
+                  message: `Delete "${componentMap[name]?.label || name}"? This will remove the .html file permanently.`,
+                  confirmLabel: 'Delete',
+                  destructive: true,
+                });
+                if (confirmed) {
+                  await handleDeleteComponent(name);
+                }
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+            >
               <TrashIcon className="w-4 h-4" /> Delete
             </button>
           </div>
@@ -360,6 +376,7 @@ function ManageTagsModal({
   onSave: (data: TagData) => void;
   onClose: () => void;
 }) {
+  const { confirm } = useLoomiDialog();
   const [local, setLocal] = useState<TagData>(JSON.parse(JSON.stringify(tagData)));
   const [newTagName, setNewTagName] = useState('');
   const [editingTag, setEditingTag] = useState<string | null>(null);
@@ -398,9 +415,17 @@ function ManageTagsModal({
     setEditingTag(null);
   };
 
-  const deleteTag = (tagName: string) => {
+  const deleteTag = async (tagName: string) => {
     const count = Object.values(local.assignments).filter(tags => tags.includes(tagName)).length;
-    if (count > 0 && !confirm(`Remove "${tagName}" tag from ${count} section${count > 1 ? 's' : ''}?`)) return;
+    if (count > 0) {
+      const confirmed = await confirm({
+        title: 'Remove Tag',
+        message: `Remove "${tagName}" tag from ${count} section${count > 1 ? 's' : ''}?`,
+        confirmLabel: 'Remove',
+        destructive: true,
+      });
+      if (!confirmed) return;
+    }
     const newTags = local.tags.filter(t => t !== tagName);
     const newAssignments: Record<string, string[]> = {};
     for (const [key, tags] of Object.entries(local.assignments)) {
@@ -477,7 +502,7 @@ function ManageTagsModal({
                     <PencilIcon className="w-3 h-3" />
                   </button>
                   <button
-                    onClick={() => deleteTag(tag)}
+                    onClick={() => { void deleteTag(tag); }}
                     className="p-1 rounded text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
                     title="Delete tag"
                   >

@@ -19,6 +19,7 @@ import {
 import { toast } from '@/lib/toast';
 import PrimaryButton from '@/components/primary-button';
 import { useAccount } from '@/contexts/account-context';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import {
   parseEmailFoldersPayload,
   foldersMapToArray,
@@ -56,6 +57,7 @@ function loadView(): 'card' | 'list' {
 export function EmailFolderPage() {
   const params = useParams();
   const router = useRouter();
+  const { confirm } = useLoomiDialog();
   const { isAccount, accountKey } = useAccount();
   const backLabel = 'Templates';
   const listPageLabel = 'templates';
@@ -259,7 +261,21 @@ export function EmailFolderPage() {
             <button onClick={() => { setOpenMenu(null); setMoveModalEmail(id); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors">
               <FolderArrowDownIcon className="w-4 h-4" /> Move to Folder
             </button>
-            <button onClick={() => { setOpenMenu(null); if (confirm(`Delete "${email?.name || id}"?`)) handleDelete(id); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors">
+            <button
+              onClick={async () => {
+                setOpenMenu(null);
+                const confirmed = await confirm({
+                  title: 'Delete Email',
+                  message: `Delete "${email?.name || id}"?`,
+                  confirmLabel: 'Delete',
+                  destructive: true,
+                });
+                if (confirmed) {
+                  await handleDelete(id);
+                }
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+            >
               <TrashIcon className="w-4 h-4" /> Delete
             </button>
           </div>

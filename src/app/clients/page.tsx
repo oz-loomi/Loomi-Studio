@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { PlusIcon, XMarkIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { AdminOnly } from '@/components/route-guard';
 import PrimaryButton from '@/components/primary-button';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 
 interface ClientData {
   dealer: string;
@@ -19,6 +20,7 @@ interface ClientData {
 const CATEGORY_SUGGESTIONS = ['Automotive', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
 
 export default function ClientsPage() {
+  const { confirm } = useLoomiDialog();
   const [clients, setClients] = useState<Record<string, ClientData> | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -86,7 +88,13 @@ export default function ClientsPage() {
   };
 
   const handleDelete = async (key: string) => {
-    if (!confirm(`Delete client "${clients?.[key]?.dealer || key}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete Client',
+      message: `Delete client "${clients?.[key]?.dealer || key}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       const res = await fetch(`/api/clients?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
       if (!res.ok) { const d = await res.json(); setError(d.error || 'Failed to delete'); return; }

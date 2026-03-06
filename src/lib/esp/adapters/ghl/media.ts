@@ -15,6 +15,11 @@ import type {
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 type JsonRecord = Record<string, unknown>;
+type MediaParentVerification = {
+  matched: boolean;
+  found: boolean;
+  observedParentId: string | null;
+};
 
 // File cache — keyed by locationId + parentId
 const mediaCache = new Map<string, { data: EspMedia[]; fetchedAt: number }>();
@@ -209,20 +214,36 @@ async function verifyMediaParent(
   locationId: string,
   mediaId: string,
   targetFolderId?: string,
-): Promise<boolean> {
+): Promise<MediaParentVerification> {
   const target = normalizeParentId(targetFolderId);
 
   const fileRecords = await fetchRawMediaObjects(token, locationId, 'file');
   const file = fileRecords.find((row) => extractMediaId(row) === mediaId);
   if (file) {
-    return extractParentId(file) === target;
+    const observedParentId = extractParentId(file);
+    return {
+      matched: observedParentId === target,
+      found: true,
+      observedParentId,
+    };
   }
 
   const folderRecords = await fetchRawMediaObjects(token, locationId, 'folder');
   const folder = folderRecords.find((row) => extractMediaId(row) === mediaId);
-  if (!folder) return false;
+  if (folder) {
+    const observedParentId = extractParentId(folder);
+    return {
+      matched: observedParentId === target,
+      found: true,
+      observedParentId,
+    };
+  }
 
-  return extractParentId(folder) === target;
+  return {
+    matched: false,
+    found: false,
+    observedParentId: null,
+  };
 }
 
 async function resolveMediaName(
@@ -477,16 +498,22 @@ export async function moveMedia(
     altId: locationId,
     locationId,
     parentId: normalizedTarget,
+    parentID: normalizedTarget,
     folderId: normalizedTarget,
+    folderID: normalizedTarget,
   };
   if (resolvedName) {
     body.name = resolvedName;
     // Some GHL tenants serialize this field under fileName.
     body.fileName = resolvedName;
   }
+  const params = new URLSearchParams({
+    altType: 'location',
+    altId: locationId,
+  });
 
   const res = await fetch(
-    `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}`,
+    `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}?${params.toString()}`,
     {
       method: 'POST',
       headers: {
@@ -502,15 +529,44 @@ export async function moveMedia(
     throwGhlError(data, res.status);
   }
 
-  // Defensive verification with retries: GHL can be eventually consistent.
-  let moved = false;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    moved = await verifyMediaParent(token, locationId, mediaId, normalizedTarget || undefined);
-    if (moved) break;
-    await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+  const moveResponse = await res.json().catch(() => null) as JsonRecord | null;
+  if (moveResponse && typeof moveResponse === 'object') {
+    const rawCandidate = (
+      moveResponse.file
+      ?? moveResponse.media
+      ?? moveResponse.data
+      ?? moveResponse
+    ) as unknown;
+    if (rawCandidate && typeof rawCandidate === 'object') {
+      const raw = rawCandidate as JsonRecord;
+      const responseId = extractMediaId(raw);
+      const observedParent = extractParentId(raw);
+      if ((!responseId || responseId === mediaId) && observedParent === normalizedTarget) {
+        invalidateAllCaches(locationId);
+        return;
+      }
+    }
   }
-  if (!moved) {
-    throw new Error('Move request was accepted but the file/folder parent did not change');
+
+  // Defensive verification with retries: GHL can be eventually consistent.
+  let verification: MediaParentVerification = {
+    matched: false,
+    found: false,
+    observedParentId: null,
+  };
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    verification = await verifyMediaParent(token, locationId, mediaId, normalizedTarget || undefined);
+    if (verification.matched) break;
+    await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+  }
+  if (!verification.matched) {
+    const targetLabel = normalizedTarget ?? 'root';
+    const observedLabel = verification.found
+      ? (verification.observedParentId ?? 'root')
+      : 'not-found';
+    throw new Error(
+      `Move request was accepted but the file/folder parent did not change (target: ${targetLabel}, observed: ${observedLabel})`,
+    );
   }
 
   invalidateAllCaches(locationId);

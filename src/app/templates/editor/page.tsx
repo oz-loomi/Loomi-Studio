@@ -48,6 +48,7 @@ import { VariablePickerButton } from "@/components/variable-picker";
 import { AccountAvatar } from "@/components/account-avatar";
 import { useAccount } from "@/contexts/account-context";
 import { useUnsavedChanges } from "@/contexts/unsaved-changes-context";
+import { useLoomiDialog } from "@/contexts/loomi-dialog-context";
 import {
   componentSchemas,
   getAvailableComponents,
@@ -6092,6 +6093,7 @@ function hasVisualTemplateScaffold(raw: string): boolean {
 
 export default function TemplateEditorPage() {
   const searchParams = useSearchParams();
+  const { confirm } = useLoomiDialog();
   const designParam = searchParams.get("design") || "";
   const [design, setDesign] = useState(designParam);
   const templateName = "template";
@@ -7954,8 +7956,12 @@ export default function TemplateEditorPage() {
   };
 
   const handleRestoreVersion = async (versionId: string) => {
-    if (!confirm("Restore this version? Current content will be replaced."))
-      return;
+    const confirmed = await confirm({
+      title: "Restore Version",
+      message: "Restore this version? Current content will be replaced.",
+      confirmLabel: "Restore",
+    });
+    if (!confirmed) return;
     setRestoringVersionId(versionId);
     setMessage("");
     try {

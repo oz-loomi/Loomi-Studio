@@ -23,6 +23,7 @@ import {
   EnvelopeIcon,
 } from '@heroicons/react/24/outline';
 import { AccountAvatar as SharedAccountAvatar } from '@/components/account-avatar';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { formatInlineEngagement } from '@/lib/campaign-engagement';
 import { getCampaignEditUrl, getCampaignStatsUrl } from '@/lib/esp/provider-links';
 import { resolveLocationId, resolveProviderId } from '@/lib/esp/provider-resolution';
@@ -630,6 +631,7 @@ export function CampaignPageList({
   accountProviders,
   emptyState,
 }: CampaignPageListProps) {
+  const { alert } = useLoomiDialog();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -812,7 +814,10 @@ export function CampaignPageList({
       await downloadServerScreenshot(accountKey, scheduleId, campaign.name || 'campaign-email');
     } catch (err) {
       console.error('PNG download failed:', err instanceof Error ? err.message : err);
-      alert('Failed to download campaign email. Please try again.');
+      await alert({
+        title: 'Download Failed',
+        message: 'Failed to download campaign email. Please try again.',
+      });
     } finally {
       setDownloadingId(null);
     }

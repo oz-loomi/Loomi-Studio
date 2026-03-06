@@ -26,6 +26,7 @@ import {
 import { toast } from '@/lib/toast';
 import { safeJson } from '@/lib/safe-json';
 import { useAccount, type AccountData } from '@/contexts/account-context';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { AccountAvatar } from '@/components/account-avatar';
 import BulkActionDock from '@/components/bulk-action-dock';
 import PrimaryButton from '@/components/primary-button';
@@ -167,6 +168,10 @@ function mediaItemKey(file: MediaFile): string {
   if (id) return `${source}:id:${id}`;
   if (url) return `${source}:url:${url}`;
   return `${source}:name:${name}:created:${createdAt}`;
+}
+
+function stagedFileKey(file: File): string {
+  return `${file.name}::${file.size}::${file.lastModified}::${file.type}`;
 }
 
 function hasFilePayload(dataTransfer: DataTransfer | null): boolean {
@@ -853,6 +858,7 @@ function AccountCard({ acctKey, acctData, overviewRow, onSelect }: AccountCardPr
 // ── Page ──
 
 export default function MediaPage() {
+  const { confirm } = useLoomiDialog();
   const { isAdmin, isAccount, accountKey, accountData, accounts } = useAccount();
 
   // ── Single-account detail state ──
@@ -1223,7 +1229,17 @@ export default function MediaPage() {
   const stageFiles = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     const newFiles = Array.from(fileList);
-    setStagedFiles((prev) => [...prev, ...newFiles]);
+    setStagedFiles((prev) => {
+      const seen = new Set(prev.map(stagedFileKey));
+      const merged = [...prev];
+      for (const file of newFiles) {
+        const fingerprint = stagedFileKey(file);
+        if (seen.has(fingerprint)) continue;
+        seen.add(fingerprint);
+        merged.push(file);
+      }
+      return merged;
+    });
   }, []);
 
   const handleUpload = async (files?: File[]) => {
@@ -1335,6 +1351,7 @@ export default function MediaPage() {
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOver(false);
     stageFiles(e.dataTransfer.files);
   };
@@ -1378,6 +1395,7 @@ export default function MediaPage() {
 
     const onDropWindow = (e: DragEvent) => {
       if (!hasFilePayload(e.dataTransfer)) return;
+      if (showUploadModal) return;
       e.preventDefault();
       pageDragDepthRef.current = 0;
       setPageDragOver(false);
@@ -1414,7 +1432,7 @@ export default function MediaPage() {
       pageDragDepthRef.current = 0;
       setPageDragOver(false);
     };
-  }, [canDropUploadFiles, connectedAccountKeys.length, overviewTab, showOverview, stageFiles]);
+  }, [canDropUploadFiles, connectedAccountKeys.length, overviewTab, showOverview, showUploadModal, stageFiles]);
 
   // ── Rename ──
 
@@ -1713,7 +1731,13 @@ export default function MediaPage() {
   const handleBulkDelete = async () => {
     if (!effectiveAccountKey || selectedIds.size === 0) return;
     const count = selectedIds.size;
-    if (!window.confirm(`Delete ${count} selected file${count > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete Files',
+      message: `Delete ${count} selected file${count > 1 ? 's' : ''}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!confirmed) return;
 
     setDeleting(true);
     let successCount = 0;
@@ -1742,7 +1766,13 @@ export default function MediaPage() {
   const handleBulkDeleteAdmin = async () => {
     if (selectedIds.size === 0) return;
     const count = selectedIds.size;
-    if (!window.confirm(`Delete ${count} selected file${count > 1 ? 's' : ''} from Loomi? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete Loomi Files',
+      message: `Delete ${count} selected file${count > 1 ? 's' : ''} from Loomi? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!confirmed) return;
 
     setDeleting(true);
     let successCount = 0;

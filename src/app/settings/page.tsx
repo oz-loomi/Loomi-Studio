@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAccount, type AccountData } from '@/contexts/account-context';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { useTheme } from '@/contexts/theme-context';
 import {
@@ -1181,6 +1182,7 @@ const CUSTOM_VALUES_SECTIONS: Array<{ key: CustomValuesSectionKey; label: string
 
 function AgencyIntegrationsTab() {
   const { accounts } = useAccount();
+  const { confirm: confirmDialog } = useLoomiDialog();
 
   // ── GHL Agency state ──
   const [ghlAgencyStatus, setGhlAgencyStatus] = useState<GhlAgencyStatus | null>(null);
@@ -1258,7 +1260,13 @@ function AgencyIntegrationsTab() {
   }
 
   async function handleDisconnectGhlAgency() {
-    if (!confirm('Disconnect GHL agency OAuth? Sub-accounts linked via agency will stop syncing until reconnected.')) return;
+    const confirmed = await confirmDialog({
+      title: 'Disconnect GHL Agency OAuth',
+      message: 'Disconnect GHL agency OAuth? Sub-accounts linked via agency will stop syncing until reconnected.',
+      confirmLabel: 'Disconnect',
+      destructive: true,
+    });
+    if (!confirmed) return;
     setGhlAgencyDisconnecting(true);
     setGhlAgencyError(null);
     try {
@@ -1703,6 +1711,7 @@ function AgencyIntegrationsTab() {
 function CustomValuesTab() {
   const { accounts } = useAccount();
   const { markClean } = useUnsavedChanges();
+  const { confirm: confirmDialog, prompt: promptDialog } = useLoomiDialog();
 
   // ── Global Defaults state ──
   const [defaults, setDefaults] = useState<Record<string, CustomValueDef>>({});
@@ -2202,9 +2211,20 @@ function CustomValuesTab() {
     const accountKey = remoteAccountKey.trim();
     if (!accountKey || !row.id) return;
 
-    const nextName = prompt('Custom value name', row.name);
+    const nextName = await promptDialog({
+      title: 'Edit Custom Value Name',
+      message: 'Custom value name',
+      defaultValue: row.name,
+      required: true,
+      confirmLabel: 'Continue',
+    });
     if (nextName === null) return;
-    const nextValue = prompt('Custom value value', row.value);
+    const nextValue = await promptDialog({
+      title: 'Edit Custom Value',
+      message: 'Custom value value',
+      defaultValue: row.value,
+      confirmLabel: 'Save',
+    });
     if (nextValue === null) return;
     if (!nextName.trim()) {
       toast.error('Name is required');
@@ -2241,7 +2261,13 @@ function CustomValuesTab() {
   async function handleDeleteRemoteValue(row: RemoteCustomValueRow) {
     const accountKey = remoteAccountKey.trim();
     if (!accountKey || !row.id) return;
-    if (!confirm(`Delete custom value "${row.name || row.fieldKey || row.id}" from GHL?`)) {
+    const confirmed = await confirmDialog({
+      title: 'Delete Custom Value',
+      message: `Delete custom value "${row.name || row.fieldKey || row.id}" from GHL?`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -2306,10 +2332,14 @@ function CustomValuesTab() {
     if (!accountKey || !row.id) return;
 
     const draft = JSON.stringify(row.raw || {}, null, 2);
-    const nextPayload = prompt(
-      'Edit custom field JSON payload (sent directly to GHL PUT /customFields/:id)',
-      draft,
-    );
+    const nextPayload = await promptDialog({
+      title: 'Edit Custom Field JSON',
+      message: 'Edit custom field JSON payload (sent directly to GHL PUT /customFields/:id)',
+      defaultValue: draft,
+      confirmLabel: 'Save',
+      multiline: true,
+      required: true,
+    });
     if (nextPayload === null) return;
 
     let parsed: Record<string, unknown>;
@@ -2352,7 +2382,13 @@ function CustomValuesTab() {
   async function handleDeleteRemoteField(row: RemoteCustomFieldRow) {
     const accountKey = remoteAccountKey.trim();
     if (!accountKey || !row.id) return;
-    if (!confirm(`Delete custom field "${row.name || row.fieldKey || row.id}" from GHL?`)) {
+    const confirmed = await confirmDialog({
+      title: 'Delete Custom Field',
+      message: `Delete custom field "${row.name || row.fieldKey || row.id}" from GHL?`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -3819,6 +3855,7 @@ function JobsTab({ activeJobKey }: { activeJobKey: string }) {
 
 function YagRollupTab({ jobKey }: { jobKey: string }) {
   const { accounts } = useAccount();
+  const { confirm: confirmDialog } = useLoomiDialog();
   const [snapshot, setSnapshot] = useState<YagRollupSnapshotResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -4077,9 +4114,12 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
   async function runWipe(mode: 'all' | 'tagged', dryRun: boolean) {
     const runLabel = dryRun ? `dry-${mode}` as const : mode;
     if (!dryRun && mode === 'all') {
-      const confirmed = window.confirm(
-        'Delete all contacts in the YAG target account? This cannot be undone.',
-      );
+      const confirmed = await confirmDialog({
+        title: 'Delete All YAG Contacts',
+        message: 'Delete all contacts in the YAG target account? This cannot be undone.',
+        confirmLabel: 'Delete All',
+        destructive: true,
+      });
       if (!confirmed) return;
     }
 

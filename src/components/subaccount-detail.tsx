@@ -28,6 +28,7 @@ import { ContactsTable } from '@/components/contacts/contacts-table';
 import type { Contact } from '@/components/contacts/contacts-table';
 import type { AccountData } from '@/contexts/account-context';
 import { useAccount } from '@/contexts/account-context';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import { getAccountOems, industryHasBrands, brandsForIndustry } from '@/lib/oems';
 import type { EspCapabilities } from '@/lib/esp/types';
@@ -167,6 +168,7 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { confirm, prompt } = useLoomiDialog();
   const key = params.key as string;
   const { refreshAccounts: refreshAccountList, userRole } = useAccount();
   const { markClean } = useUnsavedChanges();
@@ -447,7 +449,13 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
   async function handleGhlLocationUnlink(): Promise<void> {
     const linkedId = ghlLocationLink?.locationId || '';
     if (!linkedId) return;
-    if (!confirm('Unlink this sub-account from its GHL location?')) return;
+    const unlinkConfirmed = await confirm({
+      title: 'Unlink GHL Location',
+      message: 'Unlink this sub-account from its GHL location?',
+      confirmLabel: 'Unlink',
+      destructive: true,
+    });
+    if (!unlinkConfirmed) return;
 
     setGhlUnlinking(true);
     try {
@@ -737,7 +745,13 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
 
   // ── Delete ──
   async function handleDelete() {
-    if (!confirm(`Delete "${dealer || key}"? This cannot be undone.`)) return;
+    const deleteConfirmed = await confirm({
+      title: 'Delete Sub-account',
+      message: `Delete "${dealer || key}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!deleteConfirmed) return;
     try {
       const res = await fetch(`/api/accounts?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
       if (res.ok) {
@@ -832,7 +846,13 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
   async function handleProviderDisconnect(providerId: string) {
     const providerLabel = providerDisplayName(providerId);
     const confirmMessage = `Disconnect this sub-account from ${providerLabel}? You can reconnect later.`;
-    if (!confirm(confirmMessage)) return;
+    const disconnectConfirmed = await confirm({
+      title: 'Disconnect Provider',
+      message: confirmMessage,
+      confirmLabel: 'Disconnect',
+      destructive: true,
+    });
+    if (!disconnectConfirmed) return;
 
     setGenericProviderDisconnecting(prev => ({ ...prev, [providerId]: true }));
     try {
@@ -2221,8 +2241,14 @@ export function SubAccountDetailPage({ basePath }: SubAccountDetailPageProps) {
 
               {/* Add new custom value */}
               <button
-                onClick={() => {
-                  const fieldKey = prompt('Enter a field key (e.g. sales_phone, custom_url):');
+                onClick={async () => {
+                  const fieldKey = await prompt({
+                    title: 'Add Custom Value',
+                    message: 'Enter a field key (e.g. sales_phone, custom_url):',
+                    placeholder: 'sales_phone',
+                    required: true,
+                    confirmLabel: 'Add',
+                  });
                   if (!fieldKey || !fieldKey.trim()) return;
                   const cleanKey = fieldKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
                   if (customValues[cleanKey] || customValueDefaults[cleanKey]) {

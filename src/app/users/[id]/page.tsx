@@ -8,6 +8,7 @@ import { AdminOnly } from '@/components/route-guard';
 import { AccountAssignmentManager } from '@/components/account-assignment-manager';
 import { useAccount } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { UserAvatar } from '@/components/user-avatar';
 import { roleDisplayName } from '@/lib/roles';
 import { safeJson } from '@/lib/safe-json';
@@ -52,6 +53,7 @@ function UserDetailContent() {
   const userId = params.id as string;
   const { accounts, accountsLoaded, userRole: currentUserRole } = useAccount();
   const { markClean } = useUnsavedChanges();
+  const { confirm } = useLoomiDialog();
   const canEditUsers = currentUserRole === 'developer' || currentUserRole === 'super_admin';
   const canUploadAvatar = currentUserRole === 'developer';
   const usersBasePath = pathname.startsWith('/settings/users') ? '/settings/users' : '/users';
@@ -138,7 +140,13 @@ function UserDetailContent() {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete User',
+      message: `Delete "${name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       const res = await fetch(`/api/users?id=${userId}`, { method: 'DELETE' });
       const { ok: delOk, error: delError } = await safeJson(res);

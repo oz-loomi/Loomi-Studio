@@ -4,6 +4,7 @@ import { SessionProvider } from 'next-auth/react';
 import { AccountProvider } from '@/contexts/account-context';
 import { ThemeProvider, useTheme } from '@/contexts/theme-context';
 import { UnsavedChangesProvider } from '@/contexts/unsaved-changes-context';
+import { LoomiDialogProvider } from '@/contexts/loomi-dialog-context';
 import { Toaster } from 'sonner';
 import { AiBubble } from '@/components/ai-bubble';
 import { SunIcon, MoonIcon } from '@heroicons/react/24/outline';
@@ -59,10 +60,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <ThemeProvider>
         <AccountProvider>
           <UnsavedChangesProvider>
-            {children}
-            <ThemedToaster />
-            <AiBubble />
-            <DevThemeToggle />
+            <LoomiDialogProvider>
+              {children}
+              <ThemedToaster />
+              <AiBubble />
+              <DevThemeToggle />
+            </LoomiDialogProvider>
           </UnsavedChangesProvider>
         </AccountProvider>
       </ThemeProvider>

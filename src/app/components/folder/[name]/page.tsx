@@ -18,6 +18,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { AdminOnly } from '@/components/route-guard';
 import PrimaryButton from '@/components/primary-button';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 
 interface ComponentEntry {
   name: string;
@@ -39,6 +40,7 @@ function loadView(): 'card' | 'list' {
 export default function ComponentFolderPage() {
   const params = useParams();
   const router = useRouter();
+  const { confirm } = useLoomiDialog();
   const folderName = decodeURIComponent(params.name as string);
   const [components, setComponents] = useState<ComponentEntry[]>([]);
   const [folders, setFolders] = useState<FolderData>({});
@@ -210,7 +212,21 @@ export default function ComponentFolderPage() {
             <button onClick={() => { setOpenMenu(null); setMoveModalComponent(name); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors">
               <FolderArrowDownIcon className="w-4 h-4" /> Move to Folder
             </button>
-            <button onClick={() => { setOpenMenu(null); if (confirm(`Delete "${componentMap[name]?.label || name}"? This will remove the .html file permanently.`)) handleDeleteComponent(name); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors">
+            <button
+              onClick={async () => {
+                setOpenMenu(null);
+                const confirmed = await confirm({
+                  title: 'Delete Section',
+                  message: `Delete "${componentMap[name]?.label || name}"? This will remove the .html file permanently.`,
+                  confirmLabel: 'Delete',
+                  destructive: true,
+                });
+                if (confirmed) {
+                  await handleDeleteComponent(name);
+                }
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+            >
               <TrashIcon className="w-4 h-4" /> Delete
             </button>
           </div>

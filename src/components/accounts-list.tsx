@@ -20,6 +20,7 @@ import { OemMultiSelect } from '@/components/oem-multi-select';
 import { formatAccountCityState } from '@/lib/account-resolvers';
 import { industryHasBrands, brandsForIndustry } from '@/lib/oems';
 import { useAccount, type AccountData } from '@/contexts/account-context';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { providerDisplayName, providerIcon } from '@/lib/esp/provider-display';
 
 type CreateMode = null | 'choose' | 'manual';
@@ -85,6 +86,7 @@ export function AccountsList({
 }: AccountsListProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { confirm } = useLoomiDialog();
   const { userRole } = useAccount();
   const canManageAccounts = userRole === 'developer' || userRole === 'super_admin';
   const [accounts, setAccounts] = useState<Record<string, AccountData> | null>(null);
@@ -185,7 +187,13 @@ export function AccountsList({
 
 
   const handleDelete = async (key: string) => {
-    if (!confirm(`Delete sub-account "${accounts?.[key]?.dealer || key}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete Sub-account',
+      message: `Delete sub-account "${accounts?.[key]?.dealer || key}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       const res = await fetch(`/api/accounts?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
       if (!res.ok) { const d = await res.json(); toast.error(d.error || 'Failed to delete'); return; }

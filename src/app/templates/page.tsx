@@ -35,6 +35,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { useAccount, type AccountData } from '@/contexts/account-context';
+import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { AccountAvatar } from '@/components/account-avatar';
 import BulkActionDock from '@/components/bulk-action-dock';
 import { LibraryPickerContent } from '@/components/library-picker-content';
@@ -1252,6 +1253,7 @@ function TemplateAccountCard({
 
 export default function TemplatesPage() {
   const { isAdmin, isAccount, accountKey, accountData, accounts, userRole } = useAccount();
+  const { confirm } = useLoomiDialog();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -1302,7 +1304,7 @@ export default function TemplatesPage() {
   const [deletingFolder, setDeletingFolder] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [moveTemplateIds, setMoveTemplateIds] = useState<string[]>([]);
-  const [moveTargetFolderId, setMoveTargetFolderId] = useState<string | null>(null);
+  const [moveFolderPath, setMoveFolderPath] = useState<FolderBreadcrumb[]>([{ id: null, name: 'Root' }]);
   const [movingTemplates, setMovingTemplates] = useState(false);
   const previewTemplateHtml = useMemo(
     () => (previewTemplate ? getLatestRenderableHtml(previewTemplate) : ''),
@@ -1758,6 +1760,14 @@ export default function TemplatesPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [currentFolderId, foldersEnabled, templateFolders]);
 
+  const moveFolders = useMemo(() => {
+    if (!foldersEnabled) return [] as TemplateFolder[];
+    const parentId = moveFolderPath[moveFolderPath.length - 1]?.id || null;
+    return templateFolders
+      .filter((folder) => (folder.parentId || null) === parentId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [foldersEnabled, moveFolderPath, templateFolders]);
+
   const toggleView = (mode: 'card' | 'list') => { setViewMode(mode); saveView(mode); };
 
   // ── Handlers ──
@@ -1901,19 +1911,20 @@ export default function TemplatesPage() {
   const openMoveTemplatesModal = useCallback((templateIds: string[]) => {
     if (templateIds.length === 0) return;
     setMoveTemplateIds(Array.from(new Set(templateIds)));
-    setMoveTargetFolderId(currentFolderId);
+    setMoveFolderPath(folderPath.length > 0 ? folderPath : [{ id: null, name: 'Root' }]);
     setShowMoveModal(true);
-  }, [currentFolderId]);
+  }, [folderPath]);
 
   const closeMoveModal = useCallback(() => {
     if (movingTemplates) return;
     setShowMoveModal(false);
     setMoveTemplateIds([]);
-    setMoveTargetFolderId(null);
+    setMoveFolderPath([{ id: null, name: 'Root' }]);
   }, [movingTemplates]);
 
-  const handleMoveTemplates = useCallback(async (targetFolderId: string | null) => {
+  const handleMoveTemplates = useCallback(async () => {
     if (!folderAccountKey || moveTemplateIds.length === 0) return;
+    const targetFolderId = moveFolderPath[moveFolderPath.length - 1]?.id || null;
     setMovingTemplates(true);
     try {
       const res = await fetch('/api/esp/template-folders/assign', {
@@ -1943,7 +1954,7 @@ export default function TemplatesPage() {
     } finally {
       setMovingTemplates(false);
     }
-  }, [closeMoveModal, folderAccountKey, moveTemplateIds]);
+  }, [closeMoveModal, folderAccountKey, moveFolderPath, moveTemplateIds]);
 
   const openRenameModal = useCallback((template: EspTemplateRecord) => {
     setRenameTemplate(template);
@@ -2060,18 +2071,62 @@ export default function TemplatesPage() {
             if (!res.ok) {
               return {
                 ok: false,
+                accountKey: targetAccountKey,
+                templateId: null,
                 error: typeof data?.error === 'string' ? data.error : `Clone failed (${res.status})`,
               };
             }
-            return { ok: true, error: '' };
+            const templateId = typeof data?.template?.id === 'string' ? data.template.id : null;
+            return { ok: true, accountKey: targetAccountKey, templateId, error: '' };
           } catch {
-            return { ok: false, error: 'Network error while cloning' };
+            return {
+              ok: false,
+              accountKey: targetAccountKey,
+              templateId: null,
+              error: 'Network error while cloning',
+            };
           }
         }),
       );
 
       const succeeded = results.filter((result) => result.ok).length;
       const failed = results.length - succeeded;
+
+      if (succeeded > 0 && destination === 'loomi' && foldersEnabled && folderAccountKey && currentFolderId) {
+        const clonedTemplateIds = results
+          .filter((result) => result.ok && result.accountKey === folderAccountKey && typeof result.templateId === 'string')
+          .map((result) => result.templateId as string);
+
+        if (clonedTemplateIds.length > 0) {
+          try {
+            const assignRes = await fetch('/api/esp/template-folders/assign', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                accountKey: folderAccountKey,
+                templateIds: clonedTemplateIds,
+                folderId: currentFolderId,
+              }),
+            });
+            const assignData = await assignRes.json().catch(() => ({}));
+            if (assignRes.ok) {
+              setTemplateFolderAssignments(
+                assignData?.assignments && typeof assignData.assignments === 'object'
+                  ? assignData.assignments as Record<string, string>
+                  : {},
+              );
+            } else {
+              const message = typeof assignData?.error === 'string'
+                ? assignData.error
+                : 'Failed to place cloned template in current folder';
+              toast.warning(message);
+            }
+          } catch {
+            toast.warning('Template cloned, but failed to place it in the current folder');
+          }
+        }
+      }
+
       if (succeeded > 0 && failed === 0) {
         toast.success(
           destination === 'loomi'
@@ -2092,7 +2147,7 @@ export default function TemplatesPage() {
     } finally {
       setCloning(false);
     }
-  }, [loadTemplates]);
+  }, [currentFolderId, folderAccountKey, foldersEnabled, loadTemplates]);
 
   const handleCloneToLoomi = useCallback(async () => {
     if (!cloneTemplate) return;
@@ -2190,7 +2245,12 @@ export default function TemplatesPage() {
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
-    const confirmed = confirm(`Delete ${selectedIds.size} template${selectedIds.size !== 1 ? 's' : ''}?`);
+    const confirmed = await confirm({
+      title: 'Delete Templates',
+      message: `Delete ${selectedIds.size} template${selectedIds.size !== 1 ? 's' : ''}?`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
     if (!confirmed) return;
 
     const results = await Promise.all(
@@ -3109,12 +3169,12 @@ export default function TemplatesPage() {
       {/* ── Move Templates Modal ── */}
       {showMoveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={closeMoveModal}>
-          <div className="glass-modal w-[520px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="glass-modal w-[480px] max-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
               <div>
-                <h3 className="text-base font-semibold">Move Templates</h3>
+                <h3 className="text-base font-semibold">Move to Folder</h3>
                 <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                  {moveTemplateIds.length} selected
+                  {moveTemplateIds.length} item{moveTemplateIds.length === 1 ? '' : 's'} selected
                 </p>
               </div>
               <button
@@ -3125,48 +3185,75 @@ export default function TemplatesPage() {
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-5 overflow-y-auto space-y-2">
-              <button
-                onClick={() => setMoveTargetFolderId(null)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors ${
-                  moveTargetFolderId === null
-                    ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                    : 'border-[var(--border)] hover:bg-[var(--muted)]'
-                }`}
-              >
-                <HomeIcon className="w-4 h-4" />
-                Root
-              </button>
-              {templateFolders.map((folder) => (
-                <button
-                  key={folder.id}
-                  onClick={() => setMoveTargetFolderId(folder.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors ${
-                    moveTargetFolderId === folder.id
-                      ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]'
-                      : 'border-[var(--border)] hover:bg-[var(--muted)]'
-                  }`}
-                >
-                  <FolderIcon className="w-4 h-4" />
-                  <span className="truncate">{folder.name}</span>
-                </button>
-              ))}
+
+            <div className="px-5 py-3 border-b border-[var(--border)] text-sm">
+              {moveFolderPath.map((crumb, idx) => {
+                const isLast = idx === moveFolderPath.length - 1;
+                return (
+                  <span key={`${crumb.id || 'root'}-${idx}`} className="inline-flex items-center gap-1.5">
+                    {idx > 0 && <span className="text-[var(--muted-foreground)]">{'>'}</span>}
+                    {isLast ? (
+                      <span className="text-[var(--foreground)] font-medium inline-flex items-center gap-1">
+                        {idx === 0 ? <HomeIcon className="w-3 h-3" /> : <FolderIcon className="w-3 h-3" />}
+                        {crumb.name}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setMoveFolderPath((prev) => prev.slice(0, idx + 1))}
+                        className="text-[var(--primary)] hover:text-[var(--primary)]/80 transition-colors inline-flex items-center gap-1"
+                      >
+                        {idx === 0 ? <HomeIcon className="w-3 h-3" /> : <FolderIcon className="w-3 h-3" />}
+                        {crumb.name}
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
             </div>
-            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
-              <button
-                onClick={closeMoveModal}
-                disabled={movingTemplates}
-                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => { void handleMoveTemplates(moveTargetFolderId); }}
-                disabled={movingTemplates}
-                className="px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40"
-              >
-                {movingTemplates ? 'Moving...' : 'Move'}
-              </button>
+
+            <div className="flex-1 overflow-y-auto p-3 min-h-[220px]">
+              {moveFolders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-[var(--muted-foreground)]">
+                  <FolderIcon className="w-8 h-8 opacity-30 mb-2" />
+                  <p className="text-xs">No subfolders here</p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {moveFolders.map((folder) => (
+                    <button
+                      key={folder.id}
+                      onClick={() => setMoveFolderPath((prev) => [...prev, { id: folder.id, name: folder.name }])}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-[var(--muted)] transition-colors"
+                    >
+                      <FolderIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0" />
+                      <span className="text-sm font-medium truncate">{folder.name}</span>
+                      <ChevronRightIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)] ml-auto flex-shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-2 px-5 py-4 border-t border-[var(--border)]">
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Move to: <strong>{moveFolderPath[moveFolderPath.length - 1].name}</strong>
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={closeMoveModal}
+                  disabled={movingTemplates}
+                  className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { void handleMoveTemplates(); }}
+                  disabled={movingTemplates}
+                  className="px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-40"
+                >
+                  {movingTemplates ? 'Moving...' : 'Move Here'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

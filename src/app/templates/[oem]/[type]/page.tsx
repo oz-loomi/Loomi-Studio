@@ -36,6 +36,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { useAccount } from "@/contexts/account-context";
 import { useUnsavedChanges } from "@/contexts/unsaved-changes-context";
+import { useLoomiDialog } from "@/contexts/loomi-dialog-context";
 import {
   componentSchemas,
   getAvailableComponents,
@@ -1442,6 +1443,7 @@ export default function TemplateEditorPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { confirm } = useLoomiDialog();
   const design = params.oem as string;
   const templateName = params.type as string;
   const { isAccount, accountKey, accountData } = useAccount();
@@ -2476,8 +2478,12 @@ export default function TemplateEditorPage() {
   };
 
   const handleRestoreVersion = async (versionId: string) => {
-    if (!confirm("Restore this version? Current content will be replaced."))
-      return;
+    const confirmed = await confirm({
+      title: "Restore Version",
+      message: "Restore this version? Current content will be replaced.",
+      confirmLabel: "Restore",
+    });
+    if (!confirmed) return;
     setRestoringVersionId(versionId);
     setMessage("");
     try {
