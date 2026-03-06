@@ -9697,7 +9697,7 @@ export default function TemplateEditorPage() {
 
         {/* Right panel — Preview */}
         <div className="flex-1 flex flex-col border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--card)] min-w-0">
-          <div className="flex items-center px-4 py-2 border-b border-[var(--border)] bg-[var(--muted)] flex-shrink-0">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-4 py-2 border-b border-[var(--border)] bg-[var(--muted)] flex-shrink-0">
             {/* Left — Preview As */}
             <div className="flex items-center gap-1.5 min-w-0">
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--muted)]">
@@ -9705,7 +9705,7 @@ export default function TemplateEditorPage() {
                 <select
                   value={selectedPreviewContactId}
                   onChange={(e) => setSelectedPreviewContactId(e.target.value)}
-                  className="bg-transparent text-xs text-[var(--foreground)] focus:outline-none"
+                  className="w-[220px] max-w-[28vw] min-w-0 bg-transparent text-xs text-[var(--foreground)] focus:outline-none"
                 >
                   <option value="__sample__">Preview As: Sample</option>
                   {previewContacts.map((contact) => (
@@ -9787,7 +9787,7 @@ export default function TemplateEditorPage() {
             </div>
 
             {/* Center — Desktop / Mobile toggle */}
-            <div className="flex-1 flex items-center justify-center gap-1">
+            <div className="flex items-center justify-center gap-1">
               <button
                 onClick={() => setPreviewWidth("desktop")}
                 className={`p-1.5 rounded ${previewWidth === "desktop" ? "bg-[var(--primary)] text-white" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
@@ -9830,7 +9830,7 @@ export default function TemplateEditorPage() {
             </div>
 
             {/* Right — Copy dropdown + Undo/Redo */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center justify-self-end gap-1.5">
               <button
                 onClick={handleUndo}
                 disabled={!canUndo}
