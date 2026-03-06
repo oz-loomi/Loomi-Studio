@@ -33,7 +33,6 @@ import {
   ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
-import Link from "next/link";
 import { useAccount } from "@/contexts/account-context";
 import { useUnsavedChanges } from "@/contexts/unsaved-changes-context";
 import { useLoomiDialog } from "@/contexts/loomi-dialog-context";
