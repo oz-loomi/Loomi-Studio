@@ -1318,6 +1318,8 @@ export default function TemplatesPage() {
   const accountDropdownRef = useRef<HTMLDivElement>(null);
   const menuClickRef = useRef(false);
   const lastTemplatesRefreshAtRef = useRef(0);
+  const templatesRequestIdRef = useRef(0);
+  const templateFoldersRequestIdRef = useRef(0);
 
   // Bulk selection
   const [selectMode, setSelectMode] = useState(false);
@@ -1364,35 +1366,64 @@ export default function TemplatesPage() {
   const effectiveAccountKey = isAccount ? accountKey : null;
   const folderAccountKey = effectiveAccountKey || (accountFilter !== 'all' ? accountFilter : null);
   const showAdminOverview = isAdmin && !folderAccountKey;
-  const foldersEnabled = Boolean(
-    (userRole === 'developer' || userRole === 'super_admin' || userRole === 'admin')
-    && folderAccountKey,
-  );
+  const foldersEnabled = Boolean(folderAccountKey);
+  const activeTemplatesScopeKey = effectiveAccountKey || '__all__';
+  const activeFolderScopeKey = folderAccountKey || '__none__';
+  const activeTemplatesScopeKeyRef = useRef(activeTemplatesScopeKey);
+  const activeFolderScopeKeyRef = useRef(activeFolderScopeKey);
+
+  useEffect(() => {
+    activeTemplatesScopeKeyRef.current = activeTemplatesScopeKey;
+  }, [activeTemplatesScopeKey]);
+
+  useEffect(() => {
+    activeFolderScopeKeyRef.current = activeFolderScopeKey;
+  }, [activeFolderScopeKey]);
+
+  useEffect(() => {
+    if (isAccount && accountFilter !== 'all') {
+      setAccountFilter('all');
+    }
+  }, [accountFilter, isAccount]);
 
   // ── Data Loading ──
 
-  const loadTemplates = useCallback(async () => {
+  const loadTemplates = useCallback(async (requestedAccountKey: string | null = effectiveAccountKey) => {
+    const requestScopeKey = requestedAccountKey || '__all__';
+    if (requestScopeKey !== activeTemplatesScopeKeyRef.current) return;
+
+    const requestId = ++templatesRequestIdRef.current;
     try {
-      const url = effectiveAccountKey
-        ? `/api/esp/templates?accountKey=${encodeURIComponent(effectiveAccountKey)}`
+      const url = requestedAccountKey
+        ? `/api/esp/templates?accountKey=${encodeURIComponent(requestedAccountKey)}`
         : '/api/esp/templates';
       const res = await fetch(url, { cache: 'no-store' });
       const data = await res.json();
+      if (requestId !== templatesRequestIdRef.current || requestScopeKey !== activeTemplatesScopeKeyRef.current) {
+        return;
+      }
       if (res.ok) {
         setAllTemplates(data.templates || []);
       } else {
         console.error('Failed to load templates:', data.error);
       }
     } catch (err) {
+      if (requestId !== templatesRequestIdRef.current || requestScopeKey !== activeTemplatesScopeKeyRef.current) {
+        return;
+      }
       console.error('Failed to load templates:', err);
+    } finally {
+      if (requestId === templatesRequestIdRef.current && requestScopeKey === activeTemplatesScopeKeyRef.current) {
+        setLoading(false);
+      }
     }
-    setLoading(false);
   }, [effectiveAccountKey]);
 
   useEffect(() => {
+    setAllTemplates([]);
     setLoading(true);
-    loadTemplates();
-  }, [loadTemplates]);
+    void loadTemplates(effectiveAccountKey);
+  }, [activeTemplatesScopeKey, effectiveAccountKey, loadTemplates]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
@@ -1420,17 +1451,23 @@ export default function TemplatesPage() {
     };
   }, [loadTemplates]);
 
-  const loadTemplateFolders = useCallback(async () => {
-    if (!foldersEnabled || !folderAccountKey) {
+  const loadTemplateFolders = useCallback(async (requestedAccountKey: string | null = folderAccountKey) => {
+    const requestScopeKey = requestedAccountKey || '__none__';
+    if (requestScopeKey !== activeFolderScopeKeyRef.current || !foldersEnabled || !requestedAccountKey) {
       setTemplateFolders([]);
       setTemplateFolderAssignments({});
       return;
     }
+
+    const requestId = ++templateFoldersRequestIdRef.current;
     setFoldersLoading(true);
     try {
-      const params = new URLSearchParams({ accountKey: folderAccountKey });
+      const params = new URLSearchParams({ accountKey: requestedAccountKey });
       const res = await fetch(`/api/esp/template-folders?${params.toString()}`, { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
+      if (requestId !== templateFoldersRequestIdRef.current || requestScopeKey !== activeFolderScopeKeyRef.current) {
+        return;
+      }
       if (!res.ok) {
         const message = typeof data?.error === 'string' ? data.error : 'Failed to load folders';
         toast.error(message);
@@ -1443,9 +1480,14 @@ export default function TemplatesPage() {
       setTemplateFolders(nextFolders);
       setTemplateFolderAssignments(nextAssignments);
     } catch {
+      if (requestId !== templateFoldersRequestIdRef.current || requestScopeKey !== activeFolderScopeKeyRef.current) {
+        return;
+      }
       toast.error('Failed to load folders');
     } finally {
-      setFoldersLoading(false);
+      if (requestId === templateFoldersRequestIdRef.current && requestScopeKey === activeFolderScopeKeyRef.current) {
+        setFoldersLoading(false);
+      }
     }
   }, [folderAccountKey, foldersEnabled]);
 
@@ -1460,8 +1502,8 @@ export default function TemplatesPage() {
       setTemplateFolderAssignments({});
       return;
     }
-    void loadTemplateFolders();
-  }, [folderAccountKey, foldersEnabled, loadTemplateFolders]);
+    void loadTemplateFolders(folderAccountKey);
+  }, [activeFolderScopeKey, folderAccountKey, foldersEnabled, loadTemplateFolders]);
 
   useEffect(() => {
     if (!foldersEnabled) return;

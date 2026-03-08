@@ -915,6 +915,9 @@ export default function MediaPage() {
 
   // Folder context menu + delete
   const [folderMenuId, setFolderMenuId] = useState<string | null>(null);
+  const [renameFolderItem, setRenameFolderItem] = useState<MediaFolder | null>(null);
+  const [renameFolderValue, setRenameFolderValue] = useState('');
+  const [renamingFolder, setRenamingFolder] = useState(false);
   const [deleteFolderItem, setDeleteFolderItem] = useState<MediaFolder | null>(null);
   const [deletingFolder, setDeletingFolder] = useState(false);
 
@@ -1860,6 +1863,58 @@ export default function MediaPage() {
     setDeletingFolder(false);
   };
 
+  // ── Rename Folder ──
+
+  const handleRenameFolder = async () => {
+    if (!renameFolderItem || !effectiveAccountKey) return;
+
+    const nextName = renameFolderValue.trim();
+    if (!nextName) return;
+    if (nextName === renameFolderItem.name) {
+      setRenameFolderItem(null);
+      setRenameFolderValue('');
+      return;
+    }
+
+    setRenamingFolder(true);
+
+    try {
+      const res = await fetch(`/api/esp/media/${encodeURIComponent(renameFolderItem.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountKey: effectiveAccountKey,
+          targetFolderId: renameFolderItem.parentId ?? null,
+          name: nextName,
+        }),
+      });
+      const { ok, data, error } = await safeJson<{ error?: string }>(res);
+
+      if (ok) {
+        const updatedAt = new Date().toISOString();
+        setFolders((prev) => prev.map((folder) => (
+          folder.id === renameFolderItem.id
+            ? { ...folder, name: nextName, updatedAt }
+            : folder
+        )));
+        setFolderPath((prev) => prev.map((crumb) => (
+          crumb.id === renameFolderItem.id
+            ? { ...crumb, name: nextName }
+            : crumb
+        )));
+        setRenameFolderItem(null);
+        setRenameFolderValue('');
+        toast.success('Folder renamed');
+      } else {
+        toast.error(data?.error || error || `Failed to rename folder (${res.status})`);
+      }
+    } catch {
+      toast.error('Failed to rename folder');
+    }
+
+    setRenamingFolder(false);
+  };
+
   // ── Drag-and-drop into folders ──
 
   const handleDragStart = useCallback((e: React.DragEvent, id: string, type: 'file' | 'folder', name: string) => {
@@ -2579,6 +2634,18 @@ export default function MediaPage() {
                         <div className="absolute right-0 top-full mt-1 z-50 w-40 glass-dropdown" onMouseDown={(e) => { e.stopPropagation(); menuClickRef.current = true; }}>
                           {capabilities?.canMove && (
                             <button
+                              onClick={() => {
+                                setFolderMenuId(null);
+                                setRenameFolderItem(folder);
+                                setRenameFolderValue(folder.name);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                            >
+                              <PencilSquareIcon className="w-4 h-4" /> Rename
+                            </button>
+                          )}
+                          {capabilities?.canMove && (
+                            <button
                               onClick={() => { setFolderMenuId(null); openMoveModal([{ id: folder.id, type: 'folder', name: folder.name }]); }}
                               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                             >
@@ -2822,6 +2889,53 @@ export default function MediaPage() {
                 className="px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
               >
                 {renaming ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {renameFolderItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in"
+          onClick={() => {
+            if (renamingFolder) return;
+            setRenameFolderItem(null);
+            setRenameFolderValue('');
+          }}
+        >
+          <div className="glass-modal w-[420px]" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[var(--border)]">
+              <h3 className="text-base font-semibold">Rename Folder</h3>
+            </div>
+            <div className="p-5">
+              <label className="block text-sm text-[var(--muted-foreground)] mb-2">Folder name</label>
+              <input
+                type="text"
+                value={renameFolderValue}
+                onChange={(e) => setRenameFolderValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleRenameFolder(); }}
+                className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
+                autoFocus
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
+              <button
+                onClick={() => {
+                  setRenameFolderItem(null);
+                  setRenameFolderValue('');
+                }}
+                disabled={renamingFolder}
+                className="px-4 py-2 text-sm font-medium text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRenameFolder}
+                disabled={renamingFolder || !renameFolderValue.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-[var(--primary)] rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {renamingFolder ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>

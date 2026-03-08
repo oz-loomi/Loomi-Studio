@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole } from '@/lib/api-auth';
-import { MANAGEMENT_ROLES } from '@/lib/roles';
+import { requireAuth } from '@/lib/api-auth';
 import {
   readEspTemplateFolderStore,
   writeEspTemplateFolderStore,
@@ -21,7 +20,7 @@ function canAccessAccount(
 }
 
 export async function POST(req: NextRequest) {
-  const { session, error } = await requireRole(...MANAGEMENT_ROLES);
+  const { session, error } = await requireAuth();
   if (error) return error;
 
   try {

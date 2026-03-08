@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole } from '@/lib/api-auth';
-import { MANAGEMENT_ROLES } from '@/lib/roles';
+import { requireAuth } from '@/lib/api-auth';
 import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-helpers';
 import {
   readEspTemplateFolderStore,
@@ -31,7 +30,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { session, error } = await requireRole(...MANAGEMENT_ROLES);
+  const { session, error } = await requireAuth();
   if (error) return error;
 
   try {
@@ -101,7 +100,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { session, error } = await requireRole(...MANAGEMENT_ROLES);
+  const { session, error } = await requireAuth();
   if (error) return error;
 
   const { id } = await params;
