@@ -112,8 +112,6 @@ const S3_CAPABILITIES: MediaCapabilities = {
   canNavigateFolders: false,
 };
 
-const RECENT_MEDIA_VISIBLE_KEY = 'loomi-media-recent-visible';
-
 function CropIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -953,8 +951,6 @@ export default function MediaPage() {
   const [overviewLoaded, setOverviewLoaded] = useState(false);
   const [overviewSearch, setOverviewSearch] = useState('');
   const [overviewTab, setOverviewTab] = useState<'subaccounts' | 'loomi'>('subaccounts');
-  const [showRecentUploads, setShowRecentUploads] = useState(true);
-
   // ── Admin S3 media state ──
   const [adminMediaFiles, setAdminMediaFiles] = useState<MediaFile[]>([]);
   const [adminMediaTotal, setAdminMediaTotal] = useState(0);
@@ -1122,12 +1118,6 @@ export default function MediaPage() {
       loadOverview();
     }
   }, [showOverview, overviewLoaded, connectedAccountKeys, loadOverview]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem(RECENT_MEDIA_VISIBLE_KEY);
-    if (stored === '0') setShowRecentUploads(false);
-  }, []);
 
   // ── Admin S3 Media Loading ──
 
@@ -2028,16 +2018,6 @@ export default function MediaPage() {
     return adminMediaFiles.filter(f => f.name.toLowerCase().includes(q));
   }, [adminMediaFiles, overviewSearch]);
 
-  const recentUploadedMedia = useMemo(() => {
-    return [...adminMediaFiles]
-      .sort((a, b) => {
-        const timeA = new Date(a.createdAt || a.updatedAt || 0).getTime();
-        const timeB = new Date(b.createdAt || b.updatedAt || 0).getTime();
-        return timeB - timeA;
-      })
-      .slice(0, 8);
-  }, [adminMediaFiles]);
-
   useEffect(() => {
     if (!showOverview) return;
     setSelectMode(false);
@@ -2257,75 +2237,6 @@ export default function MediaPage() {
             >
               Loomi Media
             </button>
-          </div>
-
-          <div className="mb-6 glass-card rounded-xl border border-[var(--border)] p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-[var(--foreground)]">Recently Uploaded</h3>
-                <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
-                  Fast access to the latest Loomi uploads.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRecentUploads((prev) => {
-                    const next = !prev;
-                    if (typeof window !== 'undefined') {
-                      window.localStorage.setItem(RECENT_MEDIA_VISIBLE_KEY, next ? '1' : '0');
-                    }
-                    return next;
-                  });
-                }}
-                className="inline-flex items-center h-8 px-3 text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)] rounded-lg hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-              >
-                {showRecentUploads ? 'Hide' : 'Show'}
-              </button>
-            </div>
-
-            {showRecentUploads && (
-              <div className="mt-3">
-                {recentUploadedMedia.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
-                    {recentUploadedMedia.map((file) => (
-                      <button
-                        key={mediaItemKey(file)}
-                        type="button"
-                        onClick={() => setPreviewFile(file)}
-                        className="text-left rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 hover:border-[var(--primary)]/40 hover:bg-[var(--muted)] transition-colors"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-9 h-9 rounded-md overflow-hidden bg-[var(--muted)] flex items-center justify-center flex-shrink-0">
-                            {file.thumbnailUrl || file.url ? (
-                              <img
-                                src={file.thumbnailUrl || file.url}
-                                alt={file.name}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <PhotoIcon className="w-4 h-4 text-[var(--muted-foreground)]" />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-semibold text-[var(--foreground)] truncate" title={file.name}>
-                              {file.name}
-                            </p>
-                            <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
-                              {timeAgo(file.createdAt || file.updatedAt)}
-                            </p>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-[var(--muted-foreground)]">
-                    No Loomi uploads yet.
-                  </p>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Overview toolbar: search + buttons */}
