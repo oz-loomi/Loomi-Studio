@@ -6372,6 +6372,7 @@ export default function TemplateEditorPage() {
       clarification?: string | null;
     }>
   >([]);
+  const [, setPendingAiBuild] = useState<TemplateBuild | null>(null);
   const aiScrollRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
