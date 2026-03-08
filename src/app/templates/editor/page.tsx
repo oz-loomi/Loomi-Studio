@@ -39,6 +39,7 @@ import {
   QuestionMarkCircleIcon,
   BookOpenIcon,
   PhotoIcon,
+  ArrowUpTrayIcon,
   ChevronUpDownIcon,
   MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
@@ -2958,6 +2959,7 @@ function PropField({
   onChange,
   onLiveStyle,
   onBrowseMedia,
+  onUploadMedia,
   onInsertVariable,
   brandColors,
   previewAsLabel,
@@ -2978,6 +2980,7 @@ function PropField({
   onChange: (val: string) => void;
   onLiveStyle?: (val: string) => void;
   onBrowseMedia?: () => void;
+  onUploadMedia?: (file: File) => Promise<void>;
   onInsertVariable?: (token: string) => void;
   brandColors?: { label: string; value: string }[];
   previewAsLabel?: string;
@@ -3177,15 +3180,15 @@ function PropField({
     const hueColor = hsvToHex(hue, 1, 1);
 
     return (
-      <div className="w-full">
+      <div className="w-[108px] max-w-full sm:w-[132px]">
         <button
           ref={triggerRef}
           type="button"
           onClick={openDropdown}
-          className="w-full flex items-center gap-2 bg-[var(--input)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-sm text-left hover:border-[var(--primary)] transition-colors"
+          className="flex w-full items-center gap-2 bg-[var(--input)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-sm text-left hover:border-[var(--primary)] transition-colors"
         >
-          <div className="w-6 h-6 rounded-md border border-[var(--border)] flex-shrink-0" style={{ backgroundColor: displayColor }} />
-          <span className="font-mono text-xs text-[var(--foreground)] truncate">{value || placeholderText || "#000000"}</span>
+          <div className="h-5 w-5 rounded-md border border-[var(--border)] flex-shrink-0" style={{ backgroundColor: displayColor }} />
+          <span className="min-w-0 truncate font-mono text-xs text-[var(--foreground)]">{value || placeholderText || "#000000"}</span>
         </button>
 
         {colorOpen && createPortal(
@@ -3399,80 +3402,148 @@ function PropField({
     );
   }
   if (prop.type === "image") {
+    const [dragOver, setDragOver] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [previewError, setPreviewError] = useState(false);
+    const canOpenMedia = Boolean(onBrowseMedia);
+    const canUploadMedia = Boolean(onUploadMedia);
+    const imageLabel = useMemo(() => {
+      if (!value) return "";
+      const withoutQuery = value.split("?")[0] || value;
+      const segments = withoutQuery.split("/").filter(Boolean);
+      const lastSegment = segments[segments.length - 1];
+      if (!lastSegment) return value;
+      try {
+        return decodeURIComponent(lastSegment);
+      } catch {
+        return lastSegment;
+      }
+    }, [value]);
+
+    useEffect(() => {
+      setPreviewError(false);
+    }, [value]);
+
+    const handleMediaUpload = async (file?: File | null) => {
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        toast.error("Drop an image file");
+        return;
+      }
+      if (!onUploadMedia) {
+        toast.error("Media uploads are not available here");
+        return;
+      }
+      setUploading(true);
+      try {
+        await onUploadMedia(file);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to upload image");
+      } finally {
+        setUploading(false);
+        setDragOver(false);
+      }
+    };
+
     return (
-      <div className="relative">
-        <div className="flex items-center gap-1.5">
-          <input
-            ref={inputRef}
-            type="text"
-            value={value || ""}
-            onChange={(e) => {
-              onChange(e.target.value);
-              syncInlineVarFromInput(e.target.value, e.target.selectionStart ?? e.target.value.length);
+      <div className="space-y-2">
+        <div className="flex items-start gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (uploading) return;
+              onBrowseMedia?.();
             }}
-            onKeyDown={(e) => {
-              if (!inlineVarOpen || filteredInlineVarOptions.length === 0) return;
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setInlineVarActiveIndex((prev) => (prev + 1) % filteredInlineVarOptions.length);
-              } else if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setInlineVarActiveIndex((prev) => (prev - 1 + filteredInlineVarOptions.length) % filteredInlineVarOptions.length);
-              } else if (e.key === "Enter" || e.key === "Tab") {
-                e.preventDefault();
-                const selected = filteredInlineVarOptions[inlineVarActiveIndex] || filteredInlineVarOptions[0];
-                if (selected) applyInlineVarToken(selected.token);
-              } else if (e.key === "Escape") {
-                e.preventDefault();
-                setInlineVarOpen(false);
-              }
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const file = e.dataTransfer.files?.[0];
+              void handleMediaUpload(file);
             }}
-            onBlur={() => setTimeout(() => setInlineVarOpen(false), 120)}
-            className="flex-1 min-w-0 bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
-            placeholder={placeholderText || "Image URL..."}
-          />
-          {onInsertVariable && (
-            <VariablePickerButton onInsert={onInsertVariable} />
-          )}
-          {onBrowseMedia && (
+            onDragOver={(e) => {
+              if (!canUploadMedia) return;
+              e.preventDefault();
+              if (!dragOver) setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            disabled={uploading || (!canOpenMedia && !canUploadMedia)}
+            title={
+              canOpenMedia || canUploadMedia
+                ? "Click to open media library or drop an image to upload"
+                : "Media library unavailable"
+            }
+            className={`group relative flex aspect-square w-24 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 border-dashed transition-all ${
+              dragOver
+                ? "border-[var(--primary)] bg-[var(--primary)]/10"
+                : "border-[var(--border)] bg-[var(--input)]/60 hover:border-[var(--primary)]/60 hover:bg-[var(--muted)]/40"
+            } ${uploading || (!canOpenMedia && !canUploadMedia) ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+          >
+            {value && !previewError ? (
+              <>
+                <img
+                  src={value}
+                  alt={imageLabel || prop.label}
+                  className="h-full w-full object-cover"
+                  onError={() => setPreviewError(true)}
+                />
+                <div className="absolute inset-x-2 bottom-2 rounded-md bg-black/65 px-2 py-1 text-[10px] font-medium text-white backdrop-blur-sm">
+                  Replace
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-2 px-3 text-center">
+                {uploading ? (
+                  <ArrowPathIcon className="h-5 w-5 animate-spin text-[var(--primary)]" />
+                ) : (
+                  <ArrowUpTrayIcon className="h-5 w-5 text-[var(--muted-foreground)]" />
+                )}
+                <div className="space-y-0.5">
+                  <p className="text-[11px] font-medium text-[var(--foreground)]">
+                    {uploading ? "Uploading..." : "Drop image"}
+                  </p>
+                  <p className="text-[10px] leading-4 text-[var(--muted-foreground)]">
+                    {canOpenMedia ? "or click to browse" : "media library required"}
+                  </p>
+                </div>
+              </div>
+            )}
+          </button>
+
+          <div className="min-w-0 flex-1 space-y-2 pt-1">
+            <div className="space-y-1">
+              <p className="truncate text-xs font-medium text-[var(--foreground)]">
+                {value ? imageLabel : "No image selected"}
+              </p>
+              <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
+                {uploading
+                  ? "Uploading image to the media library..."
+                  : canOpenMedia || canUploadMedia
+                    ? "Use the media library only. Click to choose an image or drag one here to upload."
+                    : "Select an account to access media."}
+              </p>
+            </div>
+            {value && (
+              <button
+                type="button"
+                onClick={() => onChange("")}
+                className="text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-red-400"
+              >
+                Remove image
+              </button>
+            )}
+          </div>
+        </div>
+        {onBrowseMedia && (
+          <div className="flex items-center justify-end">
             <button
               type="button"
               onClick={onBrowseMedia}
-              className="flex-shrink-0 p-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)] transition-colors"
-              title="Browse media library"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
+              title="Open media library"
             >
               <PhotoIcon className="w-4 h-4" />
+              Media Library
             </button>
-          )}
-        </div>
-        {inlineVarOpen && filteredInlineVarOptions.length > 0 && (
-          <div
-            className="absolute left-0 right-0 top-full mt-1 z-30 rounded-lg border border-[var(--border)] backdrop-blur-xl backdrop-saturate-150 shadow-xl max-h-52 overflow-y-auto"
-            style={{ background: "color-mix(in srgb, var(--background) 96%, transparent)" }}
-          >
-            {filteredInlineVarOptions.map((option, idx) => {
-              const isActive = idx === inlineVarActiveIndex;
-              return (
-                <button
-                  key={option.token}
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    applyInlineVarToken(option.token);
-                  }}
-                  className={`w-full text-left px-2.5 py-1.5 transition-colors ${
-                    isActive ? "bg-[var(--primary)]/10" : "hover:bg-[var(--muted)]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-[var(--foreground)] truncate">{option.label}</span>
-                    <code className="text-[10px] font-mono text-[var(--muted-foreground)] truncate max-w-[55%]">
-                      {option.token}
-                    </code>
-                  </div>
-                </button>
-              );
-            })}
           </div>
         )}
       </div>
@@ -4055,12 +4126,14 @@ function HeroBackgroundEditor({
   values,
   onChange,
   onBrowseMedia,
+  onUploadMedia,
   previewWidth,
 }: {
   props: EditableProp[];
   values: Record<string, string>;
   onChange: (key: string, val: string) => void;
   onBrowseMedia?: (propKey: string) => void;
+  onUploadMedia?: (propKey: string, file: File) => Promise<void>;
   previewWidth: "desktop" | "mobile";
 }) {
   const gradientKeys = new Set([
@@ -4226,6 +4299,11 @@ function HeroBackgroundEditor({
               value={values[bgImageProp.key] || ""}
               onChange={(val) => onChange(bgImageProp.key, val)}
               onBrowseMedia={onBrowseMedia ? () => onBrowseMedia(bgImageProp.key) : undefined}
+              onUploadMedia={
+                onUploadMedia
+                  ? (file) => onUploadMedia(bgImageProp.key, file)
+                  : undefined
+              }
             />
           </div>
         )}
@@ -4594,6 +4672,7 @@ function ComponentPropsRenderer({
   onPropChange,
   onLiveStyle,
   onBrowseMedia,
+  onUploadMedia,
   onInsertVariable,
   previewWidth,
   brandColors,
@@ -4623,6 +4702,7 @@ function ComponentPropsRenderer({
   onPropChange: (key: string, val: string) => void;
   onLiveStyle?: (key: string, val: string) => void;
   onBrowseMedia?: (propKey: string) => void;
+  onUploadMedia?: (propKey: string, file: File) => Promise<void>;
   onInsertVariable?: (propKey: string, token: string) => void;
   previewWidth: 'desktop' | 'mobile';
   brandColors?: { label: string; value: string }[];
@@ -4960,6 +5040,11 @@ function ComponentPropsRenderer({
                         ? () => onBrowseMedia(r.effectiveKey)
                         : undefined
                     }
+                    onUploadMedia={
+                      prop.type === "image" && onUploadMedia
+                        ? (file) => onUploadMedia(r.effectiveKey, file)
+                        : undefined
+                    }
                     onInsertVariable={varPickerFor(prop, r.effectiveKey, r.value)}
                     brandColors={brandColors}
                     previewAsLabel={previewAsLabel}
@@ -5011,6 +5096,11 @@ function ComponentPropsRenderer({
                     onBrowseMedia={
                       nextProp.type === "image" && onBrowseMedia
                         ? () => onBrowseMedia(rNext.effectiveKey)
+                        : undefined
+                    }
+                    onUploadMedia={
+                      nextProp.type === "image" && onUploadMedia
+                        ? (file) => onUploadMedia(rNext.effectiveKey, file)
                         : undefined
                     }
                     onInsertVariable={varPickerFor(nextProp, rNext.effectiveKey, rNext.value)}
@@ -5145,6 +5235,11 @@ function ComponentPropsRenderer({
                   ? () => onBrowseMedia(r.effectiveKey)
                   : undefined
               }
+              onUploadMedia={
+                prop.type === "image" && onUploadMedia
+                  ? (file) => onUploadMedia(r.effectiveKey, file)
+                  : undefined
+              }
               onInsertVariable={varPickerFor(prop, r.effectiveKey, r.value)}
               brandColors={brandColors}
               previewAsLabel={previewAsLabel}
@@ -5246,6 +5341,16 @@ function ComponentPropsRenderer({
                   prop={prop}
                   value={compProps[prop.key] || ""}
                   onChange={(val) => onPropChange(prop.key, val)}
+                  onBrowseMedia={
+                    prop.type === "image" && onBrowseMedia
+                      ? () => onBrowseMedia(prop.key)
+                      : undefined
+                  }
+                  onUploadMedia={
+                    prop.type === "image" && onUploadMedia
+                      ? (file) => onUploadMedia(prop.key, file)
+                      : undefined
+                  }
                   onInsertVariable={
                     VARIABLE_ELIGIBLE_TYPES.has(prop.type) && onInsertVariable
                       ? (token: string) => onInsertVariable(prop.key, token)
@@ -5305,8 +5410,17 @@ function ComponentPropsRenderer({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [buttonSetTab, setButtonSetTab] = useState<'primary' | 'secondary'>('primary');
   const [trackingSetTab, setTrackingSetTab] = useState<'primary' | 'secondary'>('primary');
+  const pinnedTopProps =
+    schema.name === "image"
+      ? (["image", "alt"]
+          .map((key) => allSchemaProps.find((p) => !p.repeatableGroup && p.key === key))
+          .filter(Boolean) as typeof allSchemaProps)
+      : [];
+  const pinnedTopPropKeys = new Set(pinnedTopProps.map((p) => p.key));
   // Separate repeatable-group props from standard props
-  const standardProps = allSchemaProps.filter(p => !p.repeatableGroup);
+  const standardProps = allSchemaProps.filter(
+    (p) => !p.repeatableGroup && !pinnedTopPropKeys.has(p.key),
+  );
   const splitSectionLevelProps =
     isSplitComponent
       ? standardProps.filter((p) => p.sideScoped === false)
@@ -5467,6 +5581,7 @@ function ComponentPropsRenderer({
                 values={sideAwareGroupValues}
                 onChange={handleGroupPropChange}
                 onBrowseMedia={onBrowseMedia}
+                onUploadMedia={onUploadMedia}
                 previewWidth={previewWidth}
               />
             );
@@ -5528,6 +5643,11 @@ function ComponentPropsRenderer({
             richTextBaseFontFamily={componentBaseFontFamily}
             inlineVariableOptions={inlineVariableOptions}
           />
+        </div>
+      )}
+      {pinnedTopProps.length > 0 && (
+        <div className={`space-y-3 ${sections.length > 0 ? "pb-3 border-b border-[var(--border)]" : ""}`}>
+          {renderStandardProps(pinnedTopProps)}
         </div>
       )}
       {isSplitComponent && (
@@ -7112,6 +7232,39 @@ export default function TemplateEditorPage() {
     const isLiveInjectable = !!PROP_CSS_MAP[key] || !!PROP_CSS_MAP[key.replace(/^m:/, '')];
     syncVisualToCode(newParsed, undefined, isLiveInjectable ? 3000 : 300);
   };
+
+  const handleUploadMedia = useCallback(async (componentIdx: number, propKey: string, file: File) => {
+    if (!canBrowseMedia) {
+      throw new Error("Select an account to upload media");
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const isEspUpload = Boolean(mediaPickerAccountKey);
+    if (isEspUpload) {
+      formData.append("accountKey", mediaPickerAccountKey!);
+    } else {
+      formData.append("category", "general");
+    }
+
+    const res = await fetch(isEspUpload ? "/api/esp/media" : "/api/media", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error((data as { error?: string }).error || `Upload failed (${res.status})`);
+    }
+
+    const uploadedUrl =
+      (data as { file?: { url?: string } }).file?.url;
+    if (!uploadedUrl) {
+      throw new Error("Upload succeeded but no image URL was returned");
+    }
+
+    updateComponentProp(componentIdx, propKey, uploadedUrl);
+  }, [canBrowseMedia, mediaPickerAccountKey, updateComponentProp]);
 
   const updateFrontmatter = (key: string, value: string) => {
     if (espMode && key === "title") {
@@ -9338,40 +9491,6 @@ export default function TemplateEditorPage() {
                       </div>
                     </div>
                   ))}
-
-                {/* Brand palette reference (account-level only) */}
-                {visualTab === "settings" && effectiveAccountKey && parsed && (
-                  <div className="mt-4">
-                    <h3 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-2">
-                      Brand Palette
-                    </h3>
-                    {brandColors && brandColors.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {brandColors.map((c) => (
-                          <div key={c.label} className="flex items-center gap-1.5 bg-[var(--muted)] rounded-lg px-2 py-1.5">
-                            <div
-                              className="w-4 h-4 rounded-full border border-[var(--border)] flex-shrink-0"
-                              style={{ backgroundColor: c.value }}
-                            />
-                            <span className="text-[11px] text-[var(--muted-foreground)]">{c.label}</span>
-                            <span className="text-[10px] font-mono text-[var(--muted-foreground)]/60">{c.value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-[var(--muted-foreground)]">
-                        No brand colors configured.{" "}
-                        <Link
-                          href={`/accounts/${effectiveAccountKey}?tab=branding`}
-                          className="text-[var(--primary)] hover:underline"
-                        >
-                          Set up branding
-                        </Link>
-                      </p>
-                    )}
-                  </div>
-                )}
-
                 {/* Components sub-tab */}
                 {visualTab === "components" && (
                   <div
@@ -9626,6 +9745,9 @@ export default function TemplateEditorPage() {
                                     }}
                                     onBrowseMedia={(propKey) =>
                                       handleBrowseMedia(index, propKey)
+                                    }
+                                    onUploadMedia={(propKey, file) =>
+                                      handleUploadMedia(index, propKey, file)
                                     }
                                     onInsertVariable={(propKey, token) =>
                                       updateComponentProp(index, propKey, (comp.props[propKey] || '') + token)
