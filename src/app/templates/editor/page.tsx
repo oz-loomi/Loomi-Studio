@@ -85,6 +85,14 @@ const PREVIEW_ZOOM_DEFAULT = 100;
 const PREVIEW_ZOOM_MIN = 50;
 const PREVIEW_ZOOM_MAX = 200;
 const PREVIEW_ZOOM_STEP = 10;
+const PREVIEW_IMAGE_ICON_PLACEHOLDER = `data:image/svg+xml;utf8,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700">
+    <rect width="1200" height="700" fill="#f3f4f6"/>
+    <rect x="430" y="190" width="340" height="260" rx="36" fill="none" stroke="#9ca3af" stroke-width="22"/>
+    <circle cx="690" cy="270" r="32" fill="none" stroke="#9ca3af" stroke-width="22"/>
+    <path d="M485 395l95-95c15-15 40-15 55 0l55 55 40-40c15-15 40-15 55 0l80 80" fill="none" stroke="#9ca3af" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`,
+)}`;
 
 interface TemplateHistoryVersion {
   id: string;
@@ -5140,28 +5148,17 @@ function ComponentPropsRenderer({
                 })}
               </div>
             )}
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                value={currentVal}
-                onChange={(e) => onPropChange(r.effectiveKey, e.target.value)}
-                className="flex-1 min-w-0 bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
-                placeholder="Logo URL..."
-              />
-              {onInsertVariable && (
-                <VariablePickerButton onInsert={(token: string) => onInsertVariable(r.effectiveKey, token)} />
-              )}
-              {onBrowseMedia && (
-                <button
-                  type="button"
-                  onClick={() => onBrowseMedia(r.effectiveKey)}
-                  className="flex-shrink-0 p-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:border-[var(--primary)] transition-colors"
-                  title="Browse media library"
-                >
-                  <PhotoIcon className="w-4 h-4" />
-                </button>
-              )}
-            </div>
+            <PropField
+              prop={r.propOverride}
+              value={currentVal}
+              onChange={(val) => onPropChange(r.effectiveKey, val)}
+              onBrowseMedia={
+                onBrowseMedia ? () => onBrowseMedia(r.effectiveKey) : undefined
+              }
+              onUploadMedia={
+                onUploadMedia ? (file) => onUploadMedia(r.effectiveKey, file) : undefined
+              }
+            />
           </div>,
         );
         i += 1;
@@ -5573,7 +5570,7 @@ function ComponentPropsRenderer({
   return (
     <div className="space-y-2">
       {isCopyComponent && copyBodyProp && (
-        <div className="pb-2 border-b border-[var(--border)]">
+        <div className="pb-2">
           <label className="text-xs text-[var(--muted-foreground)] mb-1 block">
             {copyBodyProp.label}
           </label>
@@ -5597,7 +5594,7 @@ function ComponentPropsRenderer({
         </div>
       )}
       {pinnedTopProps.length > 0 && (
-        <div className={`space-y-3 ${sections.length > 0 ? "pb-3 border-b border-[var(--border)]" : ""}`}>
+        <div className={`space-y-3 ${sections.length > 0 ? "pb-3" : ""}`}>
           {renderStandardProps(pinnedTopProps)}
         </div>
       )}
@@ -6054,9 +6051,13 @@ function serializeTemplateForPreview(
   // Build indexed component list preserving original indices
   template.components.forEach((comp, i) => {
     if (hiddenComponents.has(i)) return;
+    const previewProps = { ...comp.props };
+    if (comp.type === "image" && !String(previewProps.image || "").trim()) {
+      previewProps.image = PREVIEW_IMAGE_ICON_PLACEHOLDER;
+    }
     const compWithIndex = {
       ...comp,
-      props: { ...comp.props, "component-index": String(i) },
+      props: { ...previewProps, "component-index": String(i) },
     };
     lines.push("");
     lines.push(`  <div data-loomi="${i}" style="display:none"></div>`);
@@ -9358,6 +9359,11 @@ export default function TemplateEditorPage() {
                           };
                           const elements: React.ReactNode[] = [];
                           const pairHalfSettingsFields = false;
+                          const isInlineSettingsField = (type: string) =>
+                            type === "color" ||
+                            type === "select" ||
+                            type === "toggle" ||
+                            type === "fontSelect";
                           let i = 0;
                           while (i < section.fields.length) {
                             const field = section.fields[i];
@@ -9414,25 +9420,58 @@ export default function TemplateEditorPage() {
                             } else {
                               const r = resolveField(field);
                               elements.push(
-                                <div key={field.key}>
-                                  <label className="text-xs text-[var(--muted-foreground)] mb-1 block">
-                                    {field.label}
-                                  </label>
-                                  <PropField
-                                    prop={field}
-                                    value={r.val}
-                                    onChange={r.handleChange}
-                                    onLiveStyle={r.handleLiveStyle}
-                                    onInsertVariable={
-                                      VARIABLE_ELIGIBLE_TYPES.has(field.type)
-                                        ? (token: string) => r.handleChange(r.val + token)
-                                        : undefined
-                                    }
-                                    brandColors={brandColors}
-                                    previewAsLabel={previewAsLabel}
-                                    inlineVariableOptions={inlineVariableOptions}
-                                  />
-                                </div>,
+                                isInlineSettingsField(field.type) ? (
+                                  <div
+                                    key={field.key}
+                                    className="flex items-center justify-between gap-3"
+                                  >
+                                    <label className="min-w-0 text-xs text-[var(--muted-foreground)]">
+                                      {field.label}
+                                    </label>
+                                    <div
+                                      className={
+                                        field.type === "color"
+                                          ? "flex-shrink-0"
+                                          : "w-[180px] max-w-[60%] flex-shrink-0"
+                                      }
+                                    >
+                                      <PropField
+                                        prop={field}
+                                        value={r.val}
+                                        onChange={r.handleChange}
+                                        onLiveStyle={r.handleLiveStyle}
+                                        onInsertVariable={
+                                          VARIABLE_ELIGIBLE_TYPES.has(field.type)
+                                            ? (token: string) => r.handleChange(r.val + token)
+                                            : undefined
+                                        }
+                                        brandColors={brandColors}
+                                        previewAsLabel={previewAsLabel}
+                                        inlineVariableOptions={inlineVariableOptions}
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div key={field.key}>
+                                    <label className="text-xs text-[var(--muted-foreground)] mb-1 block">
+                                      {field.label}
+                                    </label>
+                                    <PropField
+                                      prop={field}
+                                      value={r.val}
+                                      onChange={r.handleChange}
+                                      onLiveStyle={r.handleLiveStyle}
+                                      onInsertVariable={
+                                        VARIABLE_ELIGIBLE_TYPES.has(field.type)
+                                          ? (token: string) => r.handleChange(r.val + token)
+                                          : undefined
+                                      }
+                                      brandColors={brandColors}
+                                      previewAsLabel={previewAsLabel}
+                                      inlineVariableOptions={inlineVariableOptions}
+                                    />
+                                  </div>
+                                ),
                               );
                               i += 1;
                             }
