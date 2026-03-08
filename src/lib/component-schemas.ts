@@ -575,8 +575,8 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       { key: 'description-size', label: 'Desc Size', type: 'unit', half: true, group: 'text', responsive: true, conditionalOn: 'description' },
       { key: 'description-color', label: 'Desc Color', type: 'color', default: '#4b5563', half: true, group: 'text', conditionalOn: 'description' },
       // ── Background ──
-      { key: 'image', label: 'Image', type: 'image', required: true, default: 'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=1200', group: 'background' },
-      { key: 'image-alt', label: 'Image Alt Text', type: 'text', default: 'Service bay', group: 'background' },
+      { key: 'image', label: 'Image', type: 'image', required: true, default: 'https://assets.cdn.filesafe.space/RCXFPnyOmtNw1ZHJhq5a/media/287f251c-c346-44ca-8df8-23ce4a545043.webp', group: 'background' },
+      { key: 'image-alt', label: 'Image Alt Text', type: 'text', default: 'Service spotlight vehicle', group: 'background' },
       { key: 'image-fit', label: 'Image Fit', type: 'select', group: 'background', options: [
         { label: 'Auto', value: 'auto' }, { label: 'Cover', value: 'cover' },
       ], default: 'cover' },
@@ -598,7 +598,6 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       { key: 'text-bg-color', label: 'Background Color', type: 'color', default: '#f9fafb', half: true, group: 'background' },
       // ── Buttons ──
       ...buttonProps('primary-button', 'primary', {
-        text: 'Schedule Service',
         url: '{{custom_values.service_scheduler_url}}',
         padding: '14px 28px',
         bgColor: '#111111',
@@ -611,7 +610,6 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       }),
       { key: 'button-gap', label: 'Button Gap', type: 'unit', default: '12px', group: 'buttons', responsive: true, buttonSet: 'secondary' },
       ...buttonProps('secondary-button', 'secondary', {
-        text: 'Learn More',
         url: '{{custom_values.website_url}}',
         padding: '14px 28px',
         bgColor: 'transparent',

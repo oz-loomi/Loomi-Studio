@@ -114,6 +114,14 @@ interface AssistantComponentEdit {
   reason?: string;
 }
 
+interface TemplateBuild {
+  mode: "visual" | "code";
+  components?: Array<{ type: string; props: Record<string, string> }>;
+  html?: string;
+  frontmatter?: Record<string, string>;
+  baseProps?: Record<string, string>;
+}
+
 interface InlineVariableOption {
   token: string;
   label: string;
@@ -5453,7 +5461,11 @@ function ComponentPropsRenderer({
         key={`group-${groupName}`}
         label={groupLabel}
         isOpen={isOpen}
-        onToggle={() => setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }))}
+        onToggle={() =>
+          setExpandedGroups((prev) =>
+            prev[groupName] ? {} : { [groupName]: true },
+          )
+        }
       >
         {groupName === 'border' ? (
           // Border group: custom per-side editor, with fallback to standard rendering
@@ -6356,8 +6368,11 @@ export default function TemplateEditorPage() {
       content: string;
       suggestions?: string[];
       componentEdits?: AssistantComponentEdit[];
+      templateBuild?: TemplateBuild | null;
+      clarification?: string | null;
     }>
   >([]);
+  const [pendingAiBuild, setPendingAiBuild] = useState<TemplateBuild | null>(null);
   const aiScrollRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -7373,6 +7388,62 @@ export default function TemplateEditorPage() {
     [parsed, selectedComponent, syncVisualToCode],
   );
 
+  const isTemplateEmpty = useCallback((): boolean => {
+    if (!parsed) return true;
+    const nonStructural = parsed.components.filter(
+      (c) => !["header", "footer", "spacer"].includes(c.type),
+    );
+    return nonStructural.length === 0;
+  }, [parsed]);
+
+  const handleAiBuildTemplate = useCallback(
+    (build: TemplateBuild) => {
+      if (build.mode === "visual" && build.components) {
+        const newComponents = build.components.map((comp) => {
+          const schema = componentSchemas[comp.type];
+          const defaultProps: Record<string, string> = {};
+          if (schema) {
+            for (const prop of schema.props) {
+              if (prop.default) defaultProps[prop.key] = prop.default;
+            }
+          }
+          return {
+            type: comp.type,
+            props: { ...defaultProps, ...comp.props },
+          };
+        });
+
+        const newParsed: ParsedTemplate = {
+          frontmatter: { ...parsed?.frontmatter, ...build.frontmatter },
+          baseProps: { ...parsed?.baseProps, ...build.baseProps },
+          components: newComponents,
+          raw: "",
+        };
+
+        setParsed(newParsed);
+        setExpandedComponents(new Set(newComponents.map((_, i) => i)));
+        setSelectedComponent(null);
+        syncVisualToCode(newParsed);
+        setPendingAiBuild(null);
+        setMessage(`AI generated ${newComponents.length} sections`);
+        setTimeout(() => setMessage(""), 3000);
+      } else if (build.mode === "code" && build.html) {
+        setCode(build.html);
+        compilePreview(build.html);
+        try {
+          const newParsed = parseTemplate(build.html);
+          setParsed(newParsed);
+        } catch {
+          /* ignore parse errors in code mode */
+        }
+        setPendingAiBuild(null);
+        setMessage("AI generated email template");
+        setTimeout(() => setMessage(""), 3000);
+      }
+    },
+    [parsed, syncVisualToCode, compilePreview],
+  );
+
   const handleGenerateEmailMeta = useCallback(async (field: "subject" | "previewText") => {
     setAiMetaLoading(true);
     setAiMetaField(field);
@@ -7430,6 +7501,41 @@ export default function TemplateEditorPage() {
         content: msg.content,
       }));
 
+      // Build account context for AI branding awareness
+      const aiAccountContext = effectiveAccountData
+        ? {
+            name: effectiveAccountData.dealer,
+            branding: parsedBranding
+              ? { colors: parsedBranding.colors, fonts: parsedBranding.fonts }
+              : null,
+            logos: accountLogos || null,
+            customValues: (() => {
+              const raw = effectiveAccountData.customValues;
+              if (!raw) return null;
+              const cvMap: Record<string, string> = {};
+              const entries =
+                typeof raw === "string"
+                  ? (() => { try { return JSON.parse(raw); } catch { return null; } })()
+                  : raw;
+              if (!entries || typeof entries !== "object") return null;
+              for (const [k, v] of Object.entries(
+                entries as Record<string, { name?: string; value?: string }>,
+              )) {
+                if (v && typeof v === "object" && "value" in v && v.value)
+                  cvMap[k] = v.value as string;
+              }
+              return Object.keys(cvMap).length > 0 ? cvMap : null;
+            })(),
+            identity: {
+              city: effectiveAccountData.city || null,
+              state: effectiveAccountData.state || null,
+              phone: effectiveAccountData.phone || null,
+              address: effectiveAccountData.address || null,
+              website: effectiveAccountData.website || null,
+            },
+          }
+        : null;
+
       const res = await fetch("/api/ai/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -7444,6 +7550,7 @@ export default function TemplateEditorPage() {
             baseProps: parsed?.baseProps || {},
             componentCount: parsed?.components.length || 0,
             selectedComponent: selectedEditorComponent,
+            account: aiAccountContext,
           },
         }),
       });
@@ -7474,6 +7581,15 @@ export default function TemplateEditorPage() {
             .filter((row: AssistantComponentEdit) => row.key && row.value)
         : [];
 
+      const templateBuild: TemplateBuild | null =
+        data.templateBuild && typeof data.templateBuild === "object"
+          ? (data.templateBuild as TemplateBuild)
+          : null;
+      const clarification: string | null =
+        typeof data.clarification === "string" && data.clarification.trim()
+          ? data.clarification.trim()
+          : null;
+
       setAiReply(reply);
       setAiSuggestions(suggestions);
       setAiComponentEdits(componentEdits);
@@ -7481,11 +7597,22 @@ export default function TemplateEditorPage() {
       // Add assistant response to history
       const assistantMsg = {
         role: "assistant" as const,
-        content: reply,
+        content: clarification || reply,
         suggestions,
         componentEdits,
+        templateBuild,
+        clarification,
       };
       setAiHistory((prev) => [...prev, assistantMsg]);
+
+      // Handle template build: auto-apply if empty, else prompt
+      if (templateBuild) {
+        if (isTemplateEmpty()) {
+          handleAiBuildTemplate(templateBuild);
+        } else {
+          setPendingAiBuild(templateBuild);
+        }
+      }
 
       // Auto-scroll to bottom
       setTimeout(() => {
@@ -7508,6 +7635,11 @@ export default function TemplateEditorPage() {
     parsed,
     selectedEditorComponent,
     templateName,
+    effectiveAccountData,
+    parsedBranding,
+    accountLogos,
+    isTemplateEmpty,
+    handleAiBuildTemplate,
   ]);
 
   const handleUndo = useCallback(() => {
@@ -7643,6 +7775,9 @@ export default function TemplateEditorPage() {
           newProps[prop.key] = `[${prop.label}]`;
         }
       }
+    }
+    if (componentType === "split") {
+      newProps["image-side"] = "left";
     }
     const newComponent = { type: componentType, props: newProps };
     const newComponents = [...parsed.components, newComponent];
@@ -10156,17 +10291,17 @@ export default function TemplateEditorPage() {
                     <div className="border border-dashed border-[var(--ai-assist-border)] rounded-xl p-3 text-center ai-assist-assistant-message">
                       <SparklesIcon className="w-5 h-5 mx-auto text-[var(--muted-foreground)] mb-1.5" />
                       <p className="text-xs text-[var(--muted-foreground)]">
-                        Ask for subject lines, CTA rewrites, body copy, or prop
-                        tweaks.
+                        Build full emails, edit components, write subject lines,
+                        or improve copy.
                       </p>
                     </div>
                     {/* Preset quick actions */}
                     <div className="flex flex-wrap gap-1.5">
                       {[
+                        "Build a service reminder email",
+                        "Build a promotional email",
                         "Write 5 subject lines",
                         "Improve the CTA copy",
-                        "Shorten the body copy",
-                        "Make it more urgent",
                         "Suggest a preheader",
                       ].map((preset) => (
                         <button
