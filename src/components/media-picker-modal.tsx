@@ -8,8 +8,10 @@ import {
   XMarkIcon,
   ArrowUpTrayIcon,
   FolderIcon,
+  FolderPlusIcon,
   ChevronRightIcon,
   HomeIcon,
+  CheckIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 
@@ -66,6 +68,10 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
   const [folderPath, setFolderPath] = useState<FolderBreadcrumb[]>([{ id: undefined, name: 'Root' }]);
   const [canNavigateFolders, setCanNavigateFolders] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(accountKey ? 'all' : 's3');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [savingFolder, setSavingFolder] = useState(false);
+  const newFolderInputRef = useRef<HTMLInputElement>(null);
 
   // ── Fetch media ──
 
@@ -215,6 +221,48 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
     setSearch('');
   }, [folderPath]);
 
+  // ── Create folder ──
+
+  const handleCreateFolder = useCallback(async () => {
+    const trimmed = newFolderName.trim();
+    if (!trimmed || !accountKey) return;
+    setSavingFolder(true);
+    try {
+      const res = await fetch('/api/esp/media/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountKey,
+          name: trimmed,
+          parentId: currentFolderId || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as Record<string, string>)?.error || `Error ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.folder) {
+        setFolders((prev) => [...prev, data.folder as MediaFolder]);
+      }
+      toast.success(`Folder "${trimmed}" created`);
+      setCreatingFolder(false);
+      setNewFolderName('');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create folder');
+    } finally {
+      setSavingFolder(false);
+    }
+  }, [accountKey, currentFolderId, newFolderName]);
+
+  // Focus the folder name input when creation mode is activated
+  useEffect(() => {
+    if (creatingFolder) {
+      // Small delay to ensure the input is rendered
+      requestAnimationFrame(() => newFolderInputRef.current?.focus());
+    }
+  }, [creatingFolder]);
+
   // ── Search ──
 
   const filtered = useMemo(() => {
@@ -273,7 +321,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
         className={`glass-modal flex flex-col overflow-hidden ${
           fullScreen
             ? 'w-[92vw] h-[88vh] md:w-[72vw] md:h-[68vh] xl:w-[60vw] xl:h-[60vh] rounded-xl sm:rounded-2xl'
-            : 'w-[680px] max-h-[80vh] rounded-2xl'
+            : 'w-[880px] max-h-[90vh] rounded-2xl'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
@@ -291,6 +339,16 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
               placeholder="Search files..."
             />
           </div>
+          {accountKey && (
+            <button
+              onClick={() => { setCreatingFolder(true); setNewFolderName(''); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] transition-colors flex-shrink-0"
+              title="Create folder"
+            >
+              <FolderPlusIcon className="w-4 h-4" />
+              New Folder
+            </button>
+          )}
           <button
             onClick={onClose}
             className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
@@ -385,10 +443,10 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
         {/* ── Media grid ── */}
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
               {Array.from({ length: 8 }).map((_, i) => (
                 <div key={i} className="animate-pulse">
-                  <div className="h-[100px] bg-[var(--muted)] rounded-lg" />
+                  <div className="h-[120px] bg-[var(--muted)] rounded-lg" />
                   <div className="h-2.5 bg-[var(--muted)] rounded w-3/4 mt-2" />
                 </div>
               ))}
@@ -407,9 +465,42 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
             </div>
           ) : (
             <>
+              {/* Create folder inline */}
+              {creatingFolder && (
+                <div className="flex items-center gap-2 mb-3 px-1">
+                  <FolderPlusIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0" />
+                  <input
+                    ref={newFolderInputRef}
+                    type="text"
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newFolderName.trim()) handleCreateFolder();
+                      if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); }
+                    }}
+                    className="flex-1 text-sm bg-[var(--input)] border border-[var(--primary)] rounded-lg px-3 py-1.5 outline-none"
+                    placeholder="Folder name..."
+                    disabled={savingFolder}
+                  />
+                  <button
+                    onClick={handleCreateFolder}
+                    disabled={!newFolderName.trim() || savingFolder}
+                    className="p-1.5 rounded-lg bg-[var(--primary)] text-white disabled:opacity-40 hover:opacity-90 transition-opacity"
+                  >
+                    <CheckIcon className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => { setCreatingFolder(false); setNewFolderName(''); }}
+                    className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+                  >
+                    <XMarkIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               {/* Folder cards */}
               {filteredFolders.length > 0 && (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-2">
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-2">
                   {filteredFolders.map((folder) => (
                     <button
                       key={folder.id}
@@ -429,7 +520,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
               )}
 
               {/* File cards */}
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                 {filtered.map((f) => {
                   const isImage = f.type?.startsWith('image') || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(f.url || '');
                   return (
@@ -439,7 +530,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
                       className="text-left rounded-lg overflow-hidden border border-transparent hover:border-[var(--primary)] hover:ring-1 hover:ring-[var(--primary)]/30 transition-all group"
                       title={f.name}
                     >
-                      <div className="h-[100px] bg-[var(--muted)] overflow-hidden">
+                      <div className="h-[120px] bg-[var(--muted)] overflow-hidden">
                         {isImage && f.url ? (
                           <img
                             src={f.thumbnailUrl || f.url}
