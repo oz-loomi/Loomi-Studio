@@ -1,5 +1,7 @@
 export type FieldType = 'text' | 'textarea' | 'color' | 'url' | 'image' | 'select' | 'toggle' | 'number' | 'padding' | 'radius' | 'unit' | 'range';
 
+export const IMAGE_PLACEHOLDER = 'https://loomistorage.sfo3.digitaloceanspaces.com/media/_admin/69fa3adf4ae444edaadd1d0d7fee4b87/image placeholder.png';
+
 export interface PropSchema {
   key: string;
   label: string;
@@ -420,7 +422,7 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       // ── Text ──
       { key: 'alt', label: 'Alt Text', type: 'text', group: 'text' },
       // ── Background ──
-      { key: 'image', label: 'Image URL', type: 'image', required: true, group: 'background' },
+      { key: 'image', label: 'Image URL', type: 'image', required: true, default: IMAGE_PLACEHOLDER, group: 'background' },
       // ── Layout ──
       { key: 'width', label: 'Width', type: 'unit', half: true, default: '600px', group: 'layout', responsive: true },
       { key: 'max-height', label: 'Max Height', type: 'unit', half: true, group: 'layout', responsive: true },
@@ -442,7 +444,7 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       { key: 'heading-size', label: 'Heading Size', separator: true, type: 'unit', half: true, group: 'text', responsive: true },
       { key: 'heading-color', label: 'Heading Color', type: 'color', half: true, group: 'text' },
       // ── Background ──
-      { key: 'image', label: 'Background Image', type: 'image', required: true, group: 'background' },
+      { key: 'image', label: 'Background Image', type: 'image', required: true, default: IMAGE_PLACEHOLDER, group: 'background' },
       { key: 'overlay', label: 'Overlay Preset', type: 'select', group: 'background', options: [
         { label: 'Light', value: 'light' }, { label: 'Medium', value: 'medium' },
         { label: 'Dark', value: 'dark' }, { label: 'Heavy', value: 'heavy' },
@@ -472,7 +474,7 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       { key: 'headline-color', label: 'Headline Color', type: 'color', half: true, group: 'text' },
       { key: 'body-color', label: 'Body Color', type: 'color', group: 'text' },
       // ── Background ──
-      { key: 'background-image', label: 'Background Image', type: 'image', required: true, group: 'background' },
+      { key: 'background-image', label: 'Background Image', type: 'image', required: true, default: IMAGE_PLACEHOLDER, group: 'background' },
       { key: 'card-background', label: 'Card BG', type: 'color', group: 'background' },
       // ── Buttons ──
       ...buttonProps('cta'),

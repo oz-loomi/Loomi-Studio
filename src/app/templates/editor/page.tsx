@@ -39,7 +39,6 @@ import {
   QuestionMarkCircleIcon,
   BookOpenIcon,
   PhotoIcon,
-  ArrowUpTrayIcon,
   ChevronUpDownIcon,
   MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
@@ -54,6 +53,7 @@ import { useLoomiDialog } from "@/contexts/loomi-dialog-context";
 import {
   componentSchemas,
   getAvailableComponents,
+  IMAGE_PLACEHOLDER,
   type RepeatableGroup,
 } from "@/lib/component-schemas";
 import { parseTemplate, type ParsedTemplate } from "@/lib/template-parser";
@@ -3445,105 +3445,56 @@ function PropField({
       }
     };
 
-    return (
-      <div className="space-y-2">
-        <div className="flex items-start gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              if (uploading) return;
-              onBrowseMedia?.();
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              const file = e.dataTransfer.files?.[0];
-              void handleMediaUpload(file);
-            }}
-            onDragOver={(e) => {
-              if (!canUploadMedia) return;
-              e.preventDefault();
-              if (!dragOver) setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            disabled={uploading || (!canOpenMedia && !canUploadMedia)}
-            title={
-              canOpenMedia || canUploadMedia
-                ? "Click to open media library or drop an image to upload"
-                : "Media library unavailable"
-            }
-            className={`group relative flex aspect-square w-24 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 border-dashed transition-all ${
-              dragOver
-                ? "border-[var(--primary)] bg-[var(--primary)]/10"
-                : "border-[var(--border)] bg-[var(--input)]/60 hover:border-[var(--primary)]/60 hover:bg-[var(--muted)]/40"
-            } ${uploading || (!canOpenMedia && !canUploadMedia) ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
-          >
-            {value && !previewError ? (
-              <>
-                <img
-                  src={value}
-                  alt={imageLabel || prop.label}
-                  className="h-full w-full object-cover"
-                  onError={() => setPreviewError(true)}
-                />
-                <div className="absolute inset-x-2 bottom-2 rounded-md bg-black/65 px-2 py-1 text-[10px] font-medium text-white backdrop-blur-sm">
-                  Replace
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col items-center gap-2 px-3 text-center">
-                {uploading ? (
-                  <ArrowPathIcon className="h-5 w-5 animate-spin text-[var(--primary)]" />
-                ) : (
-                  <ArrowUpTrayIcon className="h-5 w-5 text-[var(--muted-foreground)]" />
-                )}
-                <div className="space-y-0.5">
-                  <p className="text-[11px] font-medium text-[var(--foreground)]">
-                    {uploading ? "Uploading..." : "Drop image"}
-                  </p>
-                  <p className="text-[10px] leading-4 text-[var(--muted-foreground)]">
-                    {canOpenMedia ? "or click to browse" : "media library required"}
-                  </p>
-                </div>
-              </div>
-            )}
-          </button>
+    const displaySrc = (value && !previewError) ? value : IMAGE_PLACEHOLDER;
+    const hasImage = Boolean(value && !previewError);
 
-          <div className="min-w-0 flex-1 space-y-2 pt-1">
-            <div className="space-y-1">
-              <p className="truncate text-xs font-medium text-[var(--foreground)]">
-                {value ? imageLabel : "No image selected"}
-              </p>
-              <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
-                {uploading
-                  ? "Uploading image to the media library..."
-                  : canOpenMedia || canUploadMedia
-                    ? "Use the media library only. Click to choose an image or drag one here to upload."
-                    : "Select an account to access media."}
-              </p>
+    return (
+      <div
+        className={`group relative w-full overflow-hidden rounded-lg border transition-all ${
+          dragOver
+            ? "border-[var(--primary)] bg-[var(--primary)]/10"
+            : "border-[var(--border)] hover:border-[var(--primary)]/60"
+        } ${uploading || (!canOpenMedia && !canUploadMedia) ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+        onClick={() => { if (!uploading) onBrowseMedia?.(); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const file = e.dataTransfer.files?.[0];
+          void handleMediaUpload(file);
+        }}
+        onDragOver={(e) => {
+          if (!canUploadMedia) return;
+          e.preventDefault();
+          if (!dragOver) setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+      >
+        {uploading ? (
+          <div className="flex items-center justify-center gap-2 py-5">
+            <ArrowPathIcon className="h-4 w-4 animate-spin text-[var(--primary)]" />
+            <span className="text-xs text-[var(--muted-foreground)]">Uploading...</span>
+          </div>
+        ) : (
+          <div className="relative">
+            <img
+              src={displaySrc}
+              alt={imageLabel || prop.label}
+              className={`w-full h-28 object-cover${!hasImage ? " opacity-40" : ""}`}
+              onError={() => setPreviewError(true)}
+            />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 group-hover:bg-black/40 group-hover:opacity-100 transition-all">
+              <span className="text-[11px] font-medium text-white">{hasImage ? "Replace" : "Choose image"}</span>
             </div>
-            {value && (
+            {hasImage && (
               <button
                 type="button"
-                onClick={() => onChange("")}
-                className="text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-red-400"
+                onClick={(e) => { e.stopPropagation(); onChange(""); }}
+                className="absolute top-1.5 right-1.5 rounded-md bg-black/60 p-1 text-white/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 hover:text-white"
+                title="Remove image"
               >
-                Remove image
+                <XMarkIcon className="w-3.5 h-3.5" />
               </button>
             )}
-          </div>
-        </div>
-        {onBrowseMedia && (
-          <div className="flex items-center justify-end">
-            <button
-              type="button"
-              onClick={onBrowseMedia}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--input)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)] hover:text-[var(--primary)]"
-              title="Open media library"
-            >
-              <PhotoIcon className="w-4 h-4" />
-              Media Library
-            </button>
           </div>
         )}
       </div>
