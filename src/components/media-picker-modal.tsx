@@ -14,6 +14,7 @@ import {
   CheckIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
+import { shouldFallbackToS3Media } from '@/lib/esp/media-fallback';
 
 // ── Types ──
 
@@ -67,6 +68,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
   const [currentFolderId, setCurrentFolderId] = useState<string | undefined>();
   const [folderPath, setFolderPath] = useState<FolderBreadcrumb[]>([{ id: undefined, name: 'Root' }]);
   const [canNavigateFolders, setCanNavigateFolders] = useState(false);
+  const [espMediaAvailable, setEspMediaAvailable] = useState(Boolean(accountKey));
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(accountKey ? 'all' : 's3');
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -80,8 +82,9 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
     else { setLoading(true); setFolders([]); }
 
     try {
-      if (!accountKey) {
+      const loadS3Media = async (accountScope?: string) => {
         const s3Params = new URLSearchParams({ limit: '50' });
+        if (accountScope) s3Params.set('accountKey', accountScope);
         if (cursor) s3Params.set('cursor', cursor);
         const s3Res = await fetch(`/api/media?${s3Params.toString()}`);
         const s3Data = await s3Res.json().catch(() => ({}));
@@ -98,7 +101,12 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
         if (!cursor) {
           setCurrentFolderId(undefined);
           setFolderPath([{ id: undefined, name: 'Root' }]);
+          setCreatingFolder(false);
         }
+      };
+
+      if (!accountKey || !espMediaAvailable) {
+        await loadS3Media(accountKey || undefined);
         return;
       }
 
@@ -118,6 +126,19 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
 
       if (!espRes.ok) {
         const errData = await espRes.json().catch(() => ({}));
+        const errorMessage = (errData as Record<string, string>)?.error || `Error ${espRes.status}`;
+        if (shouldFallbackToS3Media(espRes.status, errorMessage)) {
+          setEspMediaAvailable(false);
+          setCanNavigateFolders(false);
+          setCreatingFolder(false);
+          if (!cursor) {
+            setFolders([]);
+            setCurrentFolderId(undefined);
+            setFolderPath([{ id: undefined, name: 'Root' }]);
+          }
+          await loadS3Media(accountKey);
+          return;
+        }
         // Still try S3 even if ESP fails
         let s3Files: MediaFile[] = [];
         if (s3Res?.ok) {
@@ -126,13 +147,16 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
         }
         if (s3Files.length > 0) {
           setFiles(s3Files);
+          if (!cursor) setFolders([]);
           setNextCursor(undefined);
+          setCanNavigateFolders(false);
         } else {
-          throw new Error((errData as Record<string, string>)?.error || `Error ${espRes.status}`);
+          throw new Error(errorMessage);
         }
       } else {
         const data = await espRes.json();
         const espFiles: MediaFile[] = (data.files || []).map((f: MediaFile) => ({ ...f, source: 'esp' as const }));
+        setEspMediaAvailable(true);
 
         let s3Files: MediaFile[] = [];
         if (s3Res?.ok) {
@@ -151,11 +175,15 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [accountKey, currentFolderId]);
+  }, [accountKey, currentFolderId, espMediaAvailable]);
 
   useEffect(() => {
     loadMedia();
   }, [loadMedia]);
+
+  useEffect(() => {
+    setEspMediaAvailable(Boolean(accountKey));
+  }, [accountKey]);
 
   // ── Upload ──
 
@@ -163,27 +191,62 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
     if (!fileList?.length) return;
     setUploading(true);
     try {
-      const uploaded: MediaFile[] = [];
-      for (const file of Array.from(fileList)) {
+      const uploadToS3 = async (file: File) => {
         const formData = new FormData();
         formData.append('file', file);
-        const isEspUpload = Boolean(accountKey);
-        if (isEspUpload) {
-          formData.append('accountKey', accountKey!);
-          if (currentFolderId) formData.append('parentId', currentFolderId);
+        if (accountKey) {
+          formData.append('accountKey', accountKey);
         } else {
           formData.append('category', 'general');
         }
-        const res = await fetch(isEspUpload ? '/api/esp/media' : '/api/media', { method: 'POST', body: formData });
+        const res = await fetch('/api/media', { method: 'POST', body: formData });
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
           throw new Error((data as Record<string, string>)?.error || `Upload failed (${res.status})`);
         }
-        const data = await res.json();
+        return data;
+      };
+
+      const uploaded: MediaFile[] = [];
+      for (const file of Array.from(fileList)) {
+        const isEspUpload = Boolean(accountKey && espMediaAvailable);
+        let data: { file?: MediaFile };
+        let source: MediaFile['source'] = 's3';
+
+        if (isEspUpload) {
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('accountKey', accountKey!);
+          if (currentFolderId) formData.append('parentId', currentFolderId);
+
+          const res = await fetch('/api/esp/media', { method: 'POST', body: formData });
+          const espData = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const errorMessage =
+              (espData as Record<string, string>)?.error || `Upload failed (${res.status})`;
+            if (!shouldFallbackToS3Media(res.status, errorMessage)) {
+              throw new Error(errorMessage);
+            }
+            setEspMediaAvailable(false);
+            setCanNavigateFolders(false);
+            setCreatingFolder(false);
+            setFolders([]);
+            setCurrentFolderId(undefined);
+            setFolderPath([{ id: undefined, name: 'Root' }]);
+            data = await uploadToS3(file);
+          } else {
+            setEspMediaAvailable(true);
+            data = espData as { file?: MediaFile };
+            source = 'esp';
+          }
+        } else {
+          data = await uploadToS3(file);
+        }
+
         if (data.file) {
           uploaded.push({
             ...(data.file as MediaFile),
-            source: isEspUpload ? 'esp' : 's3',
+            source,
           });
         }
       }
@@ -196,7 +259,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
     } finally {
       setUploading(false);
     }
-  }, [accountKey, currentFolderId]);
+  }, [accountKey, currentFolderId, espMediaAvailable]);
 
   // ── Drag & drop ──
 
@@ -283,13 +346,14 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
     return folders.filter((f) => f.name.toLowerCase().includes(q));
   }, [folders, search]);
 
-  const sourceOptions: SourceFilter[] = accountKey ? ['all', 'esp', 's3'] : ['s3'];
+  const sourceOptions: SourceFilter[] =
+    accountKey && espMediaAvailable ? ['all', 'esp', 's3'] : ['s3'];
 
   useEffect(() => {
-    if (!accountKey && sourceFilter !== 's3') {
+    if ((!accountKey || !espMediaAvailable) && sourceFilter !== 's3') {
       setSourceFilter('s3');
     }
-  }, [accountKey, sourceFilter]);
+  }, [accountKey, espMediaAvailable, sourceFilter]);
 
   // ── Escape key ──
 
@@ -339,7 +403,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
               placeholder="Search files..."
             />
           </div>
-          {accountKey && (
+          {accountKey && espMediaAvailable && (
             <button
               onClick={() => { setCreatingFolder(true); setNewFolderName(''); }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] transition-colors flex-shrink-0"
@@ -466,7 +530,7 @@ export function MediaPickerModal({ accountKey, onSelect, onClose, fullScreen = f
           ) : (
             <>
               {/* Create folder inline */}
-              {creatingFolder && (
+              {creatingFolder && accountKey && espMediaAvailable && (
                 <div className="flex items-center gap-2 mb-3 px-1">
                   <FolderPlusIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0" />
                   <input

@@ -44,6 +44,7 @@ export function AiBubble() {
 
   // ── Visibility: hide on template editor, login, preview ──
   const isTemplateEditor =
+    pathname === '/templates/editor' ||
     /^\/templates\/[^/]+\/[^/]+$/.test(pathname) ||
     /^\/templates\/folder\/[^/]+$/.test(pathname) ||
     /^\/components\/[^/]+$/.test(pathname) ||

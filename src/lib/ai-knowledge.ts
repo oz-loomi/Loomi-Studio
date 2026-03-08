@@ -253,7 +253,7 @@ export async function getAssistantSystemPrompt(accountContext?: string): Promise
     '{',
     '  "reply": "Your conversational response explaining what you did or are asking",',
     '  "suggestions": ["0-4 short follow-up suggestions or questions"],',
-    '  "componentEdits": [{"key": "prop-key", "value": "new value", "reason": "optional"}],',
+    '  "componentEdits": [{"componentIndex": 0, "key": "prop-key", "value": "new value", "reason": "optional"}],',
     '  "templateBuild": null or {',
     '    "mode": "visual" or "code",',
     '    "components": [{"type": "component-name", "props": {"key": "value"}}],',
@@ -266,12 +266,14 @@ export async function getAssistantSystemPrompt(accountContext?: string): Promise
     '',
     'RULES FOR CHOOSING RESPONSE FIELDS:',
     '- For questions/help: Set reply + suggestions. Leave componentEdits=[], templateBuild=null, clarification=null.',
-    '- For prop edits on selected component: Set reply + componentEdits. Leave templateBuild=null.',
-    '- For full email generation (visual mode): Set reply + templateBuild with mode="visual" and components array.',
-    '- For full email generation (code mode): Set reply + templateBuild with mode="code" and html string.',
+    '- For prop edits: Set reply + componentEdits. Each edit MUST include "componentIndex" matching the component\'s index from the components array in context. You can edit multiple components at once by including edits with different componentIndex values. Leave templateBuild=null.',
+    '- For full email generation (visual mode): Set reply + templateBuild with mode="visual" and components array. ALWAYS include frontmatter.subject and frontmatter.previewText with compelling, relevant copy.',
+    '- For full email generation (code mode): Set reply + templateBuild with mode="code" and html string. ALWAYS include frontmatter.subject and frontmatter.previewText with compelling, relevant copy.',
     '- For clarification needed: Set reply + clarification with your question. Leave templateBuild=null.',
     '- NEVER set both templateBuild and clarification in the same response.',
-    '- componentEdits is for editing the CURRENTLY SELECTED component only. templateBuild is for generating a FULL EMAIL.',
+    '- componentEdits is for editing existing component props (one or many components). Use componentIndex to target each component. templateBuild is for generating a FULL EMAIL from scratch.',
+    '- When the user asks to change something across all components (e.g. "make all buttons black"), include edits for EVERY matching component using their componentIndex.',
+    '- The context includes a "components" array with index, type, label, and current props for each component. Use this to find the right componentIndex values.',
   );
 
   return sections.join('\n');

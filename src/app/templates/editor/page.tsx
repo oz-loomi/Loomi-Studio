@@ -41,6 +41,7 @@ import {
   PhotoIcon,
   ChevronUpDownIcon,
   MagnifyingGlassIcon,
+  Squares2X2Icon,
 } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -62,10 +63,15 @@ import {
   findMissingPreviewVariables,
   type PreviewContact,
 } from "@/lib/preview-variables";
+import { shouldFallbackToS3Media } from "@/lib/esp/media-fallback";
 import espVariablesData from "@/data/esp-variables.json";
 import { ComponentIcon, SectionsIcon } from "@/components/icon-map";
 import { CodeEditor } from "@/components/code-editor";
 import { MediaPickerModal } from "@/components/media-picker-modal";
+import {
+  TemplateIconPickerModal,
+  type TemplateIconSelection,
+} from "@/components/template-icon-picker-modal";
 import { TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT } from "@/lib/ui-events";
 import { getStarterTemplate } from "@/lib/template-starters";
 
@@ -85,6 +91,7 @@ const PREVIEW_ZOOM_DEFAULT = 100;
 const PREVIEW_ZOOM_MIN = 50;
 const PREVIEW_ZOOM_MAX = 200;
 const PREVIEW_ZOOM_STEP = 10;
+const ICON_UPLOAD_SIZE_PX = 256;
 const PREVIEW_IMAGE_ICON_PLACEHOLDER = `data:image/svg+xml;utf8,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700">
     <rect width="1200" height="700" fill="#f3f4f6"/>
@@ -93,6 +100,63 @@ const PREVIEW_IMAGE_ICON_PLACEHOLDER = `data:image/svg+xml;utf8,${encodeURICompo
     <path d="M485 395l95-95c15-15 40-15 55 0l55 55 40-40c15-15 40-15 55 0l80 80" fill="none" stroke="#9ca3af" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>`,
 )}`;
+
+async function rasterizeSvgToPngFile(
+  svgMarkup: string,
+  fileNameBase: string,
+  size = ICON_UPLOAD_SIZE_PX,
+) {
+  const svgBlob = new Blob([svgMarkup], {
+    type: "image/svg+xml;charset=utf-8",
+  });
+  const svgUrl = URL.createObjectURL(svgBlob);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error("Failed to load icon SVG"));
+      nextImage.src = svgUrl;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to prepare icon canvas");
+    }
+
+    const sourceWidth = image.naturalWidth || size;
+    const sourceHeight = image.naturalHeight || size;
+    const scale = Math.min(size / sourceWidth, size / sourceHeight);
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    const x = (size - drawWidth) / 2;
+    const y = (size - drawHeight) / 2;
+
+    context.clearRect(0, 0, size, size);
+    context.drawImage(image, x, y, drawWidth, drawHeight);
+
+    const pngBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("Failed to convert icon to PNG"));
+          return;
+        }
+        resolve(blob);
+      }, "image/png");
+    });
+
+    return new File(
+      [pngBlob],
+      `${fileNameBase.replace(/[^a-z0-9-_]+/gi, "-") || "icon"}.png`,
+      { type: "image/png" },
+    );
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
+}
 
 interface TemplateHistoryVersion {
   id: string;
@@ -109,6 +173,7 @@ interface SimpleDiffLine {
 }
 
 interface AssistantComponentEdit {
+  componentIndex?: number;
   key: string;
   value: string;
   reason?: string;
@@ -2975,6 +3040,7 @@ function PropField({
   onChange,
   onLiveStyle,
   onBrowseMedia,
+  onBrowseIcon,
   onUploadMedia,
   onInsertVariable,
   brandColors,
@@ -2996,6 +3062,7 @@ function PropField({
   onChange: (val: string) => void;
   onLiveStyle?: (val: string) => void;
   onBrowseMedia?: () => void;
+  onBrowseIcon?: () => void;
   onUploadMedia?: (file: File) => Promise<void>;
   onInsertVariable?: (token: string) => void;
   brandColors?: { label: string; value: string }[];
@@ -3513,6 +3580,155 @@ function PropField({
             )}
           </div>
         )}
+      </div>
+    );
+  }
+  if (prop.type === "icon") {
+    const [dragOver, setDragOver] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [previewError, setPreviewError] = useState(false);
+    const canOpenLibrary = Boolean(onBrowseIcon);
+    const canUploadIcon = Boolean(onUploadMedia);
+    const iconLabel = useMemo(() => {
+      if (!value) return "";
+      const withoutQuery = value.split("?")[0] || value;
+      const segments = withoutQuery.split("/").filter(Boolean);
+      const lastSegment = segments[segments.length - 1];
+      if (!lastSegment) return value;
+      try {
+        return decodeURIComponent(lastSegment);
+      } catch {
+        return lastSegment;
+      }
+    }, [value]);
+
+    useEffect(() => {
+      setPreviewError(false);
+    }, [value]);
+
+    const handleIconUpload = async (file?: File | null) => {
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        toast.error("Drop an SVG or icon image");
+        return;
+      }
+      if (!onUploadMedia) {
+        toast.error("Icon uploads are not available here");
+        return;
+      }
+      setUploading(true);
+      try {
+        const uploadFile =
+          file.type === "image/svg+xml"
+            ? await rasterizeSvgToPngFile(
+                await file.text(),
+                file.name.replace(/\.svg$/i, ""),
+              )
+            : file;
+        await onUploadMedia(uploadFile);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to upload icon",
+        );
+      } finally {
+        setUploading(false);
+        setDragOver(false);
+      }
+    };
+
+    const hasIcon = Boolean(value && !previewError);
+
+    return (
+      <div className="flex items-start gap-3">
+        <div
+          data-no-component-drag
+          className={`group relative aspect-square w-28 flex-shrink-0 overflow-hidden rounded-xl border border-dashed transition-all ${
+            dragOver
+              ? "border-[var(--primary)] bg-[var(--primary)]/10"
+              : "border-[var(--border)] bg-[var(--input)]/50 hover:border-[var(--primary)]/60"
+          } ${
+            uploading || (!canOpenLibrary && !canUploadIcon)
+              ? "cursor-not-allowed opacity-70"
+              : "cursor-pointer"
+          }`}
+          onClick={() => {
+            if (!uploading) onBrowseIcon?.();
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const file = event.dataTransfer.files?.[0];
+            void handleIconUpload(file);
+          }}
+          onDragOver={(event) => {
+            if (!canUploadIcon) return;
+            event.preventDefault();
+            if (!dragOver) setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+        >
+          {uploading ? (
+            <div className="flex h-full items-center justify-center gap-2 px-2 text-center">
+              <ArrowPathIcon className="h-4 w-4 animate-spin text-[var(--primary)]" />
+              <span className="text-xs text-[var(--muted-foreground)]">
+                Uploading...
+              </span>
+            </div>
+          ) : hasIcon ? (
+            <>
+              <img
+                src={value}
+                alt={iconLabel || prop.label}
+                className="h-full w-full object-contain p-4"
+                onError={() => setPreviewError(true)}
+              />
+              <button
+                type="button"
+                data-no-component-drag
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onChange("");
+                }}
+                className="absolute right-1.5 top-1.5 rounded-md bg-black/60 p-1 text-white/80 opacity-0 transition-opacity hover:bg-black/80 hover:text-white group-hover:opacity-100"
+                title="Remove icon"
+              >
+                <XMarkIcon className="h-3.5 w-3.5" />
+              </button>
+            </>
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center px-3 text-center">
+              <Squares2X2Icon className="h-8 w-8 text-[var(--muted-foreground)]/70" />
+              <p className="mt-2 text-[11px] font-medium text-[var(--foreground)]">
+                Choose icon
+              </p>
+              <p className="mt-1 text-[10px] leading-tight text-[var(--muted-foreground)]">
+                Library or drag SVG
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1 space-y-2">
+          <button
+            type="button"
+            data-no-component-drag
+            onClick={() => {
+              if (!uploading) onBrowseIcon?.();
+            }}
+            disabled={uploading || !canOpenLibrary}
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--input)] px-3 py-2 text-left text-sm font-medium text-[var(--foreground)] transition-colors hover:border-[var(--primary)]/60 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {hasIcon ? "Replace from icon library" : "Choose from icon library"}
+          </button>
+          <p className="text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+            Search the built-in icon library, or drag your own SVG or icon image onto the preview tile.
+          </p>
+          {hasIcon && (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--input)]/50 px-3 py-2 text-[11px] text-[var(--muted-foreground)]">
+              {iconLabel}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -4639,6 +4855,7 @@ function ComponentPropsRenderer({
   onPropChange,
   onLiveStyle,
   onBrowseMedia,
+  onBrowseIcon,
   onUploadMedia,
   onInsertVariable,
   previewWidth,
@@ -4669,6 +4886,7 @@ function ComponentPropsRenderer({
   onPropChange: (key: string, val: string) => void;
   onLiveStyle?: (key: string, val: string) => void;
   onBrowseMedia?: (propKey: string) => void;
+  onBrowseIcon?: (propKey: string) => void;
   onUploadMedia?: (propKey: string, file: File) => Promise<void>;
   onInsertVariable?: (propKey: string, token: string) => void;
   previewWidth: 'desktop' | 'mobile';
@@ -5007,8 +5225,13 @@ function ComponentPropsRenderer({
                         ? () => onBrowseMedia(r.effectiveKey)
                         : undefined
                     }
+                    onBrowseIcon={
+                      prop.type === "icon" && onBrowseIcon
+                        ? () => onBrowseIcon(r.effectiveKey)
+                        : undefined
+                    }
                     onUploadMedia={
-                      prop.type === "image" && onUploadMedia
+                      (prop.type === "image" || prop.type === "icon") && onUploadMedia
                         ? (file) => onUploadMedia(r.effectiveKey, file)
                         : undefined
                     }
@@ -5065,8 +5288,13 @@ function ComponentPropsRenderer({
                         ? () => onBrowseMedia(rNext.effectiveKey)
                         : undefined
                     }
+                    onBrowseIcon={
+                      nextProp.type === "icon" && onBrowseIcon
+                        ? () => onBrowseIcon(rNext.effectiveKey)
+                        : undefined
+                    }
                     onUploadMedia={
-                      nextProp.type === "image" && onUploadMedia
+                      (nextProp.type === "image" || nextProp.type === "icon") && onUploadMedia
                         ? (file) => onUploadMedia(rNext.effectiveKey, file)
                         : undefined
                     }
@@ -5191,8 +5419,13 @@ function ComponentPropsRenderer({
                   ? () => onBrowseMedia(r.effectiveKey)
                   : undefined
               }
+              onBrowseIcon={
+                prop.type === "icon" && onBrowseIcon
+                  ? () => onBrowseIcon(r.effectiveKey)
+                  : undefined
+              }
               onUploadMedia={
-                prop.type === "image" && onUploadMedia
+                (prop.type === "image" || prop.type === "icon") && onUploadMedia
                   ? (file) => onUploadMedia(r.effectiveKey, file)
                   : undefined
               }
@@ -5217,14 +5450,52 @@ function ComponentPropsRenderer({
     const propsPerItem = group.propsPerItem.length;
     const totalItems = groupProps.length / propsPerItem;
     const visibleCount = groupItemCounts[group.key] || 1;
+    const isFeaturesGroup = schema.name === "features" && group.key === "feature";
+    const featureVariant = (compProps.variant || "icon") === "image" ? "image" : "icon";
 
     return (
       <div key={`group-${group.key}`} className="space-y-2">
+        {isFeaturesGroup && (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--input)]/35 p-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              Feature Visual
+            </div>
+            <div className="mt-2 flex overflow-hidden rounded-lg border border-[var(--border)]">
+              {(["icon", "image"] as const).map((option) => {
+                const isActive = featureVariant === option;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => onPropChange("variant", option)}
+                    className={`flex-1 py-2 text-[11px] font-medium transition-colors ${
+                      isActive
+                        ? "bg-[var(--primary)] text-white"
+                        : "bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    {option === "icon" ? "Use Icons" : "Use Images"}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+              Icon mode opens the icon library for each card. Image mode uses the media uploader for each card.
+            </p>
+          </div>
+        )}
         {Array.from({ length: visibleCount }, (_, itemIdx) => {
           const itemProps = groupProps.slice(
             itemIdx * propsPerItem,
             (itemIdx + 1) * propsPerItem,
           );
+          const visibleItemProps = isFeaturesGroup
+            ? itemProps.filter((prop) => {
+                if (prop.key.endsWith("-icon")) return featureVariant === "icon";
+                if (prop.key.endsWith("-image")) return featureVariant === "image";
+                return true;
+              })
+            : itemProps;
           return (
             <div
               key={`${group.key}-${itemIdx}`}
@@ -5253,7 +5524,7 @@ function ComponentPropsRenderer({
                   </button>
                 )}
               </div>
-              {renderStandardProps(itemProps)}
+              {renderStandardProps(visibleItemProps)}
             </div>
           );
         })}
@@ -5302,8 +5573,13 @@ function ComponentPropsRenderer({
                       ? () => onBrowseMedia(prop.key)
                       : undefined
                   }
+                  onBrowseIcon={
+                    prop.type === "icon" && onBrowseIcon
+                      ? () => onBrowseIcon(prop.key)
+                      : undefined
+                  }
                   onUploadMedia={
-                    prop.type === "image" && onUploadMedia
+                    (prop.type === "image" || prop.type === "icon") && onUploadMedia
                       ? (file) => onUploadMedia(prop.key, file)
                       : undefined
                   }
@@ -5375,7 +5651,10 @@ function ComponentPropsRenderer({
   const pinnedTopPropKeys = new Set(pinnedTopProps.map((p) => p.key));
   // Separate repeatable-group props from standard props
   const standardProps = allSchemaProps.filter(
-    (p) => !p.repeatableGroup && !pinnedTopPropKeys.has(p.key),
+    (p) =>
+      !p.repeatableGroup &&
+      !pinnedTopPropKeys.has(p.key) &&
+      !(schema.name === "features" && p.key === "variant"),
   );
   const splitSectionLevelProps =
     isSplitComponent
@@ -6361,7 +6640,6 @@ export default function TemplateEditorPage() {
   const [, setAiComponentEdits] = useState<
     AssistantComponentEdit[]
   >([]);
-  const [copiedSuggestion, setCopiedSuggestion] = useState("");
   const [aiHistory, setAiHistory] = useState<
     Array<{
       role: "user" | "assistant";
@@ -6426,6 +6704,9 @@ export default function TemplateEditorPage() {
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [mediaPickerComponentIdx, setMediaPickerComponentIdx] = useState<number | null>(null);
   const [mediaPickerPropKey, setMediaPickerPropKey] = useState<string | null>(null);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [iconPickerComponentIdx, setIconPickerComponentIdx] = useState<number | null>(null);
+  const [iconPickerPropKey, setIconPickerPropKey] = useState<string | null>(null);
 
   const handleBrowseMedia = useCallback((componentIdx: number, propKey: string) => {
     if (!canBrowseMedia) {
@@ -6435,6 +6716,22 @@ export default function TemplateEditorPage() {
     setMediaPickerComponentIdx(componentIdx);
     setMediaPickerPropKey(propKey);
     setMediaPickerOpen(true);
+  }, [canBrowseMedia]);
+
+  const handleCloseIconPicker = useCallback(() => {
+    setIconPickerOpen(false);
+    setIconPickerComponentIdx(null);
+    setIconPickerPropKey(null);
+  }, []);
+
+  const handleBrowseIcon = useCallback((componentIdx: number, propKey: string) => {
+    if (!canBrowseMedia) {
+      toast.error("Select an account to use the icon library");
+      return;
+    }
+    setIconPickerComponentIdx(componentIdx);
+    setIconPickerPropKey(propKey);
+    setIconPickerOpen(true);
   }, [canBrowseMedia]);
 
   const handleMediaSelect = useCallback((url: string) => {
@@ -6975,6 +7272,21 @@ export default function TemplateEditorPage() {
     );
   }, [showAiAssistant]);
 
+  // Listen for external requests to open the AI sidebar (e.g. from the global AI bubble)
+  const showAiAssistantRef = useRef(showAiAssistant);
+  showAiAssistantRef.current = showAiAssistant;
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ open?: boolean }>).detail;
+      // Only react if state actually needs to change (avoids re-dispatch loop)
+      if (detail?.open === true && !showAiAssistantRef.current) {
+        setShowAiAssistant(true);
+      }
+    };
+    window.addEventListener(TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT, handler);
+    return () => window.removeEventListener(TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT, handler);
+  }, []);
+
   useEffect(() => {
     return () => {
       if (typeof document !== "undefined") {
@@ -7205,33 +7517,75 @@ export default function TemplateEditorPage() {
       throw new Error("Select an account to upload media");
     }
 
-    const formData = new FormData();
-    formData.append("file", file);
+    const uploadToS3 = async () => {
+      const s3FormData = new FormData();
+      s3FormData.append("file", file);
+      if (mediaPickerAccountKey) {
+        s3FormData.append("accountKey", mediaPickerAccountKey);
+      } else {
+        s3FormData.append("category", "general");
+      }
+      const res = await fetch("/api/media", {
+        method: "POST",
+        body: s3FormData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string }).error || `Upload failed (${res.status})`,
+        );
+      }
+      return data as { file?: { url?: string } };
+    };
 
     const isEspUpload = Boolean(mediaPickerAccountKey);
+    let data: { file?: { url?: string } };
     if (isEspUpload) {
-      formData.append("accountKey", mediaPickerAccountKey!);
+      const espFormData = new FormData();
+      espFormData.append("file", file);
+      espFormData.append("accountKey", mediaPickerAccountKey!);
+
+      const espRes = await fetch("/api/esp/media", {
+        method: "POST",
+        body: espFormData,
+      });
+      const espData = await espRes.json().catch(() => ({}));
+      if (!espRes.ok) {
+        const errorMessage =
+          (espData as { error?: string }).error || `Upload failed (${espRes.status})`;
+        if (!shouldFallbackToS3Media(espRes.status, errorMessage)) {
+          throw new Error(errorMessage);
+        }
+        data = await uploadToS3();
+      } else {
+        data = espData as { file?: { url?: string } };
+      }
     } else {
-      formData.append("category", "general");
+      data = await uploadToS3();
     }
 
-    const res = await fetch(isEspUpload ? "/api/esp/media" : "/api/media", {
-      method: "POST",
-      body: formData,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error((data as { error?: string }).error || `Upload failed (${res.status})`);
-    }
-
-    const uploadedUrl =
-      (data as { file?: { url?: string } }).file?.url;
+    const uploadedUrl = data.file?.url;
     if (!uploadedUrl) {
       throw new Error("Upload succeeded but no image URL was returned");
     }
 
     updateComponentProp(componentIdx, propKey, uploadedUrl);
   }, [canBrowseMedia, mediaPickerAccountKey, updateComponentProp]);
+
+  const handleIconLibrarySelect = useCallback(async (selection: TemplateIconSelection) => {
+    if (iconPickerComponentIdx === null || !iconPickerPropKey) return;
+    const iconFile = await rasterizeSvgToPngFile(
+      selection.svgMarkup,
+      selection.id,
+    );
+    await handleUploadMedia(iconPickerComponentIdx, iconPickerPropKey, iconFile);
+    handleCloseIconPicker();
+  }, [
+    handleCloseIconPicker,
+    handleUploadMedia,
+    iconPickerComponentIdx,
+    iconPickerPropKey,
+  ]);
 
   const updateFrontmatter = (key: string, value: string) => {
     if (espMode && key === "title") {
@@ -7329,61 +7683,66 @@ export default function TemplateEditorPage() {
     [compilePreview, hiddenComponents, code, pushHistory],
   );
 
-  const copyText = useCallback(async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = value;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-  }, []);
-
-  const handleCopySuggestion = useCallback(
-    async (value: string) => {
-      await copyText(value);
-      setCopiedSuggestion(value);
-      setTimeout(() => setCopiedSuggestion(""), 1500);
-    },
-    [copyText],
-  );
-
   const applyAiEdits = useCallback(
     (edits: AssistantComponentEdit[]) => {
-      if (
-        !parsed ||
-        selectedComponent === null ||
-        !parsed.components[selectedComponent]
-      ) {
-        setAiError("Select a section first, then apply AI prop edits.");
-        return;
+      if (!parsed || edits.length === 0) return;
+
+      // Check if any edits have componentIndex (multi-component mode)
+      const hasIndexedEdits = edits.some((e) => typeof e.componentIndex === "number");
+
+      if (hasIndexedEdits) {
+        // Multi-component edit: apply each edit to its targeted component
+        const nextComponents = parsed.components.map((comp, i) => {
+          const matching = edits.filter((e) => e.componentIndex === i);
+          if (matching.length === 0) return comp;
+          const updatedProps = { ...comp.props };
+          for (const edit of matching) {
+            if (edit.key) updatedProps[edit.key] = edit.value;
+          }
+          return { ...comp, props: updatedProps };
+        });
+
+        const nextParsed = { ...parsed, components: nextComponents };
+        setParsed(nextParsed);
+        syncVisualToCode(nextParsed);
+
+        const affectedCount = new Set(edits.map((e) => e.componentIndex)).size;
+        setMessage(
+          `Applied ${edits.length} AI edit${edits.length === 1 ? "" : "s"} across ${affectedCount} section${affectedCount === 1 ? "" : "s"}`,
+        );
+        setTimeout(() => setMessage(""), 3000);
+      } else {
+        // Legacy single-component mode: apply to selected component
+        if (
+          selectedComponent === null ||
+          !parsed.components[selectedComponent]
+        ) {
+          setAiError("Select a section first, then apply AI prop edits.");
+          return;
+        }
+
+        const current = parsed.components[selectedComponent];
+        const updated = {
+          ...current,
+          props: { ...current.props },
+        };
+
+        for (const edit of edits) {
+          if (!edit.key) continue;
+          updated.props[edit.key] = edit.value;
+        }
+
+        const nextComponents = [...parsed.components];
+        nextComponents[selectedComponent] = updated;
+        const nextParsed = { ...parsed, components: nextComponents };
+        setParsed(nextParsed);
+        syncVisualToCode(nextParsed);
+
+        setMessage(
+          `Applied ${edits.length} AI edit${edits.length === 1 ? "" : "s"} to section ${selectedComponent + 1}`,
+        );
+        setTimeout(() => setMessage(""), 3000);
       }
-      if (edits.length === 0) return;
-
-      const current = parsed.components[selectedComponent];
-      const updated = {
-        ...current,
-        props: { ...current.props },
-      };
-
-      for (const edit of edits) {
-        if (!edit.key) continue;
-        updated.props[edit.key] = edit.value;
-      }
-
-      const nextComponents = [...parsed.components];
-      nextComponents[selectedComponent] = updated;
-      const nextParsed = { ...parsed, components: nextComponents };
-      setParsed(nextParsed);
-      syncVisualToCode(nextParsed);
-
-      setMessage(
-        `Applied ${edits.length} AI edit${edits.length === 1 ? "" : "s"} to section ${selectedComponent + 1}`,
-      );
-      setTimeout(() => setMessage(""), 3000);
     },
     [parsed, selectedComponent, syncVisualToCode],
   );
@@ -7398,6 +7757,11 @@ export default function TemplateEditorPage() {
 
   const handleAiBuildTemplate = useCallback(
     (build: TemplateBuild) => {
+      // Apply subject line and preview text if provided
+      const fm = build.frontmatter;
+      if (fm?.subject) setEspSubject(fm.subject);
+      if (fm?.previewText) setEspPreviewText(fm.previewText);
+
       if (build.mode === "visual" && build.components) {
         const newComponents = build.components.map((comp) => {
           const schema = componentSchemas[comp.type];
@@ -7482,8 +7846,8 @@ export default function TemplateEditorPage() {
     }
   }, [previewHtml, espSubject, espPreviewText]);
 
-  const handleAskAssistant = useCallback(async () => {
-    const prompt = aiPrompt.trim();
+  const handleAskAssistant = useCallback(async (promptOverride?: string) => {
+    const prompt = (promptOverride ?? aiPrompt).trim();
     if (!prompt || aiLoading) return;
 
     setAiLoading(true);
@@ -7549,17 +7913,31 @@ export default function TemplateEditorPage() {
             frontmatter: parsed?.frontmatter || {},
             baseProps: parsed?.baseProps || {},
             componentCount: parsed?.components.length || 0,
+            components: parsed?.components.map((c, i) => ({
+              index: i,
+              type: c.type,
+              label: componentSchemas[c.type]?.label || c.type,
+              props: c.props,
+            })) || [],
             selectedComponent: selectedEditorComponent,
             account: aiAccountContext,
           },
         }),
       });
 
-      const data = await res.json();
       if (!res.ok) {
-        setAiError(data.error || "AI request failed");
+        let errMsg = `AI request failed (${res.status})`;
+        try {
+          const errData = await res.json();
+          if (errData.error) errMsg = errData.error;
+        } catch {
+          // Response wasn't JSON (e.g. Next.js error page)
+        }
+        setAiError(errMsg);
         return;
       }
+
+      const data = await res.json();
 
       const reply = typeof data.reply === "string" ? data.reply : "";
       const suggestions = Array.isArray(data.suggestions)
@@ -7574,6 +7952,7 @@ export default function TemplateEditorPage() {
                 Boolean(row) && typeof row === "object",
             )
             .map((row: Record<string, unknown>) => ({
+              componentIndex: typeof row.componentIndex === "number" ? row.componentIndex : undefined,
               key: typeof row.key === "string" ? row.key : "",
               value: typeof row.value === "string" ? row.value : "",
               reason: typeof row.reason === "string" ? row.reason : undefined,
@@ -7604,6 +7983,11 @@ export default function TemplateEditorPage() {
         clarification,
       };
       setAiHistory((prev) => [...prev, assistantMsg]);
+
+      // Auto-apply component edits if they have componentIndex targeting
+      if (componentEdits.length > 0 && componentEdits.some((e: AssistantComponentEdit) => typeof e.componentIndex === "number")) {
+        applyAiEdits(componentEdits);
+      }
 
       // Handle template build: auto-apply if empty, else prompt
       if (templateBuild) {
@@ -7640,6 +8024,7 @@ export default function TemplateEditorPage() {
     accountLogos,
     isTemplateEmpty,
     handleAiBuildTemplate,
+    applyAiEdits,
   ]);
 
   const handleUndo = useCallback(() => {
@@ -9008,6 +9393,13 @@ export default function TemplateEditorPage() {
                 type="text"
                 value={editTitleValue}
                 onChange={(e) => setEditTitleValue(e.target.value)}
+                size={Math.min(
+                  Math.max(
+                    (editTitleValue.trim() || designLabel || "Template").length,
+                    12,
+                  ),
+                  48,
+                )}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     const trimmed = editTitleValue.trim();
@@ -9035,7 +9427,7 @@ export default function TemplateEditorPage() {
                   setIsEditingTitle(false);
                 }}
                 autoFocus
-                className="w-[min(44rem,64vw)] text-center text-lg font-bold bg-transparent border-b-2 border-[var(--primary)] text-[var(--foreground)] focus:outline-none"
+                className="max-w-[min(44rem,64vw)] rounded-xl border border-[var(--primary)] bg-[var(--background)]/80 px-4 py-1.5 text-center text-lg font-bold text-[var(--foreground)] shadow-[0_0_0_1px_rgba(99,102,241,0.18)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
               />
             ) : (
               <div className="group/title flex items-center justify-center gap-1.5 min-w-0">
@@ -9871,6 +10263,9 @@ export default function TemplateEditorPage() {
                                     onBrowseMedia={(propKey) =>
                                       handleBrowseMedia(index, propKey)
                                     }
+                                    onBrowseIcon={(propKey) =>
+                                      handleBrowseIcon(index, propKey)
+                                    }
                                     onUploadMedia={(propKey, file) =>
                                       handleUploadMedia(index, propKey, file)
                                     }
@@ -10308,7 +10703,7 @@ export default function TemplateEditorPage() {
                         <button
                           key={preset}
                           onClick={() => {
-                            setAiPrompt(preset);
+                            handleAskAssistant(preset);
                           }}
                           className="px-2.5 py-1.5 rounded-lg text-[10px] font-medium border border-[var(--ai-assist-border)] text-[var(--ai-ed-text-muted)] hover:text-[var(--ai-ed-text)] hover:bg-[var(--ai-ed-hover)] transition-colors"
                         >
@@ -10342,35 +10737,16 @@ export default function TemplateEditorPage() {
                         )}
                         {/* Suggestions */}
                         {msg.suggestions && msg.suggestions.length > 0 && (
-                          <div className="border border-[var(--ai-assist-border)] rounded-lg p-2.5 ai-assist-assistant-message">
-                            <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] mb-2">
-                              Suggestions
-                            </p>
-                            <div className="space-y-1.5">
-                              {msg.suggestions.map((suggestion, sIdx) => (
-                                <div
-                                  key={`${suggestion}-${sIdx}`}
-                                  className="flex items-start gap-2 bg-[var(--muted)] border border-[var(--ai-assist-border)] rounded-md px-2 py-1.5"
-                                >
-                                  <p className="text-xs flex-1 text-[var(--foreground)]">
-                                    {suggestion}
-                                  </p>
-                                  <button
-                                    onClick={() =>
-                                      handleCopySuggestion(suggestion)
-                                    }
-                                    className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                                    title="Copy suggestion"
-                                  >
-                                    {copiedSuggestion === suggestion ? (
-                                      <CheckIcon className="w-3.5 h-3.5 text-green-400" />
-                                    ) : (
-                                      <Square2StackIcon className="w-3.5 h-3.5" />
-                                    )}
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {msg.suggestions.map((suggestion, sIdx) => (
+                              <button
+                                key={`${suggestion}-${sIdx}`}
+                                onClick={() => handleAskAssistant(suggestion)}
+                                className="px-2.5 py-1.5 rounded-full text-[10px] font-medium border border-[var(--ai-assist-border)] text-[var(--ai-ed-text-muted)] hover:text-[var(--ai-ed-text)] hover:bg-[var(--ai-ed-hover)] transition-colors"
+                              >
+                                {suggestion}
+                              </button>
+                            ))}
                           </div>
                         )}
                         {/* Component edits (only show on the latest assistant message) */}
@@ -10523,7 +10899,9 @@ export default function TemplateEditorPage() {
                     className="flex-1 resize-none bg-[var(--ai-ed-input)] border border-[var(--ai-assist-border)] rounded-lg px-3 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none focus:border-[var(--ai-ed-focus)] focus:ring-1 focus:ring-[var(--ai-ed-focus)] transition-colors max-h-20"
                   />
                   <button
-                    onClick={handleAskAssistant}
+                    onClick={() => {
+                      void handleAskAssistant();
+                    }}
                     disabled={aiLoading || !aiPrompt.trim()}
                     className="ai-ed-primary-btn p-2.5 rounded-lg disabled:opacity-40 transition-all flex-shrink-0"
                     title="Send"
@@ -11143,6 +11521,12 @@ export default function TemplateEditorPage() {
             setMediaPickerComponentIdx(null);
             setMediaPickerPropKey(null);
           }}
+        />
+      )}
+      {iconPickerOpen && canBrowseMedia && (
+        <TemplateIconPickerModal
+          onSelect={handleIconLibrarySelect}
+          onClose={handleCloseIconPicker}
         />
       )}
     </div>

@@ -103,12 +103,13 @@ function normalizeResponse(raw: unknown): AssistantResponsePayload {
     ? row.componentEdits
         .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
         .map((item) => ({
+          componentIndex: typeof item.componentIndex === 'number' ? item.componentIndex : undefined,
           key: typeof item.key === 'string' ? item.key : '',
-          value: typeof item.value === 'string' ? item.value : '',
+          value: typeof item.value === 'string' ? item.value : (typeof item.value === 'number' ? String(item.value) : ''),
           reason: typeof item.reason === 'string' ? item.reason : undefined,
         }))
         .filter((item) => item.key && item.value)
-        .slice(0, 20)
+        .slice(0, 50)
     : [];
 
   const clarification = typeof row.clarification === 'string' && row.clarification.trim()

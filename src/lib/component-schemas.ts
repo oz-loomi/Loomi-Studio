@@ -1,4 +1,4 @@
-export type FieldType = 'text' | 'textarea' | 'color' | 'url' | 'image' | 'select' | 'toggle' | 'number' | 'padding' | 'radius' | 'unit' | 'range';
+export type FieldType = 'text' | 'textarea' | 'color' | 'url' | 'image' | 'icon' | 'select' | 'toggle' | 'number' | 'padding' | 'radius' | 'unit' | 'range';
 
 export const IMAGE_PLACEHOLDER = 'https://loomistorage.sfo3.digitaloceanspaces.com/media/_admin/69fa3adf4ae444edaadd1d0d7fee4b87/image placeholder.png';
 
@@ -397,20 +397,20 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       // ── Repeatable (no group) ──
       { key: 'feature1', label: 'Title', type: 'text', default: 'Factory-Trained Technicians', repeatableGroup: 'feature' },
       { key: 'feature1-desc', label: 'Description', type: 'textarea', default: 'Expert service from professionals who know your vehicle inside and out.', repeatableGroup: 'feature' },
-      { key: 'feature1-icon', label: 'Icon URL', type: 'image', half: true, repeatableGroup: 'feature' },
-      { key: 'feature1-image', label: 'Image URL', type: 'image', half: true, repeatableGroup: 'feature' },
+      { key: 'feature1-icon', label: 'Icon', type: 'icon', repeatableGroup: 'feature' },
+      { key: 'feature1-image', label: 'Image', type: 'image', repeatableGroup: 'feature' },
       { key: 'feature2', label: 'Title', type: 'text', default: 'Genuine OEM Parts', repeatableGroup: 'feature' },
       { key: 'feature2-desc', label: 'Description', type: 'textarea', default: 'High-quality original parts designed for long-term performance.', repeatableGroup: 'feature' },
-      { key: 'feature2-icon', label: 'Icon URL', type: 'image', half: true, repeatableGroup: 'feature' },
-      { key: 'feature2-image', label: 'Image URL', type: 'image', half: true, repeatableGroup: 'feature' },
+      { key: 'feature2-icon', label: 'Icon', type: 'icon', repeatableGroup: 'feature' },
+      { key: 'feature2-image', label: 'Image', type: 'image', repeatableGroup: 'feature' },
       { key: 'feature3', label: 'Title', type: 'text', default: 'Complimentary Inspection', repeatableGroup: 'feature' },
       { key: 'feature3-desc', label: 'Description', type: 'textarea', default: 'We check key systems to help prevent surprises down the road.', repeatableGroup: 'feature' },
-      { key: 'feature3-icon', label: 'Icon URL', type: 'image', half: true, repeatableGroup: 'feature' },
-      { key: 'feature3-image', label: 'Image URL', type: 'image', half: true, repeatableGroup: 'feature' },
+      { key: 'feature3-icon', label: 'Icon', type: 'icon', repeatableGroup: 'feature' },
+      { key: 'feature3-image', label: 'Image', type: 'image', repeatableGroup: 'feature' },
       { key: 'feature4', label: 'Title', type: 'text', default: 'Flexible Scheduling', repeatableGroup: 'feature' },
       { key: 'feature4-desc', label: 'Description', type: 'textarea', default: 'Choose appointment times that fit your schedule.', repeatableGroup: 'feature' },
-      { key: 'feature4-icon', label: 'Icon URL', type: 'image', half: true, repeatableGroup: 'feature' },
-      { key: 'feature4-image', label: 'Image URL', type: 'image', half: true, repeatableGroup: 'feature' },
+      { key: 'feature4-icon', label: 'Icon', type: 'icon', repeatableGroup: 'feature' },
+      { key: 'feature4-image', label: 'Image', type: 'image', repeatableGroup: 'feature' },
     ],
   },
 

@@ -11,7 +11,7 @@ export function getAnthropicClient(): Anthropic {
   return client;
 }
 
-export const ANTHROPIC_MODEL = 'claude-sonnet-4-5-20250514';
+export const ANTHROPIC_MODEL = 'claude-sonnet-4-5-20250929';
 
 /** Attempt to parse JSON from an AI response, stripping markdown fences if needed. */
 export function parseAiJson(raw: string): unknown {
