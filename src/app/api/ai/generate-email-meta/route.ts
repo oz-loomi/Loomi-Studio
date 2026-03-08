@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
+import { getAnthropicClient, ANTHROPIC_MODEL, parseAiJson } from '@/lib/anthropic';
 
 interface GenerateEmailMetaBody {
   field: 'subject' | 'previewText';
@@ -20,13 +21,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid field — must be "subject" or "previewText"' }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY is not configured' }, { status: 400 });
-    }
-
-    const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
-    const apiBase = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    const client = getAnthropicClient();
 
     const fieldLabel = field === 'subject' ? 'subject line' : 'preview text';
 
@@ -35,7 +30,8 @@ export async function POST(req: NextRequest) {
 Rules:
 - ${field === 'subject' ? 'Subject lines should be 6-10 words, attention-grabbing, and relevant to the content.' : 'Preview text should be 40-90 characters, complement the subject line, and entice the reader to open.'}
 - Do NOT use spammy language or all-caps.
-- Return ONLY a JSON object: { "result": "your generated text" }`;
+- Return ONLY a JSON object: { "result": "your generated text" }
+- No markdown fences or extra text.`;
 
     const userParts: string[] = [];
     if (emailTextContent?.trim()) {
@@ -51,37 +47,25 @@ Rules:
       userParts.push('No email content provided — generate a generic professional email subject line.');
     }
 
-    const llmRes = await fetch(`${apiBase}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.7,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userParts.join('\n\n') },
-        ],
-      }),
+    const response = await client.messages.create({
+      model: ANTHROPIC_MODEL,
+      system: systemPrompt,
+      messages: [
+        { role: 'user', content: userParts.join('\n\n') },
+      ],
+      temperature: 0.7,
+      max_tokens: 256,
     });
 
-    const llmData = await llmRes.json();
-    if (!llmRes.ok) {
-      const message = llmData?.error?.message || 'AI request failed';
-      return NextResponse.json({ error: message }, { status: llmRes.status });
-    }
-
-    const content = llmData?.choices?.[0]?.message?.content;
-    if (!content || typeof content !== 'string') {
+    const content =
+      response.content[0]?.type === 'text' ? response.content[0].text : '';
+    if (!content) {
       return NextResponse.json({ error: 'AI response was empty' }, { status: 502 });
     }
 
     let parsed: { result?: string };
     try {
-      parsed = JSON.parse(content);
+      parsed = parseAiJson(content) as { result?: string };
     } catch {
       return NextResponse.json({ error: 'AI response was not valid JSON' }, { status: 502 });
     }

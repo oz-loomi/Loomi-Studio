@@ -6372,7 +6372,7 @@ export default function TemplateEditorPage() {
       clarification?: string | null;
     }>
   >([]);
-  const [, setPendingAiBuild] = useState<TemplateBuild | null>(null);
+  const [pendingAiBuild, setPendingAiBuild] = useState<TemplateBuild | null>(null);
   const aiScrollRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -10243,6 +10243,7 @@ export default function TemplateEditorPage() {
                         setAiSuggestions([]);
                         setAiComponentEdits([]);
                         setAiError("");
+                        setPendingAiBuild(null);
                       }}
                       className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                       title="Clear conversation"
@@ -10418,6 +10419,61 @@ export default function TemplateEditorPage() {
                                   </div>
                                 ))}
                               </div>
+                            </div>
+                          )}
+                        {/* Template build result */}
+                        {msg.templateBuild &&
+                          msg.templateBuild.mode === "visual" &&
+                          msg.templateBuild.components &&
+                          idx === aiHistory.length - 1 && (
+                            <div className="border border-[var(--ai-assist-border)] rounded-lg p-2.5 ai-assist-assistant-message">
+                              <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)] mb-2">
+                                Generated Email
+                              </p>
+                              <div className="space-y-1">
+                                {msg.templateBuild.components.map(
+                                  (comp, cIdx) => (
+                                    <div
+                                      key={`build-${cIdx}`}
+                                      className="flex items-center gap-2 px-2 py-1 rounded-md bg-[var(--muted)] border border-[var(--ai-assist-border)]"
+                                    >
+                                      <span className="text-[10px] font-mono text-[var(--muted-foreground)]">
+                                        {cIdx + 1}.
+                                      </span>
+                                      <span className="text-xs text-[var(--foreground)]">
+                                        {comp.type}
+                                      </span>
+                                    </div>
+                                  ),
+                                )}
+                              </div>
+                              {pendingAiBuild === msg.templateBuild ? (
+                                <div className="mt-2.5 space-y-1.5">
+                                  <p className="text-[10px] text-amber-400">
+                                    Your template has {parsed?.components.length || 0} existing sections. Replace all?
+                                  </p>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() =>
+                                        handleAiBuildTemplate(msg.templateBuild!)
+                                      }
+                                      className="ai-ed-primary-btn px-3 py-1.5 rounded-md text-[10px] font-semibold transition-all"
+                                    >
+                                      Replace
+                                    </button>
+                                    <button
+                                      onClick={() => setPendingAiBuild(null)}
+                                      className="px-3 py-1.5 rounded-md text-[10px] font-semibold border border-[var(--ai-assist-border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : !pendingAiBuild && idx === aiHistory.length - 1 ? (
+                                <p className="mt-2 text-[10px] text-green-400">
+                                  Applied to template
+                                </p>
+                              ) : null}
                             </div>
                           )}
                       </div>

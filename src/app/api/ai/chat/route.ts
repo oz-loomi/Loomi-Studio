@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
 import { getChatSystemPrompt } from '@/lib/ai-knowledge';
+import { getAnthropicClient, ANTHROPIC_MODEL, parseAiJson } from '@/lib/anthropic';
 
 interface ConversationMessage {
   role: 'user' | 'assistant';
@@ -50,16 +51,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'OPENAI_API_KEY is not configured' },
-        { status: 400 },
-      );
-    }
-
-    const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
-    const apiBase = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    const client = getAnthropicClient();
 
     const requestContext = body.context || {};
     const accountKey = requestContext.accountKey ?? null;
@@ -73,11 +65,9 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Build message array with conversation history (last 5 exchanges max)
+    // Build message array with conversation history (last 10 messages)
     const systemPrompt = await getChatSystemPrompt();
-    const messages: Array<{ role: string; content: string }> = [
-      { role: 'system', content: systemPrompt },
-    ];
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
     const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
     for (const msg of history) {
@@ -90,34 +80,23 @@ export async function POST(req: NextRequest) {
 
     messages.push({ role: 'user', content: userContent });
 
-    const llmRes = await fetch(`${apiBase}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.4,
-        response_format: { type: 'json_object' },
-        messages,
-      }),
+    const response = await client.messages.create({
+      model: ANTHROPIC_MODEL,
+      system: systemPrompt,
+      messages,
+      temperature: 0.4,
+      max_tokens: 1024,
     });
 
-    const llmData = await llmRes.json();
-    if (!llmRes.ok) {
-      const message = llmData?.error?.message || 'AI request failed';
-      return NextResponse.json({ error: message }, { status: llmRes.status });
-    }
-
-    const content = llmData?.choices?.[0]?.message?.content;
-    if (!content || typeof content !== 'string') {
+    const content =
+      response.content[0]?.type === 'text' ? response.content[0].text : '';
+    if (!content) {
       return NextResponse.json({ error: 'AI response was empty' }, { status: 502 });
     }
 
     let parsed: unknown;
     try {
-      parsed = JSON.parse(content);
+      parsed = parseAiJson(content);
     } catch {
       return NextResponse.json({ error: 'AI response was not valid JSON' }, { status: 502 });
     }

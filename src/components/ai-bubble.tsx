@@ -56,12 +56,18 @@ export function AiBubble() {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
         e.preventDefault();
-        setIsOpen((prev) => !prev);
+        if (isTemplateEditor) {
+          window.dispatchEvent(
+            new CustomEvent(TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT, { detail: { open: true } }),
+          );
+        } else {
+          setIsOpen((prev) => !prev);
+        }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [isTemplateEditor]);
 
   // ── Open from header Help action ──
   useEffect(() => {
@@ -204,8 +210,30 @@ export function AiBubble() {
     setError('');
   };
 
-  // Don't render on hidden pages
-  if (isTemplateEditor || isFullScreen || isTemplateAiSidebarOpen) return null;
+  // Don't render on hidden pages or when template sidebar is open
+  if (isFullScreen) return null;
+  if (isTemplateEditor && isTemplateAiSidebarOpen) return null;
+
+  // On template editor pages, show only the bubble that opens the sidebar
+  if (isTemplateEditor) {
+    return (
+      <button
+        ref={bubbleRef}
+        onClick={() => {
+          window.dispatchEvent(
+            new CustomEvent(TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT, { detail: { open: true } }),
+          );
+        }}
+        className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full text-white hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center ai-horizon-fab"
+        title="Ask Loomi (⌘J)"
+      >
+        <SparklesIcon className="w-5 h-5" />
+      </button>
+    );
+  }
+
+  // Hide bubble when template AI sidebar is open on non-editor pages
+  if (isTemplateAiSidebarOpen) return null;
 
   return (
     <>

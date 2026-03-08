@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
-import { getAssistantSystemPrompt } from '@/lib/ai-knowledge';
+import { getAssistantSystemPrompt, buildAccountContext, AccountContextInput } from '@/lib/ai-knowledge';
+import { getAnthropicClient, ANTHROPIC_MODEL, parseAiJson } from '@/lib/anthropic';
+import { componentSchemas } from '@/lib/component-schemas';
 
 interface ConversationMessage {
   role: 'user' | 'assistant';
@@ -13,10 +15,72 @@ interface AssistantRequestBody {
   history?: ConversationMessage[];
 }
 
+interface TemplateBuild {
+  mode: 'visual' | 'code';
+  components?: Array<{ type: string; props: Record<string, string> }>;
+  html?: string;
+  frontmatter?: Record<string, string>;
+  baseProps?: Record<string, string>;
+}
+
 interface AssistantResponsePayload {
   reply: string;
   suggestions: string[];
   componentEdits: Array<{ key: string; value: string; reason?: string }>;
+  templateBuild: TemplateBuild | null;
+  clarification: string | null;
+}
+
+const VALID_COMPONENT_TYPES = new Set(Object.keys(componentSchemas));
+
+function normalizeTemplateBuild(raw: unknown): TemplateBuild | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const obj = raw as Record<string, unknown>;
+  const mode = obj.mode;
+  if (mode !== 'visual' && mode !== 'code') return null;
+
+  const result: TemplateBuild = { mode };
+
+  if (mode === 'visual' && Array.isArray(obj.components)) {
+    result.components = obj.components
+      .filter((c): c is Record<string, unknown> => Boolean(c) && typeof c === 'object')
+      .filter((c) => typeof c.type === 'string' && VALID_COMPONENT_TYPES.has(c.type))
+      .map((c) => {
+        const props: Record<string, string> = {};
+        if (c.props && typeof c.props === 'object') {
+          for (const [k, v] of Object.entries(c.props as Record<string, unknown>)) {
+            if (typeof v === 'string') props[k] = v;
+            else if (v !== null && v !== undefined) props[k] = String(v);
+          }
+        }
+        return { type: c.type as string, props };
+      });
+    if (result.components.length === 0) return null;
+  } else if (mode === 'code' && typeof obj.html === 'string' && obj.html.trim()) {
+    result.html = obj.html;
+  } else {
+    return null;
+  }
+
+  // Optional frontmatter and baseProps
+  if (obj.frontmatter && typeof obj.frontmatter === 'object') {
+    const fm: Record<string, string> = {};
+    for (const [k, v] of Object.entries(obj.frontmatter as Record<string, unknown>)) {
+      if (typeof v === 'string') fm[k] = v;
+    }
+    if (Object.keys(fm).length > 0) result.frontmatter = fm;
+  }
+
+  if (obj.baseProps && typeof obj.baseProps === 'object') {
+    const bp: Record<string, string> = {};
+    for (const [k, v] of Object.entries(obj.baseProps as Record<string, unknown>)) {
+      if (typeof v === 'string') bp[k] = v;
+    }
+    if (Object.keys(bp).length > 0) result.baseProps = bp;
+  }
+
+  return result;
 }
 
 function normalizeResponse(raw: unknown): AssistantResponsePayload {
@@ -25,6 +89,8 @@ function normalizeResponse(raw: unknown): AssistantResponsePayload {
       reply: '',
       suggestions: [],
       componentEdits: [],
+      templateBuild: null,
+      clarification: null,
     };
   }
 
@@ -45,7 +111,14 @@ function normalizeResponse(raw: unknown): AssistantResponsePayload {
         .slice(0, 20)
     : [];
 
-  return { reply, suggestions, componentEdits };
+  const clarification = typeof row.clarification === 'string' && row.clarification.trim()
+    ? row.clarification.trim()
+    : null;
+
+  // If clarification is present, ignore templateBuild
+  const templateBuild = clarification ? null : normalizeTemplateBuild(row.templateBuild);
+
+  return { reply, suggestions, componentEdits, templateBuild, clarification };
 }
 
 export async function POST(req: NextRequest) {
@@ -59,28 +132,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'OPENAI_API_KEY is not configured' },
-        { status: 400 },
-      );
-    }
+    const client = getAnthropicClient();
 
-    const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
-    const apiBase = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-
-    const systemPrompt = await getAssistantSystemPrompt();
+    // Build account context if available
+    const accountData = body.context?.account as AccountContextInput | undefined;
+    const accountContext = accountData ? buildAccountContext(accountData) : undefined;
+    const systemPrompt = await getAssistantSystemPrompt(accountContext);
 
     const userContent = JSON.stringify({
       prompt,
       context: body.context || {},
     });
 
-    // Build message array with conversation history (last 5 exchanges max)
-    const messages: Array<{ role: string; content: string }> = [
-      { role: 'system', content: systemPrompt },
-    ];
+    // Build message array with conversation history (last 10 messages)
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
     const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
     for (const msg of history) {
@@ -93,49 +158,38 @@ export async function POST(req: NextRequest) {
 
     messages.push({ role: 'user', content: userContent });
 
-    const llmRes = await fetch(`${apiBase}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.4,
-        response_format: { type: 'json_object' },
-        messages,
-      }),
+    const response = await client.messages.create({
+      model: ANTHROPIC_MODEL,
+      system: systemPrompt,
+      messages,
+      temperature: 0.4,
+      max_tokens: 4096,
     });
 
-    const llmData = await llmRes.json();
-    if (!llmRes.ok) {
-      const message = llmData?.error?.message || 'AI request failed';
-      return NextResponse.json({ error: message }, { status: llmRes.status });
-    }
-
-    const content = llmData?.choices?.[0]?.message?.content;
-    if (!content || typeof content !== 'string') {
+    const content =
+      response.content[0]?.type === 'text' ? response.content[0].text : '';
+    if (!content) {
       return NextResponse.json({ error: 'AI response was empty' }, { status: 502 });
     }
 
     let parsed: unknown;
     try {
-      parsed = JSON.parse(content);
+      parsed = parseAiJson(content);
     } catch {
       return NextResponse.json({ error: 'AI response was not valid JSON' }, { status: 502 });
     }
 
     const normalized = normalizeResponse(parsed);
-    if (!normalized.reply && normalized.suggestions.length === 0 && normalized.componentEdits.length === 0) {
+    if (!normalized.reply && normalized.suggestions.length === 0 && normalized.componentEdits.length === 0 && !normalized.templateBuild && !normalized.clarification) {
       normalized.reply = 'No suggestions generated. Try a more specific prompt.';
     }
 
     return NextResponse.json(normalized);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to run AI assistant';
     return NextResponse.json(
-      { error: err?.message || 'Failed to run AI assistant' },
+      { error: message },
       { status: 500 },
     );
   }
 }
-

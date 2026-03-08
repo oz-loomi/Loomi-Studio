@@ -4,10 +4,10 @@
 [data-theme="dark"] {
   --background: #09090b;
   --foreground: #fafafa;
-  --card: rgba(24, 24, 27, 0.5);
+  --card: rgba(24, 24, 27, 0.62);
   --card-foreground: #fafafa;
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.06);
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.07);
   --primary: #6366f1;
   --primary-foreground: #ffffff;
   --muted: rgba(255, 255, 255, 0.05);
@@ -33,10 +33,10 @@
     );
 
   /* Liquid glass sidebar — dark */
-  --sidebar-bg: rgba(12, 12, 20, 0.6);
+  --sidebar-bg: rgba(12, 12, 20, 0.7);
   --sidebar-foreground: #fafafa;
-  --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-border-soft: rgba(255, 255, 255, 0.08);
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-border-soft: rgba(255, 255, 255, 0.1);
   --sidebar-muted: rgba(255, 255, 255, 0.05);
   --sidebar-muted-foreground: #a1a1aa;
   --sidebar-input: rgba(255, 255, 255, 0.06);
@@ -96,10 +96,10 @@
 [data-theme="light"] {
   --background: #f8f9fb;
   --foreground: #09090b;
-  --card: rgba(255, 255, 255, 0.5);
+  --card: rgba(255, 255, 255, 0.62);
   --card-foreground: #09090b;
-  --border: rgba(0, 0, 0, 0.08);
-  --input: rgba(0, 0, 0, 0.04);
+  --border: rgba(0, 0, 0, 0.09);
+  --input: rgba(0, 0, 0, 0.05);
   --primary: #3b82f6;
   --primary-foreground: #ffffff;
   --muted: rgba(0, 0, 0, 0.04);
@@ -125,10 +125,10 @@
     );
 
   /* Liquid glass sidebar — light */
-  --sidebar-bg: rgba(255, 255, 255, 0.45);
+  --sidebar-bg: rgba(255, 255, 255, 0.58);
   --sidebar-foreground: #09090b;
-  --sidebar-border: rgba(255, 255, 255, 0.6);
-  --sidebar-border-soft: rgba(203, 213, 225, 0.9);
+  --sidebar-border: rgba(255, 255, 255, 0.65);
+  --sidebar-border-soft: rgba(203, 213, 225, 0.92);
   --sidebar-muted: rgba(0, 0, 0, 0.03);
   --sidebar-muted-foreground: #52525b;
   --sidebar-input: rgba(0, 0, 0, 0.04);
@@ -298,7 +298,7 @@ main[data-scrolled='true'] .page-sticky-header {
 }
 
 [data-theme='light'] main[data-scrolled='true'] .page-sticky-header {
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.82);
   border-color: rgba(255, 255, 255, 0.9);
 }
 
@@ -313,10 +313,10 @@ main[data-scrolled='true'] .page-sticky-header {
 
 /* Strong variant for high-contrast filter panels */
 [data-theme='dark'] .glass-panel-strong {
-  background: rgba(10, 10, 18, 0.88);
+  background: rgba(10, 10, 18, 0.9);
 }
 [data-theme='light'] .glass-panel-strong {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.93);
 }
 
 /* Subtle top-edge highlight for the glass effect */
@@ -516,9 +516,9 @@ main[data-scrolled='true'] .page-sticky-header {
 
 /* ── Glass modal ── dialogs, large overlays */
 .glass-modal {
-  background: rgba(18, 18, 22, 0.82);
+  background: rgba(18, 18, 22, 0.86);
   backdrop-filter: blur(32px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.11);
   border-radius: 1rem;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4),
     inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
@@ -527,17 +527,17 @@ main[data-scrolled='true'] .page-sticky-header {
 }
 .glass-modal:hover {
   transform: none;
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.11);
 }
 [data-theme='light'] .glass-modal {
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.65);
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.1),
     inset 0 0.5px 0 rgba(255, 255, 255, 0.8);
 }
 [data-theme='light'] .glass-modal:hover {
   transform: none;
-  border-color: rgba(255, 255, 255, 0.6);
+  border-color: rgba(255, 255, 255, 0.65);
 }
 
 /* (glass-dropdown is defined above — single source of truth) */
