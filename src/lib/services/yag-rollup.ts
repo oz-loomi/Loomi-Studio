@@ -1019,7 +1019,10 @@ async function fetchAllGhlContactsForRollup(
   const seenContactIds = new Set<string>();
   const seenCursors = new Set<string>();
   let hasMore = true;
-  let startAfter: string | undefined;
+  // GHL pagination requires two separate cursor values:
+  //   startAfterId (string contact ID) and startAfter (numeric sort key).
+  let cursorId: string | undefined;   // meta.startAfterId
+  let cursorNum: string | undefined;  // meta.startAfter (kept as string for query param)
   let page = 0;
   let useSearchEndpoint = false;
 
@@ -1028,8 +1031,10 @@ async function fetchAllGhlContactsForRollup(
       locationId,
       limit: String(GHL_PAGE_SIZE),
     });
-    if (startAfter) query.set('startAfter', startAfter);
-    if (page > 0 && startAfter) query.set('startAfterId', startAfter);
+    if (page > 0) {
+      if (cursorNum !== undefined) query.set('startAfter', cursorNum);
+      if (cursorId !== undefined) query.set('startAfterId', cursorId);
+    }
 
     const endpointPath = useSearchEndpoint ? '/contacts/search' : '/contacts/';
     const res = await fetch(`${GHL_BASE}${endpointPath}?${query.toString()}`, {
@@ -1072,21 +1077,30 @@ async function fetchAllGhlContactsForRollup(
     if (allContacts.length >= maxContacts) break;
     if (newContactsThisPage === 0) break;
 
-    const startAfterId = data?.meta?.startAfterId;
+    // Extract both cursor values from meta — GHL requires both for pagination.
+    const metaStartAfterId = data?.meta?.startAfterId;
+    const metaStartAfter = data?.meta?.startAfter;
     const lastContact = contactsRaw[contactsRaw.length - 1] as Record<string, unknown> | undefined;
     const lastId = lastContact?.id || lastContact?._id;
-    const nextCursor = typeof startAfterId === 'string' && startAfterId.trim()
-      ? startAfterId.trim()
+
+    // startAfterId: prefer meta, fall back to last contact id
+    const nextCursorId = typeof metaStartAfterId === 'string' && metaStartAfterId.trim()
+      ? metaStartAfterId.trim()
       : typeof lastId === 'string' && lastId.trim()
         ? lastId.trim()
         : '';
-    if (!nextCursor) break;
-    if (seenCursors.has(nextCursor)) break;
-    seenCursors.add(nextCursor);
-    startAfter = nextCursor;
 
-    // Some GHL variants omit nextPage metadata; continue while page is full and cursor advances.
-    hasMore = contactsRaw.length >= GHL_PAGE_SIZE && Boolean(startAfter);
+    // startAfter: numeric sort key from meta (stringified for query param)
+    const nextCursorNum = metaStartAfter != null ? String(metaStartAfter) : undefined;
+
+    if (!nextCursorId) break;
+    if (seenCursors.has(nextCursorId)) break;
+    seenCursors.add(nextCursorId);
+    cursorId = nextCursorId;
+    cursorNum = nextCursorNum;
+
+    // Continue while page is full and we have at least the id cursor.
+    hasMore = contactsRaw.length >= GHL_PAGE_SIZE && Boolean(cursorId);
     page += 1;
   }
 

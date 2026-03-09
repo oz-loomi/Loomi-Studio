@@ -110,7 +110,10 @@ export async function fetchAllContacts(
 ): Promise<Record<string, unknown>[]> {
   const allContacts: Record<string, unknown>[] = [];
   let hasMore = true;
-  let startAfter: string | undefined;
+  // GHL pagination requires two separate cursor values:
+  //   startAfterId (string contact ID) and startAfter (numeric sort key).
+  let cursorId: string | undefined;   // meta.startAfterId
+  let cursorNum: string | undefined;  // meta.startAfter (kept as string for query param)
   let page = 0;
 
   while (hasMore && allContacts.length < MAX_CONTACTS) {
@@ -118,8 +121,10 @@ export async function fetchAllContacts(
       locationId,
       limit: String(PAGE_SIZE),
     });
-    if (startAfter) query.set('startAfter', startAfter);
-    if (page > 0) query.set('startAfterId', startAfter || '');
+    if (page > 0) {
+      if (cursorNum !== undefined) query.set('startAfter', cursorNum);
+      if (cursorId !== undefined) query.set('startAfterId', cursorId);
+    }
 
     const res = await fetch(`${GHL_BASE}/contacts/?${query.toString()}`, {
       method: 'GET',
@@ -147,18 +152,20 @@ export async function fetchAllContacts(
 
     allContacts.push(...contactsRaw);
 
-    // GHL pagination: use startAfterId from meta or last contact id
+    // Extract both cursor values — GHL requires both for pagination.
     const nextPageUrl = data?.meta?.nextPageUrl || data?.meta?.nextPage;
-    const startAfterId = data?.meta?.startAfterId;
+    const metaStartAfterId = data?.meta?.startAfterId;
+    const metaStartAfter = data?.meta?.startAfter;
 
-    if (startAfterId) {
-      startAfter = startAfterId;
+    if (metaStartAfterId) {
+      cursorId = String(metaStartAfterId);
     } else if (contactsRaw.length > 0) {
       const lastContact = contactsRaw[contactsRaw.length - 1];
-      startAfter = lastContact?.id || lastContact?._id;
+      cursorId = lastContact?.id || lastContact?._id;
     }
+    cursorNum = metaStartAfter != null ? String(metaStartAfter) : undefined;
 
-    hasMore = contactsRaw.length >= PAGE_SIZE && !!startAfter && !!(nextPageUrl || startAfterId);
+    hasMore = contactsRaw.length >= PAGE_SIZE && !!cursorId && !!(nextPageUrl || metaStartAfterId);
     page++;
   }
 
