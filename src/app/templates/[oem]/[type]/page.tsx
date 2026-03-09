@@ -50,6 +50,7 @@ import {
 import { ComponentIcon, SectionsIcon } from "@/components/icon-map";
 import { CodeEditor } from "@/components/code-editor";
 import { TEMPLATE_AI_SIDEBAR_TOGGLE_EVENT } from "@/lib/ui-events";
+import { buildCurrentEmailContext } from "@/lib/template-editor-ai-context";
 import PrimaryButton from "@/components/primary-button";
 
 type EditorMode = "code" | "visual";
@@ -1669,6 +1670,19 @@ export default function TemplateEditorPage() {
     };
   }, [selectedComponent, parsed]);
 
+  const currentEmailContext = useMemo(
+    () =>
+      buildCurrentEmailContext({
+        parsed,
+        previewHtml,
+        rawTemplate: code,
+        subject: parsed?.frontmatter?.subject || parsed?.frontmatter?.title || null,
+        previewText: parsed?.frontmatter?.previewText || null,
+        selectedComponent: selectedEditorComponent,
+      }),
+    [parsed, previewHtml, code, selectedEditorComponent],
+  );
+
   const compilePreview = useCallback(
     async (html: string) => {
       setPreviewLoading(true);
@@ -2110,6 +2124,7 @@ export default function TemplateEditorPage() {
             frontmatter: parsed?.frontmatter || {},
             baseProps: parsed?.baseProps || {},
             componentCount: parsed?.components.length || 0,
+            currentEmail: currentEmailContext,
             selectedComponent: selectedEditorComponent,
           },
         }),
@@ -2173,6 +2188,7 @@ export default function TemplateEditorPage() {
     design,
     editorMode,
     parsed,
+    currentEmailContext,
     selectedEditorComponent,
     templateName,
   ]);

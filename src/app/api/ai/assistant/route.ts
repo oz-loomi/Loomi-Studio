@@ -26,7 +26,7 @@ interface TemplateBuild {
 interface AssistantResponsePayload {
   reply: string;
   suggestions: string[];
-  componentEdits: Array<{ key: string; value: string; reason?: string }>;
+  componentEdits: Array<{ componentIndex?: number; key: string; value: string; reason?: string }>;
   templateBuild: TemplateBuild | null;
   clarification: string | null;
 }
@@ -122,6 +122,20 @@ function normalizeResponse(raw: unknown): AssistantResponsePayload {
   return { reply, suggestions, componentEdits, templateBuild, clarification };
 }
 
+function buildAssistantUserContent(prompt: string, context: Record<string, unknown>): string {
+  return [
+    'USER REQUEST:',
+    prompt,
+    '',
+    'EDITOR CONTEXT JSON:',
+    JSON.stringify(context),
+    '',
+    'IMPORTANT:',
+    '- Read the current email context before asking clarifying questions.',
+    '- Infer details already present in the email and ask only about missing or conflicting information.',
+  ].join('\n');
+}
+
 export async function POST(req: NextRequest) {
   const { error } = await requireAuth();
   if (error) return error;
@@ -140,10 +154,8 @@ export async function POST(req: NextRequest) {
     const accountContext = accountData ? buildAccountContext(accountData) : undefined;
     const systemPrompt = await getAssistantSystemPrompt(accountContext);
 
-    const userContent = JSON.stringify({
-      prompt,
-      context: body.context || {},
-    });
+    const context = body.context || {};
+    const userContent = buildAssistantUserContent(prompt, context);
 
     // Build message array with conversation history (last 10 messages)
     const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
