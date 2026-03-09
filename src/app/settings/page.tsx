@@ -3588,11 +3588,15 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
     setRunningMode(mode);
     setSyncProgress(null);
     try {
-      const body = {
+      const body: Record<string, unknown> = {
         jobKey,
         dryRun: mode === 'dry',
         fullSync: mode === 'full',
       };
+      // Manual full syncs should not be capped by the env-var limit
+      if (mode === 'full') {
+        body.maxUpserts = 250_000;
+      }
       const res = await fetch('/api/yag-rollup/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
