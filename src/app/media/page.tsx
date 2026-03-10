@@ -184,6 +184,38 @@ interface CropRect {
   height: number;
 }
 
+type CropResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+type CropInteraction =
+  | {
+    mode: 'draw' | 'move';
+    startPoint: { x: number; y: number };
+    originCrop: CropRect;
+  }
+  | {
+    mode: 'resize';
+    startPoint: { x: number; y: number };
+    originCrop: CropRect;
+    handle: CropResizeHandle;
+  };
+
+const MIN_CROP_SIZE = 0.02;
+
+const FREE_CROP_HANDLES: Array<{
+  id: CropResizeHandle;
+  className: string;
+  cursorClassName: string;
+}> = [
+  { id: 'n', className: 'left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 w-6 h-3', cursorClassName: 'cursor-ns-resize' },
+  { id: 's', className: 'left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 w-6 h-3', cursorClassName: 'cursor-ns-resize' },
+  { id: 'e', className: 'right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-3 h-6', cursorClassName: 'cursor-ew-resize' },
+  { id: 'w', className: 'left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-6', cursorClassName: 'cursor-ew-resize' },
+  { id: 'ne', className: 'right-0 top-0 translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5', cursorClassName: 'cursor-nesw-resize' },
+  { id: 'nw', className: 'left-0 top-0 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5', cursorClassName: 'cursor-nwse-resize' },
+  { id: 'se', className: 'right-0 bottom-0 translate-x-1/2 translate-y-1/2 w-3.5 h-3.5', cursorClassName: 'cursor-nwse-resize' },
+  { id: 'sw', className: 'left-0 bottom-0 -translate-x-1/2 translate-y-1/2 w-3.5 h-3.5', cursorClassName: 'cursor-nesw-resize' },
+];
+
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -256,6 +288,50 @@ function computeDragCrop(
   };
 }
 
+function moveCropRect(
+  crop: CropRect,
+  deltaX: number,
+  deltaY: number,
+): CropRect {
+  return {
+    x: clampNumber(crop.x + deltaX, 0, Math.max(0, 1 - crop.width)),
+    y: clampNumber(crop.y + deltaY, 0, Math.max(0, 1 - crop.height)),
+    width: crop.width,
+    height: crop.height,
+  };
+}
+
+function resizeFreeCropRect(
+  crop: CropRect,
+  handle: CropResizeHandle,
+  point: { x: number; y: number },
+): CropRect {
+  let left = crop.x;
+  let right = crop.x + crop.width;
+  let top = crop.y;
+  let bottom = crop.y + crop.height;
+
+  if (handle.includes('w')) {
+    left = clampNumber(point.x, 0, right - MIN_CROP_SIZE);
+  }
+  if (handle.includes('e')) {
+    right = clampNumber(point.x, left + MIN_CROP_SIZE, 1);
+  }
+  if (handle.includes('n')) {
+    top = clampNumber(point.y, 0, bottom - MIN_CROP_SIZE);
+  }
+  if (handle.includes('s')) {
+    bottom = clampNumber(point.y, top + MIN_CROP_SIZE, 1);
+  }
+
+  return {
+    x: left,
+    y: top,
+    width: clampNumber(right - left, MIN_CROP_SIZE, 1),
+    height: clampNumber(bottom - top, MIN_CROP_SIZE, 1),
+  };
+}
+
 function cropOutputMimeType(inputType: string | undefined): string {
   if (inputType === 'image/jpeg' || inputType === 'image/png' || inputType === 'image/webp') {
     return inputType;
@@ -290,7 +366,7 @@ function CropEditorModal({ file, saving, onClose, onSave }: CropEditorModalProps
   const [aspectRatio, setAspectRatio] = useState<number | null>(null);
   const [crop, setCrop] = useState<CropRect>(() => defaultCropRect(null));
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
-  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const interactionRef = useRef<CropInteraction | null>(null);
   const dragMovedRef = useRef(false);
   const cropBeforeDragRef = useRef<CropRect>(crop);
 
@@ -308,33 +384,82 @@ function CropEditorModal({ file, saving, onClose, onSave }: CropEditorModalProps
     };
   }, []);
 
-  const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (saving) return;
-    const point = getPoint(event.clientX, event.clientY);
-    if (!point) return;
-    event.preventDefault();
-    dragStartRef.current = point;
+  const beginInteraction = (interaction: CropInteraction) => {
+    interactionRef.current = interaction;
     dragMovedRef.current = false;
     cropBeforeDragRef.current = crop;
   };
 
+  const handleImageMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (saving) return;
+    const point = getPoint(event.clientX, event.clientY);
+    if (!point) return;
+    event.preventDefault();
+    beginInteraction({
+      mode: 'draw',
+      startPoint: point,
+      originCrop: crop,
+    });
+  };
+
+  const handleSelectionMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (saving || !hasSelection) return;
+    const point = getPoint(event.clientX, event.clientY);
+    if (!point) return;
+    event.preventDefault();
+    event.stopPropagation();
+    beginInteraction({
+      mode: 'move',
+      startPoint: point,
+      originCrop: crop,
+    });
+  };
+
+  const handleResizeHandleMouseDown = (handle: CropResizeHandle) => (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (saving) return;
+    const point = getPoint(event.clientX, event.clientY);
+    if (!point) return;
+    event.preventDefault();
+    event.stopPropagation();
+    beginInteraction({
+      mode: 'resize',
+      startPoint: point,
+      originCrop: crop,
+      handle,
+    });
+  };
+
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
-      const start = dragStartRef.current;
-      if (!start) return;
+      const interaction = interactionRef.current;
+      if (!interaction) return;
       const point = getPoint(event.clientX, event.clientY);
       if (!point) return;
 
       dragMovedRef.current = true;
-      setCrop(computeDragCrop(start, point, aspectRatio));
+      if (interaction.mode === 'draw') {
+        setCrop(computeDragCrop(interaction.startPoint, point, aspectRatio));
+        return;
+      }
+      if (interaction.mode === 'move') {
+        setCrop(moveCropRect(
+          interaction.originCrop,
+          point.x - interaction.startPoint.x,
+          point.y - interaction.startPoint.y,
+        ));
+        return;
+      }
+      if (interaction.mode === 'resize' && aspectRatio === null) {
+        setCrop(resizeFreeCropRect(interaction.originCrop, interaction.handle, point));
+      }
     };
 
     const handleMouseUp = () => {
-      if (!dragStartRef.current) return;
+      if (!interactionRef.current) return;
       if (!dragMovedRef.current) {
         setCrop(cropBeforeDragRef.current);
       }
-      dragStartRef.current = null;
+      interactionRef.current = null;
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -405,7 +530,7 @@ function CropEditorModal({ file, saving, onClose, onSave }: CropEditorModalProps
             <div className="w-full h-full flex items-center justify-center p-4">
               <div
                 ref={imageWrapRef}
-                onMouseDown={handleMouseDown}
+                onMouseDown={handleImageMouseDown}
                 className="relative inline-block cursor-crosshair select-none touch-none"
               >
                 <img
@@ -422,7 +547,8 @@ function CropEditorModal({ file, saving, onClose, onSave }: CropEditorModalProps
 
                 {hasSelection && (
                   <div
-                    className="absolute border-2 border-white rounded-[2px] pointer-events-none"
+                    onMouseDown={handleSelectionMouseDown}
+                    className="absolute border-2 border-white rounded-[2px] cursor-move"
                     style={{
                       left: `${crop.x * 100}%`,
                       top: `${crop.y * 100}%`,
@@ -430,14 +556,28 @@ function CropEditorModal({ file, saving, onClose, onSave }: CropEditorModalProps
                       height: `${crop.height * 100}%`,
                       boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)',
                     }}
-                  />
+                  >
+                    {aspectRatio === null && FREE_CROP_HANDLES.map((handle) => (
+                      <button
+                        key={handle.id}
+                        type="button"
+                        onMouseDown={handleResizeHandleMouseDown(handle.id)}
+                        aria-label={`Resize crop ${handle.id}`}
+                        className={`absolute rounded-full border border-white bg-[var(--primary)] shadow-[0_0_0_1px_rgba(0,0,0,0.35)] ${handle.className} ${handle.cursorClassName}`}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs text-[var(--muted-foreground)]">Drag on the image to set the crop area.</p>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {aspectRatio === null
+                ? 'Drag on the image to set the crop area, then drag the box or its edges to fine-tune.'
+                : 'Drag on the image to set the crop area, then drag the box to reposition it.'}
+            </p>
             <div className="flex flex-wrap items-center gap-1.5">
               {[
                 { label: 'Free', value: null as number | null },
