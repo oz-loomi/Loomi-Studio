@@ -38,6 +38,12 @@ type MoveStrategyAttempt = {
   fatal: boolean;
   error?: string;
 };
+type FetchRawMediaOptions = {
+  fetchAll?: boolean;
+  offset?: number;
+  limit?: number;
+  parentId?: string | null;
+};
 
 // File cache — keyed by locationId + parentId
 const mediaCache = new Map<string, { data: EspMedia[]; fetchedAt: number }>();
@@ -210,13 +216,20 @@ async function fetchRawMediaObjects(
   token: string,
   locationId: string,
   type: 'file' | 'folder',
+  options?: FetchRawMediaOptions,
 ): Promise<JsonRecord[]> {
   const params = new URLSearchParams({
     altId: locationId,
     altType: 'location',
     type,
-    fetchAll: 'true',
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
   });
+  if (options?.fetchAll) params.set('fetchAll', 'true');
+  if (typeof options?.offset === 'number') params.set('offset', String(options.offset));
+  if (typeof options?.limit === 'number') params.set('limit', String(options.limit));
+  if (options?.parentId) params.set('parentId', options.parentId);
+
   const res = await fetch(`${GHL_BASE}/medias/files?${params.toString()}`, {
     headers: ghlHeaders(token),
   });
@@ -236,7 +249,7 @@ async function resolveMediaObject(
   locationId: string,
   mediaId: string,
 ): Promise<ResolvedMediaObject | null> {
-  const fileRecords = await fetchRawMediaObjects(token, locationId, 'file');
+  const fileRecords = await fetchRawMediaObjects(token, locationId, 'file', { fetchAll: true });
   const file = fileRecords.find((row) => extractMediaId(row) === mediaId);
   if (file) {
     return {
@@ -247,7 +260,7 @@ async function resolveMediaObject(
     };
   }
 
-  const folderRecords = await fetchRawMediaObjects(token, locationId, 'folder');
+  const folderRecords = await fetchRawMediaObjects(token, locationId, 'folder', { fetchAll: true });
   const folder = folderRecords.find((row) => extractMediaId(row) === mediaId);
   if (folder) {
     return {
@@ -261,6 +274,43 @@ async function resolveMediaObject(
   return null;
 }
 
+async function isMediaListedUnderParent(
+  token: string,
+  locationId: string,
+  mediaId: string,
+  type: 'file' | 'folder',
+  parentId: string | null,
+): Promise<boolean> {
+  const pageSize = 200;
+  const maxPages = 20;
+  let previousPageSignature = '';
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const records = await fetchRawMediaObjects(token, locationId, type, {
+      parentId,
+      offset: page * pageSize,
+      limit: pageSize,
+    });
+    if (records.some((row) => extractMediaId(row) === mediaId)) {
+      return true;
+    }
+    if (records.length < pageSize) {
+      return false;
+    }
+
+    const pageSignature = records
+      .slice(0, 5)
+      .map((row) => extractMediaId(row))
+      .join(',');
+    if (pageSignature && pageSignature === previousPageSignature) {
+      return false;
+    }
+    previousPageSignature = pageSignature;
+  }
+
+  return false;
+}
+
 async function verifyMediaParent(
   token: string,
   locationId: string,
@@ -270,10 +320,65 @@ async function verifyMediaParent(
   const target = normalizeParentId(targetFolderId);
   const media = await resolveMediaObject(token, locationId, mediaId);
   if (media) {
+    if (media.parentId === target) {
+      return {
+        matched: true,
+        found: true,
+        observedParentId: media.parentId,
+      };
+    }
+
+    // Some GHL tenants update direct folder listings before the flattened
+    // fetchAll parent metadata catches up.
+    const isListedUnderTarget = await isMediaListedUnderParent(
+      token,
+      locationId,
+      mediaId,
+      media.kind,
+      target,
+    );
+    if (isListedUnderTarget) {
+      return {
+        matched: true,
+        found: true,
+        observedParentId: target,
+      };
+    }
+
     return {
-      matched: media.parentId === target,
+      matched: false,
       found: true,
       observedParentId: media.parentId,
+    };
+  }
+
+  const fileListedUnderTarget = await isMediaListedUnderParent(
+    token,
+    locationId,
+    mediaId,
+    'file',
+    target,
+  );
+  if (fileListedUnderTarget) {
+    return {
+      matched: true,
+      found: true,
+      observedParentId: target,
+    };
+  }
+
+  const folderListedUnderTarget = await isMediaListedUnderParent(
+    token,
+    locationId,
+    mediaId,
+    'folder',
+    target,
+  );
+  if (folderListedUnderTarget) {
+    return {
+      matched: true,
+      found: true,
+      observedParentId: target,
     };
   }
 
@@ -365,6 +470,12 @@ function buildMoveStrategies(
       body: singleUpdateBody,
     },
     {
+      label: 'bulk-update-ids-put',
+      method: 'PUT',
+      url: `${GHL_BASE}/medias/update-files?${updateParams.toString()}`,
+      body: { ...bulkBase, ids: [mediaId] },
+    },
+    {
       label: 'bulk-update-ids-post',
       method: 'POST',
       url: `${GHL_BASE}/medias/update-files?${updateParams.toString()}`,
@@ -381,12 +492,6 @@ function buildMoveStrategies(
       method: 'POST',
       url: `${GHL_BASE}/medias/update-files?${updateParams.toString()}`,
       body: { ...bulkBase, mediaIds: [mediaId] },
-    },
-    {
-      label: 'bulk-update-ids-put',
-      method: 'PUT',
-      url: `${GHL_BASE}/medias/update-files?${updateParams.toString()}`,
-      body: { ...bulkBase, ids: [mediaId] },
     },
     {
       label: 'legacy-move-put',

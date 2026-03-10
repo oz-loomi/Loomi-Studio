@@ -57,6 +57,14 @@ test('moveMedia falls back to bulk update when the single-item update does not m
     calls.push({ url, method, body });
 
     if (url.includes('/medias/files?')) {
+      if (url.includes(`parentId=${targetParent}`)) {
+        return jsonResponse({
+          files: currentParent === targetParent
+            ? [{ _id: 'file-1', name: 'asset.png', parentId: currentParent }]
+            : [],
+        });
+      }
+
       return jsonResponse({
         files: [{ _id: 'file-1', name: 'asset.png', parentId: currentParent }],
       });
@@ -88,7 +96,7 @@ test('moveMedia falls back to bulk update when the single-item update does not m
     mutationCalls.some((call) => {
       const payload = call.body as Record<string, unknown> | undefined;
       return call.url.includes('/medias/update-files')
-        && call.method === 'POST'
+        && call.method === 'PUT'
         && Array.isArray(payload?.ids)
         && payload.ids.includes('file-1')
         && payload.parentId === targetParent;
@@ -145,6 +153,10 @@ test('moveMedia throws when every strategy is accepted but the parent never chan
         : input.url;
 
     if (url.includes('/medias/files?')) {
+      if (url.includes(`parentId=${targetParent}`)) {
+        return jsonResponse({ files: [] });
+      }
+
       return jsonResponse({
         files: [{ _id: 'file-1', name: 'asset.png', parentId: originalParent }],
       });
@@ -160,5 +172,53 @@ test('moveMedia throws when every strategy is accepted but the parent never chan
   await assert.rejects(
     () => moveMedia('token', 'loc-1', 'file-1', targetParent, 'asset.png'),
     /Move request was accepted but the file\/folder parent did not change \(target: folder-new, observed: folder-old\)/,
+  );
+});
+
+test('moveMedia accepts the move when the target folder listing updates before the flattened parent metadata does', async () => {
+  installImmediateTimers();
+
+  const calls: FetchCall[] = [];
+  const originalParent = 'folder-old';
+  const targetParent = 'folder-new';
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    const method = init?.method || 'GET';
+    const body = parseBody(init);
+    calls.push({ url, method, body });
+
+    if (url.includes('/medias/files?')) {
+      if (url.includes(`parentId=${targetParent}`)) {
+        return jsonResponse({
+          files: [{ _id: 'file-1', name: 'asset.png', parentId: targetParent }],
+        });
+      }
+
+      if (url.includes('fetchAll=true')) {
+        return jsonResponse({
+          files: [{ _id: 'file-1', name: 'asset.png', parentId: originalParent }],
+        });
+      }
+
+      return jsonResponse({ files: [] });
+    }
+
+    if (url.includes('/medias/file-1')) {
+      return jsonResponse({ success: true });
+    }
+
+    throw new Error(`Unexpected fetch: ${method} ${url}`);
+  }) as typeof fetch;
+
+  await moveMedia('token', 'loc-1', 'file-1', targetParent, 'asset.png');
+
+  assert.ok(
+    calls.some((call) => call.url.includes(`parentId=${targetParent}`) && call.url.includes('/medias/files?')),
+    'expected verification to check the target folder listing directly',
   );
 });
