@@ -131,8 +131,11 @@ function buildAssistantUserContent(prompt: string, context: Record<string, unkno
     JSON.stringify(context),
     '',
     'IMPORTANT:',
+    '- Match your output to the active editor context.',
+    '- If EDITOR CONTEXT JSON.mode is "code" or EDITOR CONTEXT JSON.htmlOnlyBuilder is true, return templateBuild.mode="code" and do not return drag-and-drop component arrays unless the user explicitly asks for visual components.',
     '- Read the current email context before asking clarifying questions.',
     '- Infer details already present in the email and ask only about missing or conflicting information.',
+    '- Use the account context for branding, logos, custom values, and business/profile details.',
   ].join('\n');
 }
 

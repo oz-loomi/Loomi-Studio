@@ -7909,7 +7909,26 @@ export default function TemplateEditorPage() {
               state: effectiveAccountData.state || null,
               phone: effectiveAccountData.phone || null,
               address: effectiveAccountData.address || null,
+              postalCode: effectiveAccountData.postalCode || null,
               website: effectiveAccountData.website || null,
+            },
+            business: {
+              category: effectiveAccountData.category || null,
+              email: effectiveAccountData.email || null,
+              timezone: effectiveAccountData.timezone || null,
+              storefrontImage: effectiveAccountData.storefrontImage || null,
+              salesPhone:
+                effectiveAccountData.phoneSales ||
+                effectiveAccountData.salesPhone ||
+                null,
+              servicePhone:
+                effectiveAccountData.phoneService ||
+                effectiveAccountData.servicePhone ||
+                null,
+              partsPhone:
+                effectiveAccountData.phoneParts ||
+                effectiveAccountData.partsPhone ||
+                null,
             },
           }
         : null;
@@ -7924,6 +7943,7 @@ export default function TemplateEditorPage() {
             design,
             template: templateName,
             mode: editorMode,
+            htmlOnlyBuilder: isHtmlOnlyBuilder,
             frontmatter: parsed?.frontmatter || {},
             baseProps: parsed?.baseProps || {},
             componentCount: parsed?.components.length || 0,

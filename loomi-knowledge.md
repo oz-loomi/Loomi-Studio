@@ -63,9 +63,11 @@ Developers and admins can switch between admin view and assigned account views. 
 The template editor is the core tool for creating and editing email templates. It has two modes:
 
 - **Visual mode (Drag & Drop)** — Component-driven editing. Templates are stored as structured data: a `ParsedTemplate` with `frontmatter`, `baseProps`, and an ordered array of `components`. Each component has a `type` and `props` (key-value string pairs).
-- **Code mode** — Raw Maizzle HTML editing with a Monaco code editor. Templates use `<x-base>` as the root wrapper and `<x-core.{type}>` tags for each component.
+- **Code mode** — Raw email HTML editing with a Monaco code editor. It supports both fully custom email-safe HTML and Maizzle component scaffolds. `<x-base>` and `<x-core.{type}>` are supported when you want Loomi components, but they are optional in HTML-first workflows.
 
 ### Template Structure
+
+Component-scaffold example:
 
 ```
 ---
@@ -93,6 +95,8 @@ previewText: Preview text shown in inbox
 - `font-color` — Default text color
 
 **Components** — Ordered list of `<x-core.{type}>` tags with props as attributes.
+
+Code mode can also contain fully custom email HTML when the design should not be constrained to Loomi's visual component system or does not need to round-trip back into visual editing.
 
 ### Compilation
 Templates are compiled through Maizzle (PostHTML + Tailwind CSS for email). The visual editor uses a fast "preview mode" that skips full CSS processing for instant feedback. Export/publish uses the full pipeline with CSS inlining and purging.
@@ -365,7 +369,7 @@ Use OAuth from Integrations at the account level.
 Use API key connection from Integrations at the account level.
 
 ### How do I use the AI assistant in the template editor?
-Click the sparkle button in the bottom-right corner or press Cmd/Ctrl+Shift+A. Ask Loomi to build a full email, edit component props, write subject lines, or improve copy. Loomi can generate complete emails using your account's branding.
+Click the sparkle button in the bottom-right corner or press Cmd/Ctrl+Shift+A. Ask Loomi to build a full email, edit component props, write subject lines, or improve copy. Loomi can generate complete emails using your account's branding, logos, and business details. In code mode, it can write custom branded HTML beyond the visual component catalog.
 
 ### Why are some custom values not syncing?
 Custom value sync depends on provider capability and connection state. Values can still be saved locally when provider sync is unavailable.
