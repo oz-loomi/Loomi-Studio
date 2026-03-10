@@ -2,8 +2,17 @@
  * Default starter templates for new email template creation.
  *
  * Visual (Drag & Drop): Rich multi-component Maizzle template
- * Code (HTML): Clean, simpler Maizzle template for direct editing
+ * Code (HTML): Custom email-safe HTML starter for direct editing
  */
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 /** Rich component-based starter for visual (Drag & Drop) mode */
 function visualStarter(title: string) {
@@ -76,52 +85,78 @@ rooftop: preview
 `;
 }
 
-/** Clean starter for code (HTML) editing mode */
+/** Custom raw-HTML starter for code (HTML) editing mode */
 function codeStarter(title: string) {
-  return `---
-title: ${title}
-rooftop: preview
----
+  const safeTitle = escapeHtml(title);
 
-<x-base>
+  return `<!doctype html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <title>${safeTitle}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#eef2f7;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0; mso-hide:all;">
+    Add your preview text for ${safeTitle} here.
+  </div>
 
-  <x-core.header />
-
-  <x-core.spacer size="24" />
-
-  <x-core.copy
-    greeting="Hi {{contact.first_name}},"
-    body="Thank you for being part of our community. We wanted to reach out with an important update."
-    align="left"
-    padding="20px 40px"
-  />
-
-  <x-core.divider
-    color="#e5e7eb"
-    padding="0 40px"
-  />
-
-  <x-core.copy
-    body="Add the main content of your email here. You can use multiple copy blocks, images, buttons, and other components to build your message."
-    align="left"
-    padding="20px 40px"
-  />
-
-  <x-core.cta
-    button-text="Take Action"
-    button-url="#"
-    button-bg-color="#4f46e5"
-    button-text-color="#ffffff"
-    button-radius="8px"
-    section-padding="20px 40px"
-    align="center"
-  />
-
-  <x-core.spacer size="24" />
-
-  <x-core.footer />
-
-</x-base>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; border-collapse:collapse; background-color:#eef2f7;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; max-width:600px; border-collapse:separate; background-color:#ffffff; border:1px solid #dbe4f0; border-radius:18px;">
+          <tr>
+            <td style="padding:32px 40px 12px; font-family:Arial, Helvetica, sans-serif; font-size:13px; line-height:18px; letter-spacing:0.08em; text-transform:uppercase; color:#4f46e5;">
+              {{location.name}}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 40px 12px; font-family:Arial, Helvetica, sans-serif; font-size:32px; line-height:40px; font-weight:700; color:#111827;">
+              Your headline goes here
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 40px 16px; font-family:Arial, Helvetica, sans-serif; font-size:16px; line-height:26px; color:#4b5563;">
+              Hi {{contact.first_name}},
+              <br><br>
+              Start with a clear summary of the message, the offer, or the update. Replace this starter with your own custom HTML layout, sections, images, and copy.
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 40px 32px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;">
+                <tr>
+                  <td align="center" bgcolor="#4f46e5" style="border-radius:999px;">
+                    <a href="#" style="display:inline-block; padding:14px 28px; font-family:Arial, Helvetica, sans-serif; font-size:14px; line-height:14px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:#ffffff; text-decoration:none;">
+                      Take Action
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 40px 32px; font-family:Arial, Helvetica, sans-serif; font-size:14px; line-height:22px; color:#6b7280;">
+              Add supporting details, deadlines, disclaimers, or secondary links here.
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 40px 32px; border-top:1px solid #e5e7eb; font-family:Arial, Helvetica, sans-serif; font-size:13px; line-height:22px; color:#6b7280;">
+              <strong style="color:#111827;">{{location.name}}</strong><br>
+              {{location.address}}<br>
+              {{location.city}}, {{location.state}} {{location.postal_code}}<br>
+              {{location.phone}}<br>
+              <a href="{{location.website}}" style="color:#4f46e5; text-decoration:none;">{{location.website}}</a><br><br>
+              <a href="{{unsubscribe_link}}" style="color:#6b7280; text-decoration:underline;">Unsubscribe</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
 `;
 }
 

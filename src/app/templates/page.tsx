@@ -392,7 +392,7 @@ interface TemplateCardProps {
   accounts: Record<string, AccountData>;
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
-  onEdit: (id: string) => void;
+  onEdit: (t: Pick<EspTemplateRecord, 'id' | 'editorType'>) => void;
   onRename: (t: EspTemplateRecord) => void;
   onMove: (t: EspTemplateRecord) => void;
   onClone: (t: EspTemplateRecord) => void;
@@ -496,7 +496,7 @@ function TemplateCard({
                     <EyeIcon className="w-4 h-4" /> View
                   </button>
                   <button
-                    onClick={() => { onMenuToggle(null); onEdit(t.id); }}
+                    onClick={() => { onMenuToggle(null); onEdit(t); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
                   >
                     <PencilSquareIcon className="w-4 h-4" /> Edit
@@ -546,7 +546,7 @@ function TemplateCard({
         </div>
         <h3
           className="text-sm font-semibold cursor-pointer hover:text-[var(--primary)] transition-colors truncate"
-          onClick={() => selectMode ? onSelect(t.id) : onEdit(t.id)}
+          onClick={() => selectMode ? onSelect(t.id) : onEdit(t)}
         >
           {t.name}
         </h3>
@@ -581,7 +581,7 @@ interface TemplateRowProps {
   accounts: Record<string, AccountData>;
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
-  onEdit: (id: string) => void;
+  onEdit: (t: Pick<EspTemplateRecord, 'id' | 'editorType'>) => void;
   onRename: (t: EspTemplateRecord) => void;
   onMove: (t: EspTemplateRecord) => void;
   onClone: (t: EspTemplateRecord) => void;
@@ -644,7 +644,7 @@ function TemplateRow({
           <EnvelopeIcon className="w-5 h-5 text-[var(--muted-foreground)] opacity-40" />
         )}
       </div>
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={selectMode ? undefined : () => onEdit(t.id)}>
+      <div className="flex-1 min-w-0 cursor-pointer" onClick={selectMode ? undefined : () => onEdit(t)}>
         <h3 className="font-semibold text-sm truncate">{t.name}</h3>
       </div>
       {showAccount ? (
@@ -691,7 +691,7 @@ function TemplateRow({
                 <EyeIcon className="w-4 h-4" /> View
               </button>
               <button
-                onClick={() => { onMenuToggle(null); onEdit(t.id); }}
+                onClick={() => { onMenuToggle(null); onEdit(t); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
               >
                 <PencilSquareIcon className="w-4 h-4" /> Edit
@@ -1060,7 +1060,7 @@ interface TemplateListViewProps {
   downloadingId: string | null;
   onMenuToggle: (id: string | null) => void;
   onPreview: (t: EspTemplateRecord) => void;
-  onEdit: (id: string) => void;
+  onEdit: (t: Pick<EspTemplateRecord, 'id' | 'editorType'>) => void;
   onRename: (t: EspTemplateRecord) => void;
   onMove: (t: EspTemplateRecord) => void;
   onClone: (t: EspTemplateRecord) => void;
@@ -1816,8 +1816,12 @@ export default function TemplatesPage() {
 
   // ── Handlers ──
 
-  const navigateToEditor = (templateId: string) => {
-    router.push(`/templates/editor?id=${templateId}`);
+  const navigateToEditor = (template: Pick<EspTemplateRecord, 'id' | 'editorType'>) => {
+    const search = new URLSearchParams({ id: template.id });
+    if (template.editorType === 'code') {
+      search.set('builder', 'html');
+    }
+    router.push(`/templates/editor?${search.toString()}`);
   };
 
   const handleCreateChoice = (mode: 'visual' | 'code') => {
@@ -2233,7 +2237,11 @@ export default function TemplatesPage() {
       setCreateAccountKey(null);
       setCreateMode(null);
       setCreateName('');
-      router.push(`/templates/editor?id=${data.template.id}`);
+      const search = new URLSearchParams({ id: data.template.id });
+      if (createMode === 'code') {
+        search.set('builder', 'html');
+      }
+      router.push(`/templates/editor?${search.toString()}`);
     } catch {
       toast.error('Failed to create template');
     } finally {
@@ -2718,7 +2726,7 @@ export default function TemplatesPage() {
                       <button
                         key={template.id}
                         type="button"
-                        onClick={() => navigateToEditor(template.id)}
+                        onClick={() => navigateToEditor(template)}
                         className="text-left rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 hover:border-[var(--primary)]/40 hover:bg-[var(--muted)] transition-colors"
                       >
                         <p className="text-xs font-semibold text-[var(--foreground)] truncate" title={template.name}>
@@ -3626,7 +3634,7 @@ export default function TemplatesPage() {
                   <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Preview in New Tab
                 </button>
                 <button
-                  onClick={() => { setPreviewTemplate(null); navigateToEditor(previewTemplate.id); }}
+                  onClick={() => { setPreviewTemplate(null); navigateToEditor(previewTemplate); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--primary)] border border-[var(--primary)]/30 rounded-lg hover:bg-[var(--primary)]/5 transition-colors"
                 >
                   <PencilSquareIcon className="w-3.5 h-3.5" /> Edit

@@ -7194,8 +7194,9 @@ export default function TemplateEditorPage() {
       } else {
         // Brand new blank ESP template — use mode-specific starter
         const blank = getStarterTemplate(modeParam === "code" ? "code" : "visual");
-        const p = parseTemplate(blank);
-        if (p?.frontmatter) {
+        const blankIsVisual = hasVisualTemplateScaffold(blank);
+        if (blankIsVisual) {
+          const p = parseTemplate(blank);
           const withFont = applyResolvedFontDefaults(p);
           const serialized = serializeTemplateClient(withFont);
           setCode(serialized);
@@ -7205,6 +7206,8 @@ export default function TemplateEditorPage() {
           setParsed(withFont);
           compilePreview(serializeTemplateForPreview(withFont, new Set()));
         } else {
+          setParsed(null);
+          setEditorMode("code");
           setCode(blank);
           setOriginalCode(blank);
           setEspTemplateName("Untitled Template");
@@ -7244,7 +7247,7 @@ export default function TemplateEditorPage() {
       })
       .catch((err) => console.error("Error loading template:", err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [design, templateName, espTemplateId, accountKeyParam, libraryTemplateSlug, parsedBranding?.fonts?.body]);
+  }, [design, templateName, espTemplateId, accountKeyParam, libraryTemplateSlug, parsedBranding?.fonts?.body, modeParam]);
 
   useEffect(() => {
     const hasCodeChanges = code !== originalCode;
@@ -7453,6 +7456,7 @@ export default function TemplateEditorPage() {
 
   const handleModeSwitch = async (mode: EditorMode) => {
     if (mode === editorMode) return;
+    if (mode === "visual" && !canUseVisualBuilder) return;
     if (espMode) {
       if (mode === "visual") {
         if (parsed) {
@@ -9349,9 +9353,11 @@ export default function TemplateEditorPage() {
     () => hasVisualTemplateScaffold(code),
     [code],
   );
+  const canUseVisualBuilder = !isHtmlOnlyBuilder && Boolean(parsed);
   const templateTypeLabel = code.trim()
-    ? (isDragDropTemplate ? "Drag & Drop" : "HTML")
+    ? ((canUseVisualBuilder && isDragDropTemplate) ? "Drag & Drop" : "HTML")
     : null;
+  const isDragDropLabel = templateTypeLabel === "Drag & Drop";
   const lineCount = code.split("\n").length;
   const backHref = subHref(espMode ? "/templates" : isAccount ? "/emails" : "/templates/library");
   const handleBackClick = useCallback(() => {
@@ -9394,7 +9400,7 @@ export default function TemplateEditorPage() {
           {templateTypeLabel && (
             <span
               className={`inline-flex items-center rounded-full border px-3.5 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] ${
-                isDragDropTemplate
+                isDragDropLabel
                   ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
                   : "border-sky-500/30 bg-sky-500/10 text-sky-300"
               }`}
@@ -9557,17 +9563,19 @@ export default function TemplateEditorPage() {
         >
           {/* Tabs */}
           <div className="flex items-center border-b border-[var(--border)] bg-[var(--muted)] flex-shrink-0">
-            <button
-              onClick={() => {
-                handleModeSwitch("visual");
-                setVisualTab("settings");
-              }}
-              className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 ${editorMode === "visual" && visualTab === "settings" ? "border-[var(--primary)] text-[var(--foreground)]" : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
-            >
-              <AdjustmentsHorizontalIcon className="w-3.5 h-3.5" />
-              Settings
-            </button>
-            {!isHtmlOnlyBuilder && (!espMode || !!parsed) && (
+            {canUseVisualBuilder && (
+              <button
+                onClick={() => {
+                  handleModeSwitch("visual");
+                  setVisualTab("settings");
+                }}
+                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 ${editorMode === "visual" && visualTab === "settings" ? "border-[var(--primary)] text-[var(--foreground)]" : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
+              >
+                <AdjustmentsHorizontalIcon className="w-3.5 h-3.5" />
+                Settings
+              </button>
+            )}
+            {canUseVisualBuilder && (
               <button
                 onClick={() => {
                   handleModeSwitch("visual");
