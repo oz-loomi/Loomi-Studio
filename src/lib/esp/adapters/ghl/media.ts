@@ -20,6 +20,24 @@ type MediaParentVerification = {
   found: boolean;
   observedParentId: string | null;
 };
+type ResolvedMediaObject = {
+  id: string;
+  kind: 'file' | 'folder';
+  name: string;
+  parentId: string | null;
+};
+type MoveStrategy = {
+  label: string;
+  method: 'POST' | 'PUT';
+  url: string;
+  body?: JsonRecord;
+};
+type MoveStrategyAttempt = {
+  matched: boolean;
+  accepted: boolean;
+  fatal: boolean;
+  error?: string;
+};
 
 // File cache — keyed by locationId + parentId
 const mediaCache = new Map<string, { data: EspMedia[]; fetchedAt: number }>();
@@ -137,6 +155,10 @@ function extractMediaName(raw: Record<string, unknown>): string {
   return 'Untitled file';
 }
 
+function extractFolderName(raw: Record<string, unknown>): string {
+  return firstNonEmptyString(raw, ['name', 'title', 'displayName']) || 'Untitled folder';
+}
+
 function normalizeFile(raw: Record<string, unknown>): EspMedia {
   // GHL uses MongoDB _id — raw.altId is the LOCATION id, never the file id
   const resolvedUrl = firstNonEmptyString(raw, ['url', 'fileUrl', 'src']);
@@ -209,6 +231,36 @@ async function fetchRawMediaObjects(
     .map((entry) => entry as JsonRecord);
 }
 
+async function resolveMediaObject(
+  token: string,
+  locationId: string,
+  mediaId: string,
+): Promise<ResolvedMediaObject | null> {
+  const fileRecords = await fetchRawMediaObjects(token, locationId, 'file');
+  const file = fileRecords.find((row) => extractMediaId(row) === mediaId);
+  if (file) {
+    return {
+      id: extractMediaId(file) || mediaId,
+      kind: 'file',
+      name: extractMediaName(file),
+      parentId: extractParentId(file),
+    };
+  }
+
+  const folderRecords = await fetchRawMediaObjects(token, locationId, 'folder');
+  const folder = folderRecords.find((row) => extractMediaId(row) === mediaId);
+  if (folder) {
+    return {
+      id: extractMediaId(folder) || mediaId,
+      kind: 'folder',
+      name: extractFolderName(folder),
+      parentId: extractParentId(folder),
+    };
+  }
+
+  return null;
+}
+
 async function verifyMediaParent(
   token: string,
   locationId: string,
@@ -216,26 +268,12 @@ async function verifyMediaParent(
   targetFolderId?: string,
 ): Promise<MediaParentVerification> {
   const target = normalizeParentId(targetFolderId);
-
-  const fileRecords = await fetchRawMediaObjects(token, locationId, 'file');
-  const file = fileRecords.find((row) => extractMediaId(row) === mediaId);
-  if (file) {
-    const observedParentId = extractParentId(file);
+  const media = await resolveMediaObject(token, locationId, mediaId);
+  if (media) {
     return {
-      matched: observedParentId === target,
+      matched: media.parentId === target,
       found: true,
-      observedParentId,
-    };
-  }
-
-  const folderRecords = await fetchRawMediaObjects(token, locationId, 'folder');
-  const folder = folderRecords.find((row) => extractMediaId(row) === mediaId);
-  if (folder) {
-    const observedParentId = extractParentId(folder);
-    return {
-      matched: observedParentId === target,
-      found: true,
-      observedParentId,
+      observedParentId: media.parentId,
     };
   }
 
@@ -251,17 +289,7 @@ async function resolveMediaName(
   locationId: string,
   mediaId: string,
 ): Promise<string> {
-  const fileRecords = await fetchRawMediaObjects(token, locationId, 'file');
-  const file = fileRecords.find((row) => extractMediaId(row) === mediaId);
-  if (file) return extractMediaName(file);
-
-  const folderRecords = await fetchRawMediaObjects(token, locationId, 'folder');
-  const folder = folderRecords.find((row) => extractMediaId(row) === mediaId);
-  if (folder) {
-    return firstNonEmptyString(folder, ['name', 'title', 'displayName']);
-  }
-
-  return '';
+  return (await resolveMediaObject(token, locationId, mediaId))?.name || '';
 }
 
 function throwGhlError(data: unknown, status: number): never {
@@ -270,6 +298,230 @@ function throwGhlError(data: unknown, status: number): never {
     (data as Record<string, string>)?.error ||
     `GHL API error (${status})`;
   throw new Error(msg);
+}
+
+function buildMoveFieldPayload(
+  locationId: string,
+  targetFolderId: string | null,
+): JsonRecord {
+  return {
+    altType: 'location',
+    altId: locationId,
+    locationId,
+    parentId: targetFolderId,
+    parentID: targetFolderId,
+    folderId: targetFolderId,
+    folderID: targetFolderId,
+  };
+}
+
+function addMoveNameFields(body: JsonRecord, name?: string): JsonRecord {
+  const resolvedName = name?.trim();
+  if (!resolvedName) return body;
+
+  body.name = resolvedName;
+  // Some GHL tenants serialize this field under fileName.
+  body.fileName = resolvedName;
+  return body;
+}
+
+function buildMoveStrategies(
+  locationId: string,
+  mediaId: string,
+  targetFolderId: string | null,
+  name?: string,
+): MoveStrategy[] {
+  const encodedMediaId = encodeURIComponent(mediaId);
+  const updateParams = new URLSearchParams({
+    altType: 'location',
+    altId: locationId,
+  });
+  const legacyParams = new URLSearchParams({
+    altType: 'location',
+    altId: locationId,
+  });
+  if (targetFolderId) legacyParams.set('parentId', targetFolderId);
+
+  const singleUpdateBody = addMoveNameFields(
+    buildMoveFieldPayload(locationId, targetFolderId),
+    name,
+  );
+  const bulkBase = addMoveNameFields(
+    buildMoveFieldPayload(locationId, targetFolderId),
+    name,
+  );
+
+  return [
+    {
+      label: 'single-update-query',
+      method: 'POST',
+      url: `${GHL_BASE}/medias/${encodedMediaId}?${updateParams.toString()}`,
+      body: singleUpdateBody,
+    },
+    {
+      label: 'single-update-bare',
+      method: 'POST',
+      url: `${GHL_BASE}/medias/${encodedMediaId}`,
+      body: singleUpdateBody,
+    },
+    {
+      label: 'bulk-update-ids-post',
+      method: 'POST',
+      url: `${GHL_BASE}/medias/update-files?${updateParams.toString()}`,
+      body: { ...bulkBase, ids: [mediaId] },
+    },
+    {
+      label: 'bulk-update-fileIds-post',
+      method: 'POST',
+      url: `${GHL_BASE}/medias/update-files?${updateParams.toString()}`,
+      body: { ...bulkBase, fileIds: [mediaId] },
+    },
+    {
+      label: 'bulk-update-mediaIds-post',
+      method: 'POST',
+      url: `${GHL_BASE}/medias/update-files?${updateParams.toString()}`,
+      body: { ...bulkBase, mediaIds: [mediaId] },
+    },
+    {
+      label: 'bulk-update-ids-put',
+      method: 'PUT',
+      url: `${GHL_BASE}/medias/update-files?${updateParams.toString()}`,
+      body: { ...bulkBase, ids: [mediaId] },
+    },
+    {
+      label: 'legacy-move-put',
+      method: 'PUT',
+      url: `${GHL_BASE}/medias/${encodedMediaId}/move?${legacyParams.toString()}`,
+    },
+  ];
+}
+
+function moveResponseMatchesTargetParent(
+  response: JsonRecord | null,
+  mediaId: string,
+  targetFolderId: string | null,
+): boolean {
+  if (!response || typeof response !== 'object') return false;
+
+  const rawCandidate = (
+    response.file
+    ?? response.media
+    ?? response.data
+    ?? response
+  ) as unknown;
+
+  if (!rawCandidate || typeof rawCandidate !== 'object') return false;
+
+  const raw = rawCandidate as JsonRecord;
+  const responseId = extractMediaId(raw);
+  const observedParent = extractParentId(raw);
+  return (!responseId || responseId === mediaId) && observedParent === targetFolderId;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function verifyMediaParentWithRetries(
+  token: string,
+  locationId: string,
+  mediaId: string,
+  targetFolderId: string | null,
+  attempts: number,
+  baseDelayMs: number,
+): Promise<MediaParentVerification> {
+  let verification: MediaParentVerification = {
+    matched: false,
+    found: false,
+    observedParentId: null,
+  };
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    verification = await verifyMediaParent(token, locationId, mediaId, targetFolderId || undefined);
+    if (verification.matched) return verification;
+    if (attempt < attempts - 1) {
+      await sleep(baseDelayMs * (attempt + 1));
+    }
+  }
+
+  return verification;
+}
+
+async function attemptMoveStrategy(
+  token: string,
+  locationId: string,
+  mediaId: string,
+  targetFolderId: string | null,
+  strategy: MoveStrategy,
+): Promise<MoveStrategyAttempt> {
+  try {
+    const res = await fetch(strategy.url, {
+      method: strategy.method,
+      headers: strategy.body
+        ? {
+          ...ghlHeaders(token),
+          'Content-Type': 'application/json',
+        }
+        : ghlHeaders(token),
+      body: strategy.body ? JSON.stringify(strategy.body) : undefined,
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return {
+        matched: false,
+        accepted: false,
+        fatal: res.status === 401 || res.status === 403,
+        error:
+          (data as Record<string, string>)?.message ||
+          (data as Record<string, string>)?.error ||
+          `GHL API error (${res.status})`,
+      };
+    }
+
+    const moveResponse = await res.json().catch(() => null) as JsonRecord | null;
+    if (moveResponseMatchesTargetParent(moveResponse, mediaId, targetFolderId)) {
+      return {
+        matched: true,
+        accepted: true,
+        fatal: false,
+      };
+    }
+
+    const verification = await verifyMediaParentWithRetries(
+      token,
+      locationId,
+      mediaId,
+      targetFolderId,
+      3,
+      250,
+    );
+    if (verification.matched) {
+      return {
+        matched: true,
+        accepted: true,
+        fatal: false,
+      };
+    }
+
+    const observedLabel = verification.found
+      ? (verification.observedParentId ?? 'root')
+      : 'not-found';
+
+    return {
+      matched: false,
+      accepted: true,
+      fatal: false,
+      error: `accepted but parent remained ${observedLabel}`,
+    };
+  } catch (error) {
+    return {
+      matched: false,
+      accepted: false,
+      fatal: false,
+      error: error instanceof Error ? error.message : 'Network error',
+    };
+  }
 }
 
 // ── List media files (offset-based pagination) ──
@@ -492,84 +744,69 @@ export async function moveMedia(
   name?: string,
 ): Promise<void> {
   const normalizedTarget = normalizeParentId(targetFolderId);
-  const resolvedName = name?.trim() || (await resolveMediaName(token, locationId, mediaId));
-  const body: Record<string, string | null> = {
-    altType: 'location',
-    altId: locationId,
-    locationId,
-    parentId: normalizedTarget,
-    parentID: normalizedTarget,
-    folderId: normalizedTarget,
-    folderID: normalizedTarget,
-  };
-  if (resolvedName) {
-    body.name = resolvedName;
-    // Some GHL tenants serialize this field under fileName.
-    body.fileName = resolvedName;
+  const existing = await resolveMediaObject(token, locationId, mediaId);
+  if (existing && existing.parentId === normalizedTarget) {
+    invalidateAllCaches(locationId);
+    return;
   }
-  const params = new URLSearchParams({
-    altType: 'location',
-    altId: locationId,
+
+  const resolvedName = name?.trim() || existing?.name || (await resolveMediaName(token, locationId, mediaId));
+  const strategies = buildMoveStrategies(locationId, mediaId, normalizedTarget, resolvedName);
+  const failures: string[] = [];
+  let acceptedAny = false;
+
+  for (const strategy of strategies) {
+    const result = await attemptMoveStrategy(
+      token,
+      locationId,
+      mediaId,
+      normalizedTarget,
+      strategy,
+    );
+
+    if (result.matched) {
+      invalidateAllCaches(locationId);
+      return;
+    }
+
+    if (result.accepted) acceptedAny = true;
+    if (result.error) failures.push(`${strategy.label}: ${result.error}`);
+    if (result.fatal) break;
+  }
+
+  const verification = await verifyMediaParentWithRetries(
+    token,
+    locationId,
+    mediaId,
+    normalizedTarget,
+    6,
+    300,
+  );
+  if (verification.matched) {
+    invalidateAllCaches(locationId);
+    return;
+  }
+
+  const targetLabel = normalizedTarget ?? 'root';
+  const observedLabel = verification.found
+    ? (verification.observedParentId ?? 'root')
+    : 'not-found';
+
+  console.error('[ghl-media] Failed to move media after all strategies', {
+    locationId,
+    mediaId,
+    targetFolderId: normalizedTarget,
+    observedParentId: verification.observedParentId,
+    failures,
   });
 
-  const res = await fetch(
-    `${GHL_BASE}/medias/${encodeURIComponent(mediaId)}?${params.toString()}`,
-    {
-      method: 'POST',
-      headers: {
-        ...ghlHeaders(token),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    },
-  );
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throwGhlError(data, res.status);
-  }
-
-  const moveResponse = await res.json().catch(() => null) as JsonRecord | null;
-  if (moveResponse && typeof moveResponse === 'object') {
-    const rawCandidate = (
-      moveResponse.file
-      ?? moveResponse.media
-      ?? moveResponse.data
-      ?? moveResponse
-    ) as unknown;
-    if (rawCandidate && typeof rawCandidate === 'object') {
-      const raw = rawCandidate as JsonRecord;
-      const responseId = extractMediaId(raw);
-      const observedParent = extractParentId(raw);
-      if ((!responseId || responseId === mediaId) && observedParent === normalizedTarget) {
-        invalidateAllCaches(locationId);
-        return;
-      }
-    }
-  }
-
-  // Defensive verification with retries: GHL can be eventually consistent.
-  let verification: MediaParentVerification = {
-    matched: false,
-    found: false,
-    observedParentId: null,
-  };
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    verification = await verifyMediaParent(token, locationId, mediaId, normalizedTarget || undefined);
-    if (verification.matched) break;
-    await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
-  }
-  if (!verification.matched) {
-    const targetLabel = normalizedTarget ?? 'root';
-    const observedLabel = verification.found
-      ? (verification.observedParentId ?? 'root')
-      : 'not-found';
+  if (acceptedAny) {
     throw new Error(
       `Move request was accepted but the file/folder parent did not change (target: ${targetLabel}, observed: ${observedLabel})`,
     );
   }
 
-  invalidateAllCaches(locationId);
+  throw new Error(failures[0] || 'Failed to move media');
 }
 
 // ── Delete media ──
