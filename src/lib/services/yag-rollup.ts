@@ -1019,9 +1019,14 @@ async function fetchAllGhlContactsForRollup(
   // pagination).  Fall back to the legacy cursor-based GET /contacts/ if the
   // POST endpoint is unavailable (e.g. missing scope).
   try {
-    return await fetchGhlContactsViaSearch(token, locationId, maxContacts);
-  } catch {
-    return await fetchGhlContactsViaGetLegacy(token, locationId, maxContacts);
+    const result = await fetchGhlContactsViaSearch(token, locationId, maxContacts);
+    console.log(`[yag-rollup] fetchGhlContacts: POST /contacts/search succeeded for ${locationId}: ${result.length} contacts`);
+    return result;
+  } catch (err) {
+    console.warn(`[yag-rollup] fetchGhlContacts: POST /contacts/search failed for ${locationId}, falling back to GET:`, err instanceof Error ? err.message : err);
+    const result = await fetchGhlContactsViaGetLegacy(token, locationId, maxContacts);
+    console.log(`[yag-rollup] fetchGhlContacts: GET /contacts/ fallback for ${locationId}: ${result.length} contacts`);
+    return result;
   }
 }
 
@@ -1040,7 +1045,10 @@ async function fetchGhlContactsViaSearch(
   let page = 1;
 
   while (allContacts.length < maxContacts) {
-    const res = await fetch(`${GHL_BASE}/contacts/search`, {
+    // locationId sent both as query param and in body — GHL docs are
+    // inconsistent about which is required; sending both covers both cases.
+    const url = `${GHL_BASE}/contacts/search?locationId=${encodeURIComponent(locationId)}`;
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -1056,10 +1064,12 @@ async function fetchGhlContactsViaSearch(
     });
 
     if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
       if (page === 1) {
         // Surface the error so the caller can fall back to GET.
-        throw new Error(`GHL POST /contacts/search failed (${res.status})`);
+        throw new Error(`GHL POST /contacts/search failed (${res.status}): ${errBody.slice(0, 300)}`);
       }
+      console.warn(`[yag-rollup] POST /contacts/search page ${page} failed (${res.status}) for ${locationId}: ${errBody.slice(0, 200)}`);
       break;
     }
 
@@ -1069,6 +1079,11 @@ async function fetchGhlContactsViaSearch(
       (Array.isArray(data?.data?.contacts) && data.data.contacts) ||
       (Array.isArray(data?.data) && data.data) ||
       [];
+
+    const metaTotal = data?.meta?.total ?? data?.total ?? '?';
+    if (page <= 3 || contactsRaw.length === 0) {
+      console.log(`[yag-rollup] POST /contacts/search page=${page} loc=${locationId}: ${contactsRaw.length} contacts (meta.total=${metaTotal}, accumulated=${allContacts.length})`);
+    }
 
     if (contactsRaw.length === 0) break;
 
