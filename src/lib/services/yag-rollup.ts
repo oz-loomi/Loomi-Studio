@@ -1015,14 +1015,99 @@ async function fetchAllGhlContactsForRollup(
   locationId: string,
   maxContacts: number,
 ): Promise<Record<string, unknown>[]> {
+  // Try the recommended POST /contacts/search endpoint first (page-based
+  // pagination).  Fall back to the legacy cursor-based GET /contacts/ if the
+  // POST endpoint is unavailable (e.g. missing scope).
+  try {
+    return await fetchGhlContactsViaSearch(token, locationId, maxContacts);
+  } catch {
+    return await fetchGhlContactsViaGetLegacy(token, locationId, maxContacts);
+  }
+}
+
+/**
+ * Fetch contacts using POST /contacts/search with simple page-number
+ * pagination.  GHL deprecated GET /contacts/ and recommends this endpoint.
+ * pageLimit max is 100; page is 1-indexed.
+ */
+async function fetchGhlContactsViaSearch(
+  token: string,
+  locationId: string,
+  maxContacts: number,
+): Promise<Record<string, unknown>[]> {
+  const allContacts: Record<string, unknown>[] = [];
+  const seenContactIds = new Set<string>();
+  let page = 1;
+
+  while (allContacts.length < maxContacts) {
+    const res = await fetch(`${GHL_BASE}/contacts/search`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Version: API_VERSION,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        locationId,
+        page,
+        pageLimit: GHL_PAGE_SIZE,
+      }),
+    });
+
+    if (!res.ok) {
+      if (page === 1) {
+        // Surface the error so the caller can fall back to GET.
+        throw new Error(`GHL POST /contacts/search failed (${res.status})`);
+      }
+      break;
+    }
+
+    const data = await res.json();
+    const contactsRaw: Record<string, unknown>[] =
+      (Array.isArray(data?.contacts) && data.contacts) ||
+      (Array.isArray(data?.data?.contacts) && data.data.contacts) ||
+      (Array.isArray(data?.data) && data.data) ||
+      [];
+
+    if (contactsRaw.length === 0) break;
+
+    let newContactsThisPage = 0;
+    for (const raw of contactsRaw) {
+      const contactId = extractRawContactId(raw);
+      if (contactId && seenContactIds.has(contactId)) continue;
+      if (contactId) seenContactIds.add(contactId);
+      allContacts.push(raw);
+      newContactsThisPage += 1;
+      if (allContacts.length >= maxContacts) break;
+    }
+    if (allContacts.length >= maxContacts) break;
+    if (newContactsThisPage === 0) break;
+
+    // If the page was not full we've reached the last page.
+    if (contactsRaw.length < GHL_PAGE_SIZE) break;
+
+    page += 1;
+  }
+
+  return allContacts.slice(0, maxContacts);
+}
+
+/**
+ * Legacy fallback: cursor-based pagination via GET /contacts/ (deprecated by
+ * GHL).  Kept for accounts that may not yet support POST /contacts/search.
+ */
+async function fetchGhlContactsViaGetLegacy(
+  token: string,
+  locationId: string,
+  maxContacts: number,
+): Promise<Record<string, unknown>[]> {
   const allContacts: Record<string, unknown>[] = [];
   const seenContactIds = new Set<string>();
   const seenCursors = new Set<string>();
   let hasMore = true;
-  // GHL pagination requires two separate cursor values:
-  //   startAfterId (string contact ID) and startAfter (numeric sort key).
-  let cursorId: string | undefined;   // meta.startAfterId
-  let cursorNum: string | undefined;  // meta.startAfter (kept as string for query param)
+  let cursorId: string | undefined;
+  let cursorNum: string | undefined;
   let page = 0;
   let useSearchEndpoint = false;
 
@@ -1047,12 +1132,10 @@ async function fetchAllGhlContactsForRollup(
     });
 
     if (!res.ok) {
-      // Some accounts only support /contacts/search; retry first page there.
       if (page === 0 && !useSearchEndpoint) {
         useSearchEndpoint = true;
         continue;
       }
-
       throw new Error(`GHL contacts fetch failed (${res.status})`);
     }
 
@@ -1077,20 +1160,17 @@ async function fetchAllGhlContactsForRollup(
     if (allContacts.length >= maxContacts) break;
     if (newContactsThisPage === 0) break;
 
-    // Extract both cursor values from meta — GHL requires both for pagination.
     const metaStartAfterId = data?.meta?.startAfterId;
     const metaStartAfter = data?.meta?.startAfter;
     const lastContact = contactsRaw[contactsRaw.length - 1] as Record<string, unknown> | undefined;
     const lastId = lastContact?.id || lastContact?._id;
 
-    // startAfterId: prefer meta, fall back to last contact id
     const nextCursorId = typeof metaStartAfterId === 'string' && metaStartAfterId.trim()
       ? metaStartAfterId.trim()
       : typeof lastId === 'string' && lastId.trim()
         ? lastId.trim()
         : '';
 
-    // startAfter: numeric sort key from meta (stringified for query param)
     const nextCursorNum = metaStartAfter != null ? String(metaStartAfter) : undefined;
 
     if (!nextCursorId) break;
@@ -1099,7 +1179,6 @@ async function fetchAllGhlContactsForRollup(
     cursorId = nextCursorId;
     cursorNum = nextCursorNum;
 
-    // Continue while page is full and we have at least the id cursor.
     hasMore = contactsRaw.length >= GHL_PAGE_SIZE && Boolean(cursorId);
     page += 1;
   }
