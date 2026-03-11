@@ -1015,92 +1015,65 @@ async function fetchAllGhlContactsForRollup(
   locationId: string,
   maxContacts: number,
 ): Promise<Record<string, unknown>[]> {
-  // Try the recommended POST /contacts/search endpoint first (page-based
-  // pagination).  Fall back to the legacy cursor-based GET /contacts/ if the
-  // POST endpoint is unavailable (e.g. missing scope).
-  try {
-    const result = await fetchGhlContactsViaSearch(token, locationId, maxContacts);
-    console.log(`[yag-rollup] fetchGhlContacts: POST /contacts/search succeeded for ${locationId}: ${result.length} contacts`);
-    return result;
-  } catch (err) {
-    console.warn(`[yag-rollup] fetchGhlContacts: POST /contacts/search failed for ${locationId}, falling back to GET:`, err instanceof Error ? err.message : err);
-    const result = await fetchGhlContactsViaGetLegacy(token, locationId, maxContacts);
-    console.log(`[yag-rollup] fetchGhlContacts: GET /contacts/ fallback for ${locationId}: ${result.length} contacts`);
-    return result;
-  }
-}
-
-/**
- * Fetch contacts using POST /contacts/search with simple page-number
- * pagination.  GHL deprecated GET /contacts/ and recommends this endpoint.
- * pageLimit max is 100; page is 1-indexed.
- */
-async function fetchGhlContactsViaSearch(
-  token: string,
-  locationId: string,
-  maxContacts: number,
-): Promise<Record<string, unknown>[]> {
+  // GET /contacts/ is the only GHL endpoint that returns pagination cursors
+  // (meta.startAfterId + meta.startAfter).  POST /contacts/search returns no
+  // meta at all and ignores the `page` body param, so it cannot paginate.
   const allContacts: Record<string, unknown>[] = [];
   const seenContactIds = new Set<string>();
-  let page = 0;
-  // GHL POST /contacts/search uses cursor-based pagination via
-  // startAfterId + startAfter (same cursors as the deprecated GET endpoint).
-  // The `page` body param is ignored by GHL despite being documented.
+  const seenCursors = new Set<string>();
   let cursorId: string | undefined;
   let cursorNum: string | undefined;
-  const seenCursors = new Set<string>();
+  let page = 0;
 
   while (allContacts.length < maxContacts) {
-    const url = `${GHL_BASE}/contacts/search`;
-    const body: Record<string, unknown> = {
+    const query = new URLSearchParams({
       locationId,
-      pageLimit: GHL_PAGE_SIZE,
-    };
+      limit: String(GHL_PAGE_SIZE),
+    });
     if (page > 0) {
-      if (cursorId) body.startAfterId = cursorId;
-      if (cursorNum !== undefined) body.startAfter = cursorNum;
+      if (cursorId !== undefined) query.set('startAfterId', cursorId);
+      if (cursorNum !== undefined) query.set('startAfter', cursorNum);
     }
 
-    const res = await fetch(url, {
-      method: 'POST',
+    const res = await fetch(`${GHL_BASE}/contacts/?${query.toString()}`, {
+      method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
         Version: API_VERSION,
         Accept: 'application/json',
-        'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
       if (page === 0) {
-        throw new Error(`GHL POST /contacts/search failed (${res.status}): ${errBody.slice(0, 300)}`);
+        throw new Error(`GHL GET /contacts/ failed (${res.status}): ${errBody.slice(0, 300)}`);
       }
-      console.warn(`[yag-rollup] POST /contacts/search page ${page} failed (${res.status}) for ${locationId}: ${errBody.slice(0, 200)}`);
+      console.warn(`[yag-rollup] GET /contacts/ p=${page} failed (${res.status}) for ${locationId}: ${errBody.slice(0, 200)}`);
       break;
     }
 
     const data = await res.json();
-    const contactsRaw: Record<string, unknown>[] =
+    const contactsRaw =
       (Array.isArray(data?.contacts) && data.contacts) ||
       (Array.isArray(data?.data?.contacts) && data.data.contacts) ||
       (Array.isArray(data?.data) && data.data) ||
       [];
 
+    // Diagnostic logging for first few pages and milestones.
     const metaTotal = data?.meta?.total ?? data?.total ?? '?';
     if (page <= 2 || contactsRaw.length === 0) {
       const metaKeys = data?.meta ? Object.keys(data.meta).join(',') : 'none';
-      console.log(`[yag-rollup] POST /contacts/search p=${page} loc=${locationId}: ${contactsRaw.length} contacts (total=${metaTotal}, acc=${allContacts.length}, metaKeys=${metaKeys})`);
+      console.log(`[yag-rollup] GET /contacts/ p=${page} loc=${locationId}: ${contactsRaw.length} contacts (total=${metaTotal}, acc=${allContacts.length}, metaKeys=${metaKeys}, startAfterId=${data?.meta?.startAfterId ?? 'n/a'}, startAfter=${data?.meta?.startAfter ?? 'n/a'})`);
     }
     if (page > 0 && page % 50 === 0) {
-      console.log(`[yag-rollup] POST /contacts/search p=${page} loc=${locationId}: accumulated=${allContacts.length}`);
+      console.log(`[yag-rollup] GET /contacts/ p=${page} loc=${locationId}: acc=${allContacts.length}`);
     }
 
     if (contactsRaw.length === 0) break;
 
     let newContactsThisPage = 0;
-    for (const raw of contactsRaw) {
+    for (const raw of contactsRaw as Record<string, unknown>[]) {
       const contactId = extractRawContactId(raw);
       if (contactId && seenContactIds.has(contactId)) continue;
       if (contactId) seenContactIds.add(contactId);
@@ -1110,7 +1083,7 @@ async function fetchGhlContactsViaSearch(
     }
     if (allContacts.length >= maxContacts) break;
     if (newContactsThisPage === 0) {
-      console.log(`[yag-rollup] POST /contacts/search p=${page} loc=${locationId}: 0 new contacts (all dupes), stopping`);
+      console.log(`[yag-rollup] GET /contacts/ p=${page} loc=${locationId}: all dupes, stopping at ${allContacts.length}`);
       break;
     }
 
@@ -1125,15 +1098,14 @@ async function fetchGhlContactsViaSearch(
       : typeof lastId === 'string' && lastId.trim()
         ? lastId.trim()
         : '';
-
     const nextCursorNum = metaStartAfter != null ? String(metaStartAfter) : undefined;
 
     if (!nextCursorId) {
-      console.log(`[yag-rollup] POST /contacts/search p=${page} loc=${locationId}: no cursor returned, stopping at ${allContacts.length} contacts`);
+      console.log(`[yag-rollup] GET /contacts/ p=${page} loc=${locationId}: no cursorId, stopping at ${allContacts.length}`);
       break;
     }
     if (seenCursors.has(nextCursorId)) {
-      console.log(`[yag-rollup] POST /contacts/search p=${page} loc=${locationId}: duplicate cursor, stopping at ${allContacts.length} contacts`);
+      console.log(`[yag-rollup] GET /contacts/ p=${page} loc=${locationId}: duplicate cursor ${nextCursorId}, stopping at ${allContacts.length}`);
       break;
     }
     seenCursors.add(nextCursorId);
@@ -1141,103 +1113,10 @@ async function fetchGhlContactsViaSearch(
     cursorNum = nextCursorNum;
 
     if (contactsRaw.length < GHL_PAGE_SIZE) break;
-
     page += 1;
   }
 
-  return allContacts.slice(0, maxContacts);
-}
-
-/**
- * Legacy fallback: cursor-based pagination via GET /contacts/ (deprecated by
- * GHL).  Kept for accounts that may not yet support POST /contacts/search.
- */
-async function fetchGhlContactsViaGetLegacy(
-  token: string,
-  locationId: string,
-  maxContacts: number,
-): Promise<Record<string, unknown>[]> {
-  const allContacts: Record<string, unknown>[] = [];
-  const seenContactIds = new Set<string>();
-  const seenCursors = new Set<string>();
-  let hasMore = true;
-  let cursorId: string | undefined;
-  let cursorNum: string | undefined;
-  let page = 0;
-  let useSearchEndpoint = false;
-
-  while (hasMore && allContacts.length < maxContacts) {
-    const query = new URLSearchParams({
-      locationId,
-      limit: String(GHL_PAGE_SIZE),
-    });
-    if (page > 0) {
-      if (cursorNum !== undefined) query.set('startAfter', cursorNum);
-      if (cursorId !== undefined) query.set('startAfterId', cursorId);
-    }
-
-    const endpointPath = useSearchEndpoint ? '/contacts/search' : '/contacts/';
-    const res = await fetch(`${GHL_BASE}${endpointPath}?${query.toString()}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Version: API_VERSION,
-        Accept: 'application/json',
-      },
-    });
-
-    if (!res.ok) {
-      if (page === 0 && !useSearchEndpoint) {
-        useSearchEndpoint = true;
-        continue;
-      }
-      throw new Error(`GHL contacts fetch failed (${res.status})`);
-    }
-
-    const data = await res.json();
-    const contactsRaw =
-      (Array.isArray(data?.contacts) && data.contacts) ||
-      (Array.isArray(data?.data?.contacts) && data.data.contacts) ||
-      (Array.isArray(data?.data) && data.data) ||
-      [];
-
-    if (contactsRaw.length === 0) break;
-
-    let newContactsThisPage = 0;
-    for (const raw of contactsRaw as Record<string, unknown>[]) {
-      const contactId = extractRawContactId(raw);
-      if (contactId && seenContactIds.has(contactId)) continue;
-      if (contactId) seenContactIds.add(contactId);
-      allContacts.push(raw);
-      newContactsThisPage += 1;
-      if (allContacts.length >= maxContacts) break;
-    }
-    if (allContacts.length >= maxContacts) break;
-    if (newContactsThisPage === 0) break;
-
-    const metaStartAfterId = data?.meta?.startAfterId;
-    const metaStartAfter = data?.meta?.startAfter;
-    const lastContact = contactsRaw[contactsRaw.length - 1] as Record<string, unknown> | undefined;
-    const lastId = lastContact?.id || lastContact?._id;
-
-    const nextCursorId = typeof metaStartAfterId === 'string' && metaStartAfterId.trim()
-      ? metaStartAfterId.trim()
-      : typeof lastId === 'string' && lastId.trim()
-        ? lastId.trim()
-        : '';
-
-    const nextCursorNum = metaStartAfter != null ? String(metaStartAfter) : undefined;
-
-    if (!nextCursorId) break;
-    if (seenCursors.has(nextCursorId)) break;
-    seenCursors.add(nextCursorId);
-    cursorId = nextCursorId;
-    cursorNum = nextCursorNum;
-
-    hasMore = contactsRaw.length >= GHL_PAGE_SIZE && Boolean(cursorId);
-    page += 1;
-  }
-
+  console.log(`[yag-rollup] GET /contacts/ loc=${locationId}: done — ${allContacts.length} contacts in ${page + 1} pages`);
   return allContacts.slice(0, maxContacts);
 }
 
