@@ -253,7 +253,9 @@ function uniqueKeys(values: string[]): string[] {
 }
 
 function envInt(name: string, fallback: number, min: number, max: number): number {
-  const raw = Number(process.env[name] || '');
+  const envVal = process.env[name];
+  if (envVal === undefined || envVal === '') return fallback;
+  const raw = Number(envVal);
   if (!Number.isFinite(raw)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(raw)));
 }
@@ -1027,10 +1029,6 @@ async function fetchAllGhlContactsForRollup(
 
   while (allContacts.length < maxContacts) {
     try {
-      if (page > 0) {
-        console.log(`[yag-rollup] loc=${locationId}: fetching p=${page} cursor=${cursorId} startAfter=${cursorNum}`);
-      }
-
       const query = new URLSearchParams({
         locationId,
         limit: String(GHL_PAGE_SIZE),
@@ -1063,14 +1061,13 @@ async function fetchAllGhlContactsForRollup(
         (Array.isArray(data?.data) && data.data) ||
         [];
 
-      // Log first 3 pages and every 50th page.
-      if (page <= 2 || contactsRaw.length === 0 || (page > 0 && page % 50 === 0)) {
+      // Log first page to confirm API shape + total.
+      if (page === 0) {
         const metaTotal = data?.meta?.total ?? data?.total ?? '?';
-        const metaKeys = data?.meta ? Object.keys(data.meta).join(',') : 'none';
-        console.log(`[yag-rollup] loc=${locationId}: p=${page} got=${contactsRaw.length} total=${metaTotal} acc=${allContacts.length} metaKeys=${metaKeys} startAfterId=${data?.meta?.startAfterId ?? 'n/a'} startAfter=${data?.meta?.startAfter ?? 'n/a'}`);
+        console.log(`[yag-rollup] loc=${locationId}: p=0 got=${contactsRaw.length} total=${metaTotal} maxContacts=${maxContacts}`);
       }
 
-      if (contactsRaw.length === 0) { console.log(`[yag-rollup] loc=${locationId}: p=${page} empty page, done`); break; }
+      if (contactsRaw.length === 0) break;
 
       let newContactsThisPage = 0;
       for (const raw of contactsRaw as Record<string, unknown>[]) {
@@ -1081,8 +1078,8 @@ async function fetchAllGhlContactsForRollup(
         newContactsThisPage += 1;
         if (allContacts.length >= maxContacts) break;
       }
-      if (allContacts.length >= maxContacts) { console.log(`[yag-rollup] loc=${locationId}: hit maxContacts at p=${page}`); break; }
-      if (newContactsThisPage === 0) { console.log(`[yag-rollup] loc=${locationId}: p=${page} all dupes, done at ${allContacts.length}`); break; }
+      if (allContacts.length >= maxContacts) break;
+      if (newContactsThisPage === 0) break;
 
       // Extract cursors from meta for next page.
       const metaStartAfterId = data?.meta?.startAfterId;
@@ -1097,22 +1094,22 @@ async function fetchAllGhlContactsForRollup(
           : '';
       const nextCursorNum = metaStartAfter != null ? String(metaStartAfter) : undefined;
 
-      if (!nextCursorId) { console.log(`[yag-rollup] loc=${locationId}: p=${page} no cursor, done at ${allContacts.length}`); break; }
-      if (seenCursors.has(nextCursorId)) { console.log(`[yag-rollup] loc=${locationId}: p=${page} dupe cursor, done at ${allContacts.length}`); break; }
+      if (!nextCursorId) break;
+      if (seenCursors.has(nextCursorId)) break;
       seenCursors.add(nextCursorId);
       cursorId = nextCursorId;
       cursorNum = nextCursorNum;
 
-      if (contactsRaw.length < GHL_PAGE_SIZE) { console.log(`[yag-rollup] loc=${locationId}: p=${page} partial page (${contactsRaw.length}), done at ${allContacts.length}`); break; }
+      if (contactsRaw.length < GHL_PAGE_SIZE) break;
       page += 1;
     } catch (err) {
-      console.error(`[yag-rollup] loc=${locationId}: p=${page} EXCEPTION:`, err instanceof Error ? err.message : err);
+      console.error(`[yag-rollup] loc=${locationId}: p=${page} error:`, err instanceof Error ? err.message : err);
       if (page === 0) throw err;
       break;
     }
   }
 
-  console.log(`[yag-rollup] loc=${locationId}: FINISHED ${allContacts.length} contacts in ${page + 1} pages`);
+  console.log(`[yag-rollup] loc=${locationId}: done — ${allContacts.length} contacts in ${page + 1} pages`);
   return allContacts.slice(0, maxContacts);
 }
 
