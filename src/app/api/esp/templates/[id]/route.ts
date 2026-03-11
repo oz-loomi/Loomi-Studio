@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
 import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-helpers';
 import { prisma } from '@/lib/prisma';
+import {
+  resolveTemplateSyncProviders,
+  serializePublishedToMapping,
+  syncTemplateToProviders,
+} from '@/lib/esp/template-sync';
 
 /**
  * GET /api/esp/templates/[id]
@@ -47,7 +52,17 @@ export async function PUT(
 
   const { id } = await params;
   const body = await req.json();
-  const { name, subject, previewText, html, source, editorType, syncToRemote, accountKey } = body;
+  const {
+    name,
+    subject,
+    previewText,
+    html,
+    source,
+    editorType,
+    syncToRemote,
+    accountKey,
+    providers,
+  } = body;
 
   // Find the local template
   const existing = await prisma.espTemplate.findUnique({ where: { id } });
@@ -92,18 +107,51 @@ export async function PUT(
   }
 
   try {
-    // If syncing to remote and we have a remoteId, push update to ESP
-    if (syncToRemote && existing.remoteId && !accountChanged) {
-      const result = await resolveAdapterAndCredentials(existing.accountKey, {
-        requireCapability: 'templates',
+    const preferredProviders = Array.isArray(providers)
+      ? providers.filter((provider): provider is string => typeof provider === 'string' && provider.trim().length > 0)
+      : [];
+    const resolvedName = typeof name === 'string' && name.trim() ? name.trim() : existing.name;
+    const resolvedSubject = subject !== undefined ? subject : existing.subject;
+    const resolvedPreviewText = previewText !== undefined ? previewText : existing.previewText;
+    const resolvedHtml = typeof html === 'string' ? html : existing.html;
+    const resolvedEditorType = typeof editorType === 'string' ? editorType : existing.editorType;
+
+    let syncProviders: string[] = [];
+    let syncResults: Record<string, { success: boolean; remoteId?: string; error?: string }> = {};
+    let syncFailedProviders: string[] = [];
+    let publishedTo = existing.publishedTo;
+    let remoteId = existing.remoteId;
+    let lastSyncedAt = existing.lastSyncedAt;
+
+    if (syncToRemote && !accountChanged) {
+      syncProviders = await resolveTemplateSyncProviders({
+        accountKey: existing.accountKey,
+        preferredProviders,
+        publishedTo: existing.publishedTo,
+        remoteId: existing.remoteId,
+        primaryProvider: existing.provider,
       });
-      if (!isResolveError(result) && result.adapter.templates) {
-        await result.adapter.templates.updateTemplate(
-          result.credentials.token,
-          result.credentials.locationId,
-          existing.remoteId,
-          { name, subject, previewText, html },
-        );
+
+      if (syncProviders.length > 0) {
+        const syncResult = await syncTemplateToProviders({
+          accountKey: existing.accountKey,
+          primaryProvider: existing.provider,
+          remoteId: existing.remoteId,
+          publishedTo: existing.publishedTo,
+          providers: syncProviders,
+          name: resolvedName,
+          subject: resolvedSubject,
+          previewText: resolvedPreviewText,
+          html: resolvedHtml,
+          editorType: resolvedEditorType,
+        });
+        syncResults = syncResult.results;
+        syncFailedProviders = syncResult.failedProviders;
+        publishedTo = serializePublishedToMapping(syncResult.publishedTo);
+        remoteId = syncResult.primaryRemoteId;
+        if (syncResult.syncedProviders.length > 0) {
+          lastSyncedAt = new Date();
+        }
       }
     }
 
@@ -117,18 +165,30 @@ export async function PUT(
         ...(html !== undefined && { html }),
         ...(source !== undefined && { source }),
         ...(editorType !== undefined && { editorType }),
+        ...(!accountChanged && syncToRemote && {
+          publishedTo,
+          remoteId,
+          lastSyncedAt,
+        }),
         ...(accountChanged && {
           accountKey: targetAccountKey,
           provider: targetProvider,
           remoteId: null,
+          publishedTo: null,
           status: 'draft',
           lastSyncedAt: null,
         }),
-        ...(syncToRemote && !accountChanged && { lastSyncedAt: new Date() }),
       },
     });
 
-    return NextResponse.json({ template, synced: !!syncToRemote });
+    return NextResponse.json({
+      template,
+      synced: syncToRemote && syncProviders.length > 0 && syncFailedProviders.length < syncProviders.length,
+      syncAttempted: syncToRemote && !accountChanged && syncProviders.length > 0,
+      syncProviders,
+      syncFailedProviders,
+      syncResults,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to update template';
     return NextResponse.json({ error: message }, { status: 500 });

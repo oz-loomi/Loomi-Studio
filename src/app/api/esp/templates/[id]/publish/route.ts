@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
-import '@/lib/esp/init';
-import { getAdapter } from '@/lib/esp/registry';
-import type { EspProvider, EspCredentials } from '@/lib/esp/types';
+import {
+  serializePublishedToMapping,
+  syncTemplateToProviders,
+} from '@/lib/esp/template-sync';
 
 /**
  * POST /api/esp/templates/[id]/publish
@@ -54,106 +55,30 @@ export async function POST(
     );
   }
 
-  // Parse existing publishedTo mapping
-  let publishedTo: Record<string, string> = {};
-  if (template.publishedTo) {
-    try {
-      publishedTo = JSON.parse(template.publishedTo);
-    } catch {
-      publishedTo = {};
-    }
-  }
-
-  // Also carry over legacy remoteId if present
-  if (template.remoteId && template.provider && !publishedTo[template.provider]) {
-    publishedTo[template.provider] = template.remoteId;
-  }
-
-  const results: Record<
-    string,
-    { success: boolean; remoteId?: string; error?: string }
-  > = {};
-
-  for (const providerName of providers) {
-    try {
-      const adapter = getAdapter(providerName as EspProvider);
-      if (!adapter.templates) {
-        results[providerName] = {
-          success: false,
-          error: `${providerName} does not support templates`,
-        };
-        continue;
-      }
-
-      // Resolve credentials for this specific provider
-      let credentials: EspCredentials | null = null;
-      if (adapter.resolveCredentials) {
-        credentials = await adapter.resolveCredentials(template.accountKey);
-      } else if (adapter.contacts) {
-        credentials = await adapter.contacts.resolveCredentials(template.accountKey);
-      }
-
-      if (!credentials) {
-        results[providerName] = {
-          success: false,
-          error: `${providerName} is not connected for this account`,
-        };
-        continue;
-      }
-
-      const existingRemoteId = publishedTo[providerName];
-
-      if (existingRemoteId) {
-        // Update existing remote template
-        await adapter.templates.updateTemplate(
-          credentials.token,
-          credentials.locationId,
-          existingRemoteId,
-          {
-            name: template.name,
-            subject: template.subject ?? undefined,
-            previewText: template.previewText ?? undefined,
-            html: template.html,
-          },
-        );
-        results[providerName] = { success: true, remoteId: existingRemoteId };
-      } else {
-        // Create new remote template
-        const created = await adapter.templates.createTemplate(
-          credentials.token,
-          credentials.locationId,
-          {
-            name: template.name,
-            subject: template.subject ?? undefined,
-            previewText: template.previewText ?? undefined,
-            html: template.html,
-            editorType: template.editorType ?? undefined,
-          },
-        );
-        publishedTo[providerName] = created.id;
-        results[providerName] = { success: true, remoteId: created.id };
-      }
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : `Failed to publish to ${providerName}`;
-      results[providerName] = { success: false, error: message };
-    }
-  }
-
-  // Persist updated publishedTo mapping
-  const primaryRemoteId =
-    (template.provider && typeof publishedTo[template.provider] === 'string'
-      ? publishedTo[template.provider]
-      : null) || template.remoteId || null;
+  const syncResult = await syncTemplateToProviders({
+    accountKey: template.accountKey,
+    primaryProvider: template.provider,
+    remoteId: template.remoteId,
+    publishedTo: template.publishedTo,
+    providers,
+    name: template.name,
+    subject: template.subject,
+    previewText: template.previewText,
+    html: template.html,
+    editorType: template.editorType,
+  });
 
   await prisma.espTemplate.update({
     where: { id },
     data: {
-      publishedTo: JSON.stringify(publishedTo),
-      remoteId: primaryRemoteId,
-      lastSyncedAt: new Date(),
+      publishedTo: serializePublishedToMapping(syncResult.publishedTo),
+      remoteId: syncResult.primaryRemoteId,
+      ...(syncResult.syncedProviders.length > 0 ? { lastSyncedAt: new Date() } : {}),
     },
   });
 
-  return NextResponse.json({ results, publishedTo });
+  return NextResponse.json({
+    results: syncResult.results,
+    publishedTo: syncResult.publishedTo,
+  });
 }

@@ -7279,6 +7279,45 @@ export default function TemplateEditorPage() {
     markClean();
   }, [hasChanges, markClean, markDirty]);
 
+  const resolveHtmlForTemplateSave = useCallback(async (): Promise<string | undefined> => {
+    if (editorMode === "code") return code;
+    if (previewHtml) return previewHtml;
+
+    try {
+      const compileRes = await fetch("/api/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html: code, project: "core" }),
+      });
+      const compileData = await compileRes.json().catch(() => ({}));
+      const compiledHtml =
+        typeof compileData.html === "string" && compileData.html.trim()
+          ? compileData.html
+          : "";
+      if (compiledHtml) {
+        setPreviewHtml(compiledHtml);
+        return compiledHtml;
+      }
+    } catch {
+      // Fall through to undefined — save can still persist the source locally.
+    }
+
+    return undefined;
+  }, [code, editorMode, previewHtml]);
+
+  const getEspSaveMessage = useCallback((data: {
+    syncAttempted?: boolean;
+    syncResults?: Record<string, { success: boolean }>;
+  } | null | undefined): string => {
+    if (!data?.syncAttempted) return "Saved";
+    const results = Object.values(data.syncResults || {});
+    if (results.length === 0) return "Saved";
+    const successCount = results.filter((result) => result.success).length;
+    if (successCount === results.length) return "Saved & synced";
+    if (successCount > 0) return "Saved • partial sync";
+    return "Saved locally • sync failed";
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
     document.body.dataset.templateAiSidebar = showAiAssistant ? "open" : "closed";
@@ -7326,7 +7365,9 @@ export default function TemplateEditorPage() {
     autoSaveTimerRef.current = setTimeout(async () => {
       setSaving(true);
       setMessage("");
-      const htmlForSave = editorMode === "code" ? code : (previewHtml || undefined);
+      const htmlForSave = espMode
+        ? await resolveHtmlForTemplateSave()
+        : (editorMode === "code" ? code : (previewHtml || undefined));
       try {
         if (espMode && espRecordId) {
           // Save to ESP template record
@@ -7341,14 +7382,21 @@ export default function TemplateEditorPage() {
               html: htmlForSave,
               editorType: editorMode,
               accountKey: effectiveAccountKey || undefined,
+              syncToRemote: true,
             }),
           });
           if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const updatedId = data?.template?.id;
+            if (typeof updatedId === "string" && updatedId.trim()) {
+              espRecordIdRef.current = updatedId.trim();
+              setEspRecordId(updatedId.trim());
+            }
             setOriginalCode(code);
             setOriginalEspTemplateName(espTemplateName);
             setOriginalEspSubject(espSubject);
             setOriginalEspPreviewText(espPreviewText);
-            setMessage("Saved");
+            setMessage(getEspSaveMessage(data));
             setTimeout(() => setMessage(""), 2000);
           }
         } else if (espMode && !espRecordId && effectiveAccountKey) {
@@ -7364,6 +7412,7 @@ export default function TemplateEditorPage() {
               source: code,
               html: htmlForSave || "",
               editorType: editorMode,
+              syncToRemote: true,
             }),
           });
           if (res.ok) {
@@ -7374,7 +7423,7 @@ export default function TemplateEditorPage() {
             setOriginalEspTemplateName(espTemplateName);
             setOriginalEspSubject(espSubject);
             setOriginalEspPreviewText(espPreviewText);
-            setMessage("Saved");
+            setMessage(getEspSaveMessage(data));
             setTimeout(() => setMessage(""), 2000);
           }
         } else if (design) {
@@ -7397,7 +7446,7 @@ export default function TemplateEditorPage() {
     }, 3000);
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasChanges, code, design, templateName, espMode, espRecordId, effectiveAccountKey, espTemplateName, espSubject, espPreviewText, saving]);
+  }, [hasChanges, code, design, templateName, espMode, espRecordId, effectiveAccountKey, espTemplateName, espSubject, espPreviewText, saving, editorMode, previewHtml, resolveHtmlForTemplateSave, getEspSaveMessage]);
 
   useEffect(() => {
     if (isHtmlOnlyBuilder) {
@@ -8334,9 +8383,12 @@ export default function TemplateEditorPage() {
   const handleSave = async (): Promise<boolean> => {
     setSaving(true);
     setMessage("");
-    const htmlForSave = editorMode === "code" ? code : (previewHtml || undefined);
+    const htmlForSave = espMode
+      ? await resolveHtmlForTemplateSave()
+      : (editorMode === "code" ? code : (previewHtml || undefined));
     try {
       let res: Response;
+      let responseData: any = null;
       if (espMode && espRecordId) {
         res = await fetch(`/api/esp/templates/${espRecordId}`, {
           method: "PUT",
@@ -8349,6 +8401,7 @@ export default function TemplateEditorPage() {
             html: htmlForSave,
             editorType: editorMode,
             accountKey: effectiveAccountKey || undefined,
+            syncToRemote: true,
           }),
         });
       } else if (espMode && !espRecordId && effectiveAccountKey) {
@@ -8363,12 +8416,13 @@ export default function TemplateEditorPage() {
             source: code,
             html: htmlForSave || "",
             editorType: editorMode,
+            syncToRemote: true,
           }),
         });
         if (res.ok) {
-          const data = await res.json();
-          espRecordIdRef.current = data.template.id;
-          setEspRecordId(data.template.id);
+          responseData = await res.json();
+          espRecordIdRef.current = responseData.template.id;
+          setEspRecordId(responseData.template.id);
         }
       } else {
         res = await fetch("/api/templates", {
@@ -8378,7 +8432,7 @@ export default function TemplateEditorPage() {
         });
       }
       if (res.ok) {
-        const data = await res.json().catch(() => ({}));
+        const data = responseData ?? await res.json().catch(() => ({}));
         if (data.slug && data.slug !== design) setDesign(data.slug);
         setOriginalCode(code);
         if (espMode) {
@@ -8386,7 +8440,7 @@ export default function TemplateEditorPage() {
           setOriginalEspSubject(espSubject);
           setOriginalEspPreviewText(espPreviewText);
         }
-        setMessage("Saved");
+        setMessage(espMode ? getEspSaveMessage(data) : "Saved");
         setTimeout(() => setMessage(""), 3000);
         return true;
       }

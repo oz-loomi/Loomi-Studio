@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
-import { resolveAdapterAndCredentials, isResolveError } from '@/lib/esp/route-helpers';
 import { getAdapterForAccount } from '@/lib/esp/registry';
 import { prisma } from '@/lib/prisma';
+import {
+  resolveTemplateSyncProviders,
+  serializePublishedToMapping,
+  syncTemplateToProviders,
+} from '@/lib/esp/template-sync';
 
 function normalizeTemplateProvider<
   T extends {
@@ -134,7 +138,17 @@ export async function POST(req: NextRequest) {
   if (error) return error;
 
   const body = await req.json();
-  const { accountKey, name, subject, previewText, html, source, editorType, syncToRemote } = body;
+  const {
+    accountKey,
+    name,
+    subject,
+    previewText,
+    html,
+    source,
+    editorType,
+    syncToRemote,
+    providers,
+  } = body;
 
   if (!accountKey || !name) {
     return NextResponse.json({ error: 'accountKey and name are required' }, { status: 400 });
@@ -147,36 +161,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Access denied' }, { status: 403 });
   }
 
-  // Resolve adapter+credentials for remote sync calls.
-  const resolved = await resolveAdapterAndCredentials(accountKey, {});
-  const adapterAvailable = !isResolveError(resolved);
-
   // Determine provider for local record creation without requiring valid credentials.
   let providerName = 'unknown';
   try {
     const adapter = await getAdapterForAccount(accountKey);
     providerName = adapter.provider;
   } catch {
-    if (adapterAvailable) providerName = resolved.adapter.provider;
+    providerName = 'unknown';
   }
 
   try {
-    let remoteId: string | null = null;
+    const preferredProviders = Array.isArray(providers)
+      ? providers.filter((provider): provider is string => typeof provider === 'string' && provider.trim().length > 0)
+      : [];
+    const syncProviders = syncToRemote
+      ? await resolveTemplateSyncProviders({
+        accountKey,
+        preferredProviders,
+        primaryProvider: providerName,
+      })
+      : [];
 
-    // If user wants to sync to remote, create on ESP first (requires connected adapter)
-    if (syncToRemote) {
-      if (!adapterAvailable || !resolved.adapter.templates) {
-        return NextResponse.json(
-          { error: 'ESP connection with templates support required to sync to remote' },
-          { status: 400 },
-        );
-      }
-      const remoteTemplate = await resolved.adapter.templates.createTemplate(
-        resolved.credentials.token,
-        resolved.credentials.locationId,
-        { name, subject, previewText, html: html || '', editorType },
-      );
-      remoteId = remoteTemplate.id;
+    let remoteId: string | null = null;
+    let publishedTo: string | null = null;
+    let syncResults: Record<string, { success: boolean; remoteId?: string; error?: string }> = {};
+    let syncFailedProviders: string[] = [];
+
+    if (syncProviders.length > 0) {
+      const syncResult = await syncTemplateToProviders({
+        accountKey,
+        primaryProvider: providerName,
+        providers: syncProviders,
+        name,
+        subject,
+        previewText,
+        html: html || '',
+        editorType,
+      });
+      remoteId = syncResult.primaryRemoteId;
+      publishedTo = serializePublishedToMapping(syncResult.publishedTo);
+      syncResults = syncResult.results;
+      syncFailedProviders = syncResult.failedProviders;
     }
 
     // Create locally — always works even without ESP connection
@@ -185,6 +210,7 @@ export async function POST(req: NextRequest) {
         accountKey,
         provider: providerName,
         remoteId,
+        publishedTo,
         name,
         subject: subject || null,
         previewText: previewText || null,
@@ -192,11 +218,21 @@ export async function POST(req: NextRequest) {
         source: source || null,
         status: 'draft',
         editorType: editorType || null,
-        lastSyncedAt: syncToRemote ? new Date() : null,
+        lastSyncedAt: syncProviders.length > syncFailedProviders.length ? new Date() : null,
       },
     });
 
-    return NextResponse.json({ template, synced: !!syncToRemote }, { status: 201 });
+    return NextResponse.json(
+      {
+        template,
+        synced: syncProviders.length > syncFailedProviders.length,
+        syncAttempted: syncProviders.length > 0,
+        syncProviders,
+        syncFailedProviders,
+        syncResults,
+      },
+      { status: 201 },
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to create template';
     return NextResponse.json({ error: message }, { status: 500 });
