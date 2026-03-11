@@ -1042,12 +1042,25 @@ async function fetchGhlContactsViaSearch(
 ): Promise<Record<string, unknown>[]> {
   const allContacts: Record<string, unknown>[] = [];
   const seenContactIds = new Set<string>();
-  let page = 1;
+  let page = 0;
+  // GHL POST /contacts/search uses cursor-based pagination via
+  // startAfterId + startAfter (same cursors as the deprecated GET endpoint).
+  // The `page` body param is ignored by GHL despite being documented.
+  let cursorId: string | undefined;
+  let cursorNum: string | undefined;
+  const seenCursors = new Set<string>();
 
   while (allContacts.length < maxContacts) {
-    // locationId sent both as query param and in body — GHL docs are
-    // inconsistent about which is required; sending both covers both cases.
-    const url = `${GHL_BASE}/contacts/search?locationId=${encodeURIComponent(locationId)}`;
+    const url = `${GHL_BASE}/contacts/search`;
+    const body: Record<string, unknown> = {
+      locationId,
+      pageLimit: GHL_PAGE_SIZE,
+    };
+    if (page > 0) {
+      if (cursorId) body.startAfterId = cursorId;
+      if (cursorNum !== undefined) body.startAfter = cursorNum;
+    }
+
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -1056,17 +1069,12 @@ async function fetchGhlContactsViaSearch(
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        locationId,
-        page,
-        pageLimit: GHL_PAGE_SIZE,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
-      if (page === 1) {
-        // Surface the error so the caller can fall back to GET.
+      if (page === 0) {
         throw new Error(`GHL POST /contacts/search failed (${res.status}): ${errBody.slice(0, 300)}`);
       }
       console.warn(`[yag-rollup] POST /contacts/search page ${page} failed (${res.status}) for ${locationId}: ${errBody.slice(0, 200)}`);
@@ -1081,8 +1089,12 @@ async function fetchGhlContactsViaSearch(
       [];
 
     const metaTotal = data?.meta?.total ?? data?.total ?? '?';
-    if (page <= 3 || contactsRaw.length === 0) {
-      console.log(`[yag-rollup] POST /contacts/search page=${page} loc=${locationId}: ${contactsRaw.length} contacts (meta.total=${metaTotal}, accumulated=${allContacts.length})`);
+    if (page <= 2 || contactsRaw.length === 0) {
+      const metaKeys = data?.meta ? Object.keys(data.meta).join(',') : 'none';
+      console.log(`[yag-rollup] POST /contacts/search p=${page} loc=${locationId}: ${contactsRaw.length} contacts (total=${metaTotal}, acc=${allContacts.length}, metaKeys=${metaKeys})`);
+    }
+    if (page > 0 && page % 50 === 0) {
+      console.log(`[yag-rollup] POST /contacts/search p=${page} loc=${locationId}: accumulated=${allContacts.length}`);
     }
 
     if (contactsRaw.length === 0) break;
@@ -1097,9 +1109,37 @@ async function fetchGhlContactsViaSearch(
       if (allContacts.length >= maxContacts) break;
     }
     if (allContacts.length >= maxContacts) break;
-    if (newContactsThisPage === 0) break;
+    if (newContactsThisPage === 0) {
+      console.log(`[yag-rollup] POST /contacts/search p=${page} loc=${locationId}: 0 new contacts (all dupes), stopping`);
+      break;
+    }
 
-    // If the page was not full we've reached the last page.
+    // Extract cursors from meta for next page.
+    const metaStartAfterId = data?.meta?.startAfterId;
+    const metaStartAfter = data?.meta?.startAfter;
+    const lastContact = contactsRaw[contactsRaw.length - 1] as Record<string, unknown> | undefined;
+    const lastId = lastContact?.id || lastContact?._id;
+
+    const nextCursorId = typeof metaStartAfterId === 'string' && metaStartAfterId.trim()
+      ? metaStartAfterId.trim()
+      : typeof lastId === 'string' && lastId.trim()
+        ? lastId.trim()
+        : '';
+
+    const nextCursorNum = metaStartAfter != null ? String(metaStartAfter) : undefined;
+
+    if (!nextCursorId) {
+      console.log(`[yag-rollup] POST /contacts/search p=${page} loc=${locationId}: no cursor returned, stopping at ${allContacts.length} contacts`);
+      break;
+    }
+    if (seenCursors.has(nextCursorId)) {
+      console.log(`[yag-rollup] POST /contacts/search p=${page} loc=${locationId}: duplicate cursor, stopping at ${allContacts.length} contacts`);
+      break;
+    }
+    seenCursors.add(nextCursorId);
+    cursorId = nextCursorId;
+    cursorNum = nextCursorNum;
+
     if (contactsRaw.length < GHL_PAGE_SIZE) break;
 
     page += 1;
