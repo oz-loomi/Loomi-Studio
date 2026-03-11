@@ -1026,97 +1026,93 @@ async function fetchAllGhlContactsForRollup(
   let page = 0;
 
   while (allContacts.length < maxContacts) {
-    const query = new URLSearchParams({
-      locationId,
-      limit: String(GHL_PAGE_SIZE),
-    });
-    if (page > 0) {
-      if (cursorId !== undefined) query.set('startAfterId', cursorId);
-      if (cursorNum !== undefined) query.set('startAfter', cursorNum);
-    }
-
-    const res = await fetch(`${GHL_BASE}/contacts/?${query.toString()}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Version: API_VERSION,
-        Accept: 'application/json',
-      },
-    });
-
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      if (page === 0) {
-        throw new Error(`GHL GET /contacts/ failed (${res.status}): ${errBody.slice(0, 300)}`);
+    try {
+      if (page > 0) {
+        console.log(`[yag-rollup] loc=${locationId}: fetching p=${page} cursor=${cursorId} startAfter=${cursorNum}`);
       }
-      console.warn(`[yag-rollup] GET /contacts/ p=${page} failed (${res.status}) for ${locationId}: ${errBody.slice(0, 200)}`);
+
+      const query = new URLSearchParams({
+        locationId,
+        limit: String(GHL_PAGE_SIZE),
+      });
+      if (page > 0) {
+        if (cursorId !== undefined) query.set('startAfterId', cursorId);
+        if (cursorNum !== undefined) query.set('startAfter', cursorNum);
+      }
+
+      const res = await fetch(`${GHL_BASE}/contacts/?${query.toString()}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Version: API_VERSION,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        console.warn(`[yag-rollup] loc=${locationId}: p=${page} HTTP ${res.status}: ${errBody.slice(0, 200)}`);
+        if (page === 0) throw new Error(`GHL GET /contacts/ failed (${res.status})`);
+        break;
+      }
+
+      const data = await res.json();
+      const contactsRaw =
+        (Array.isArray(data?.contacts) && data.contacts) ||
+        (Array.isArray(data?.data?.contacts) && data.data.contacts) ||
+        (Array.isArray(data?.data) && data.data) ||
+        [];
+
+      // Log first 3 pages and every 50th page.
+      if (page <= 2 || contactsRaw.length === 0 || (page > 0 && page % 50 === 0)) {
+        const metaTotal = data?.meta?.total ?? data?.total ?? '?';
+        const metaKeys = data?.meta ? Object.keys(data.meta).join(',') : 'none';
+        console.log(`[yag-rollup] loc=${locationId}: p=${page} got=${contactsRaw.length} total=${metaTotal} acc=${allContacts.length} metaKeys=${metaKeys} startAfterId=${data?.meta?.startAfterId ?? 'n/a'} startAfter=${data?.meta?.startAfter ?? 'n/a'}`);
+      }
+
+      if (contactsRaw.length === 0) { console.log(`[yag-rollup] loc=${locationId}: p=${page} empty page, done`); break; }
+
+      let newContactsThisPage = 0;
+      for (const raw of contactsRaw as Record<string, unknown>[]) {
+        const contactId = extractRawContactId(raw);
+        if (contactId && seenContactIds.has(contactId)) continue;
+        if (contactId) seenContactIds.add(contactId);
+        allContacts.push(raw);
+        newContactsThisPage += 1;
+        if (allContacts.length >= maxContacts) break;
+      }
+      if (allContacts.length >= maxContacts) { console.log(`[yag-rollup] loc=${locationId}: hit maxContacts at p=${page}`); break; }
+      if (newContactsThisPage === 0) { console.log(`[yag-rollup] loc=${locationId}: p=${page} all dupes, done at ${allContacts.length}`); break; }
+
+      // Extract cursors from meta for next page.
+      const metaStartAfterId = data?.meta?.startAfterId;
+      const metaStartAfter = data?.meta?.startAfter;
+      const lastContact = contactsRaw[contactsRaw.length - 1] as Record<string, unknown> | undefined;
+      const lastId = lastContact?.id || lastContact?._id;
+
+      const nextCursorId = typeof metaStartAfterId === 'string' && metaStartAfterId.trim()
+        ? metaStartAfterId.trim()
+        : typeof lastId === 'string' && lastId.trim()
+          ? lastId.trim()
+          : '';
+      const nextCursorNum = metaStartAfter != null ? String(metaStartAfter) : undefined;
+
+      if (!nextCursorId) { console.log(`[yag-rollup] loc=${locationId}: p=${page} no cursor, done at ${allContacts.length}`); break; }
+      if (seenCursors.has(nextCursorId)) { console.log(`[yag-rollup] loc=${locationId}: p=${page} dupe cursor, done at ${allContacts.length}`); break; }
+      seenCursors.add(nextCursorId);
+      cursorId = nextCursorId;
+      cursorNum = nextCursorNum;
+
+      if (contactsRaw.length < GHL_PAGE_SIZE) { console.log(`[yag-rollup] loc=${locationId}: p=${page} partial page (${contactsRaw.length}), done at ${allContacts.length}`); break; }
+      page += 1;
+    } catch (err) {
+      console.error(`[yag-rollup] loc=${locationId}: p=${page} EXCEPTION:`, err instanceof Error ? err.message : err);
+      if (page === 0) throw err;
       break;
     }
-
-    const data = await res.json();
-    const contactsRaw =
-      (Array.isArray(data?.contacts) && data.contacts) ||
-      (Array.isArray(data?.data?.contacts) && data.data.contacts) ||
-      (Array.isArray(data?.data) && data.data) ||
-      [];
-
-    // Diagnostic logging for first few pages and milestones.
-    const metaTotal = data?.meta?.total ?? data?.total ?? '?';
-    if (page <= 2 || contactsRaw.length === 0) {
-      const metaKeys = data?.meta ? Object.keys(data.meta).join(',') : 'none';
-      console.log(`[yag-rollup] GET /contacts/ p=${page} loc=${locationId}: ${contactsRaw.length} contacts (total=${metaTotal}, acc=${allContacts.length}, metaKeys=${metaKeys}, startAfterId=${data?.meta?.startAfterId ?? 'n/a'}, startAfter=${data?.meta?.startAfter ?? 'n/a'})`);
-    }
-    if (page > 0 && page % 50 === 0) {
-      console.log(`[yag-rollup] GET /contacts/ p=${page} loc=${locationId}: acc=${allContacts.length}`);
-    }
-
-    if (contactsRaw.length === 0) break;
-
-    let newContactsThisPage = 0;
-    for (const raw of contactsRaw as Record<string, unknown>[]) {
-      const contactId = extractRawContactId(raw);
-      if (contactId && seenContactIds.has(contactId)) continue;
-      if (contactId) seenContactIds.add(contactId);
-      allContacts.push(raw);
-      newContactsThisPage += 1;
-      if (allContacts.length >= maxContacts) break;
-    }
-    if (allContacts.length >= maxContacts) break;
-    if (newContactsThisPage === 0) {
-      console.log(`[yag-rollup] GET /contacts/ p=${page} loc=${locationId}: all dupes, stopping at ${allContacts.length}`);
-      break;
-    }
-
-    // Extract cursors from meta for next page.
-    const metaStartAfterId = data?.meta?.startAfterId;
-    const metaStartAfter = data?.meta?.startAfter;
-    const lastContact = contactsRaw[contactsRaw.length - 1] as Record<string, unknown> | undefined;
-    const lastId = lastContact?.id || lastContact?._id;
-
-    const nextCursorId = typeof metaStartAfterId === 'string' && metaStartAfterId.trim()
-      ? metaStartAfterId.trim()
-      : typeof lastId === 'string' && lastId.trim()
-        ? lastId.trim()
-        : '';
-    const nextCursorNum = metaStartAfter != null ? String(metaStartAfter) : undefined;
-
-    if (!nextCursorId) {
-      console.log(`[yag-rollup] GET /contacts/ p=${page} loc=${locationId}: no cursorId, stopping at ${allContacts.length}`);
-      break;
-    }
-    if (seenCursors.has(nextCursorId)) {
-      console.log(`[yag-rollup] GET /contacts/ p=${page} loc=${locationId}: duplicate cursor ${nextCursorId}, stopping at ${allContacts.length}`);
-      break;
-    }
-    seenCursors.add(nextCursorId);
-    cursorId = nextCursorId;
-    cursorNum = nextCursorNum;
-
-    if (contactsRaw.length < GHL_PAGE_SIZE) break;
-    page += 1;
   }
 
-  console.log(`[yag-rollup] GET /contacts/ loc=${locationId}: done — ${allContacts.length} contacts in ${page + 1} pages`);
+  console.log(`[yag-rollup] loc=${locationId}: FINISHED ${allContacts.length} contacts in ${page + 1} pages`);
   return allContacts.slice(0, maxContacts);
 }
 
