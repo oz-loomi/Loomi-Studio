@@ -2737,6 +2737,7 @@ interface YagRollupSnapshotResponse {
     lastSyncedAt: string | null;
     lastSyncStatus: string | null;
     lastSyncSummary: Record<string, unknown> | null;
+    currentRunStartedAt: string | null;
   };
   targetOptions: Array<{ key: string; dealer: string }>;
   sourceOptions: Array<{ key: string; dealer: string }>;
@@ -2812,6 +2813,13 @@ function formatRollupDate(value: string | null): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return 'Never';
   return parsed.toLocaleString();
+}
+
+const STALE_RUN_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function isRunStale(startedAt: string | null): boolean {
+  if (!startedAt) return false;
+  return Date.now() - new Date(startedAt).getTime() > STALE_RUN_THRESHOLD_MS;
 }
 
 function formatRollupChangedField(field: string): string {
@@ -3485,6 +3493,33 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
     loadSnapshot();
   }, [loadSnapshot]);
 
+  // Derived: detect remote run in-flight (set by server, not this browser session)
+  const remoteRunInProgress = Boolean(
+    snapshot?.config.currentRunStartedAt,
+  ) && !isRunStale(snapshot?.config.currentRunStartedAt ?? null);
+
+  const remoteRunIsStale = Boolean(
+    snapshot?.config.currentRunStartedAt,
+  ) && isRunStale(snapshot?.config.currentRunStartedAt ?? null);
+
+  // Poll config while a remote run is in-flight and this session didn't start it
+  useEffect(() => {
+    if (!remoteRunInProgress || runningMode !== null) return;
+    const intervalId = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `/api/yag-rollup/config?jobKey=${encodeURIComponent(jobKey)}`,
+        );
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => ({}))) as YagRollupSnapshotResponse;
+        setSnapshot(data);
+      } catch {
+        // Swallow polling errors
+      }
+    }, 5000);
+    return () => clearInterval(intervalId);
+  }, [remoteRunInProgress, runningMode, jobKey]);
+
   const filteredSourceOptions = useMemo(() => {
     if (!snapshot) return [];
     const q = sourceSearch.trim().toLowerCase();
@@ -3582,6 +3617,25 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
       toast.error(message);
     }
     setSaving(false);
+  }
+
+  async function clearStaleLock() {
+    try {
+      const res = await fetch('/api/yag-rollup/config/clear-lock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobKey }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to clear stale lock');
+      }
+      toast.success('Stale lock cleared');
+      await loadSnapshot();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to clear stale lock';
+      toast.error(message);
+    }
   }
 
   async function runSync(mode: 'dry' | 'incremental' | 'full') {
@@ -4073,7 +4127,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           <button
             type="button"
             onClick={() => runSync('dry')}
-            disabled={runningMode !== null || runningWipeMode !== null}
+            disabled={runningMode !== null || runningWipeMode !== null || remoteRunInProgress}
             className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
           >
             {runningMode === 'dry' ? 'Running Dry Run...' : 'Dry Run'}
@@ -4081,7 +4135,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           <button
             type="button"
             onClick={() => runSync('incremental')}
-            disabled={runningMode !== null || runningWipeMode !== null}
+            disabled={runningMode !== null || runningWipeMode !== null || remoteRunInProgress}
             className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
           >
             {runningMode === 'incremental' ? 'Running Incremental...' : 'Run Incremental'}
@@ -4089,11 +4143,51 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           <PrimaryButton
             type="button"
             onClick={() => runSync('full')}
-            disabled={runningMode !== null || runningWipeMode !== null}
+            disabled={runningMode !== null || runningWipeMode !== null || remoteRunInProgress}
           >
             {runningMode === 'full' ? 'Running Full Sync...' : 'Run Full Sync'}
           </PrimaryButton>
         </div>
+
+        {remoteRunInProgress && runningMode === null && (
+          <div className="mt-4 p-3 rounded-lg border border-blue-500/30 bg-blue-500/10">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-blue-500 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <p className="text-sm font-medium text-blue-400">
+                Sync in progress since {formatRollupDate(snapshot?.config.currentRunStartedAt ?? null)}
+              </p>
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">
+              Started by another session or scheduled run. This page will update automatically when it finishes.
+            </p>
+          </div>
+        )}
+
+        {remoteRunIsStale && (
+          <div className="mt-4 p-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <p className="text-sm font-medium text-amber-400">
+                A sync appears to be stuck (started {formatRollupDate(snapshot?.config.currentRunStartedAt ?? null)})
+              </p>
+            </div>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">
+              This sync started over 2 hours ago and may have crashed. You can clear this lock to start a new run.
+            </p>
+            <button
+              type="button"
+              onClick={clearStaleLock}
+              className="mt-2 px-3 py-1.5 text-xs rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+            >
+              Clear Stale Lock
+            </button>
+          </div>
+        )}
 
         {syncProgress && (
           <div className="mt-4">
@@ -4133,7 +4227,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           <button
             type="button"
             onClick={() => runWipe('tagged', true)}
-            disabled={runningWipeMode !== null || runningMode !== null}
+            disabled={runningWipeMode !== null || runningMode !== null || remoteRunInProgress}
             className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
           >
             {runningWipeMode === 'dry-tagged' ? 'Running...' : 'Dry Run Tagged'}
@@ -4141,7 +4235,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           <button
             type="button"
             onClick={() => runWipe('all', true)}
-            disabled={runningWipeMode !== null || runningMode !== null}
+            disabled={runningWipeMode !== null || runningMode !== null || remoteRunInProgress}
             className="px-3 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40"
           >
             {runningWipeMode === 'dry-all' ? 'Running...' : 'Dry Run All'}
@@ -4149,7 +4243,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           <button
             type="button"
             onClick={() => runWipe('tagged', false)}
-            disabled={runningWipeMode !== null || runningMode !== null}
+            disabled={runningWipeMode !== null || runningMode !== null || remoteRunInProgress}
             className="px-3 py-2 rounded-lg border border-red-300 text-sm text-red-500 hover:bg-red-500/10 disabled:opacity-40"
           >
             {runningWipeMode === 'tagged' ? 'Wiping...' : 'Wipe Tagged'}
@@ -4157,7 +4251,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           <button
             type="button"
             onClick={() => runWipe('all', false)}
-            disabled={runningWipeMode !== null || runningMode !== null}
+            disabled={runningWipeMode !== null || runningMode !== null || remoteRunInProgress}
             className="px-3 py-2 rounded-lg bg-red-500 text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
           >
             {runningWipeMode === 'all' ? 'Wiping All...' : 'Wipe All Contacts'}

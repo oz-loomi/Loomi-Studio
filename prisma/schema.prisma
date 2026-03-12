@@ -124,6 +124,7 @@ model YagRollupConfig {
   lastSyncedAt       DateTime?
   lastSyncStatus     String?
   lastSyncSummary    String?
+  currentRunStartedAt DateTime? // null = idle, non-null = sync/wipe in progress since this time
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }

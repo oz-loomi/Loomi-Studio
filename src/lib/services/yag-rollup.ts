@@ -57,6 +57,7 @@ export interface YagRollupConfigPayload {
   lastSyncedAt: string | null;
   lastSyncStatus: string | null;
   lastSyncSummary: Record<string, unknown> | null;
+  currentRunStartedAt: string | null;
 }
 
 export interface YagRollupConfigSnapshot {
@@ -463,6 +464,7 @@ function toYagRollupConfigPayload(row: {
   lastSyncedAt: Date | null;
   lastSyncStatus: string | null;
   lastSyncSummary: string | null;
+  currentRunStartedAt: Date | null;
 }): YagRollupConfigPayload {
   return {
     targetAccountKey: row.targetAccountKey,
@@ -481,6 +483,7 @@ function toYagRollupConfigPayload(row: {
     lastSyncedAt: toIsoOrNull(row.lastSyncedAt),
     lastSyncStatus: row.lastSyncStatus || null,
     lastSyncSummary: parseJsonObject(row.lastSyncSummary),
+    currentRunStartedAt: toIsoOrNull(row.currentRunStartedAt),
   };
 }
 
@@ -524,6 +527,7 @@ function buildDefaultConfig(
     lastSyncedAt: null,
     lastSyncStatus: null,
     lastSyncSummary: null,
+    currentRunStartedAt: null,
   };
 }
 
@@ -546,6 +550,7 @@ function hydrateSavedConfig(
     lastSyncedAt: Date | null;
     lastSyncStatus: string | null;
     lastSyncSummary: string | null;
+    currentRunStartedAt: Date | null;
   },
 ): YagRollupConfigPayload {
   const allowed = new Set(accountOptions.map((account) => account.key));
@@ -593,6 +598,7 @@ function hydrateSavedConfig(
     lastSyncedAt: toIsoOrNull(row.lastSyncedAt),
     lastSyncStatus: row.lastSyncStatus || null,
     lastSyncSummary: parseJsonObject(row.lastSyncSummary),
+    currentRunStartedAt: toIsoOrNull(row.currentRunStartedAt),
   };
 }
 
@@ -1481,6 +1487,41 @@ async function deleteGhlContact(params: {
   throw new Error(lastError);
 }
 
+const STALE_RUN_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+async function markRunStarted(jobKey?: string): Promise<void> {
+  const key = normalizeYagRollupJobKey(jobKey);
+  await prisma.yagRollupConfig.updateMany({
+    where: { singletonKey: key },
+    data: { currentRunStartedAt: new Date() },
+  });
+}
+
+async function clearRunStarted(jobKey?: string): Promise<void> {
+  const key = normalizeYagRollupJobKey(jobKey);
+  await prisma.yagRollupConfig.updateMany({
+    where: { singletonKey: key },
+    data: { currentRunStartedAt: null },
+  });
+}
+
+export async function clearStaleRunLock(jobKey?: string): Promise<void> {
+  const key = normalizeYagRollupJobKey(jobKey);
+  const config = await prisma.yagRollupConfig.findUnique({
+    where: { singletonKey: key },
+    select: { currentRunStartedAt: true },
+  });
+  if (!config?.currentRunStartedAt) return;
+  const ageMs = Date.now() - config.currentRunStartedAt.getTime();
+  if (ageMs < STALE_RUN_THRESHOLD_MS) {
+    throw new Error('Cannot clear lock: a sync is actively running (started less than 2 hours ago)');
+  }
+  await prisma.yagRollupConfig.update({
+    where: { singletonKey: key },
+    data: { currentRunStartedAt: null },
+  });
+}
+
 async function persistSyncMetadata(
   config: YagRollupConfigPayload,
   status: 'ok' | 'disabled' | 'failed',
@@ -1506,6 +1547,7 @@ async function persistSyncMetadata(
       lastSyncedAt: new Date(),
       lastSyncStatus: status,
       lastSyncSummary: JSON.stringify(summary),
+      currentRunStartedAt: null,
     },
     update: {
       targetAccountKey: config.targetAccountKey,
@@ -1522,6 +1564,7 @@ async function persistSyncMetadata(
       lastSyncedAt: new Date(),
       lastSyncStatus: status,
       lastSyncSummary: JSON.stringify(summary),
+      currentRunStartedAt: null,
     },
   });
 }
@@ -1673,6 +1716,10 @@ export async function runYagRollupWipe(
     });
   }
 
+  await markRunStarted(options.jobKey);
+
+  try {
+
   const target = await resolveAdapterAndCredentials(targetAccountKey, {
     requireCapability: 'contacts',
   });
@@ -1790,6 +1837,12 @@ export async function runYagRollupWipe(
     },
     errors,
   });
+
+  } finally {
+    await clearRunStarted(options.jobKey).catch(() => {
+      // Best-effort — stale-run detection handles failures.
+    });
+  }
 }
 
 export async function runYagRollupSync(
@@ -1937,6 +1990,12 @@ export async function runYagRollupSync(
     }
     fullSync = scheduledMode === 'full';
   }
+
+  // Mark this job as running — after schedule-skip and disabled checks so
+  // we only set the flag when real work will be performed.
+  await markRunStarted(options.jobKey);
+
+  try {
 
   if (!config.targetAccountKey) {
     const finishedAt = new Date();
@@ -2122,4 +2181,10 @@ export async function runYagRollupSync(
   options.onProgress?.({ phase: 'done' });
 
   return output;
+
+  } finally {
+    await clearRunStarted(options.jobKey).catch(() => {
+      // Best-effort — stale-run detection handles failures.
+    });
+  }
 }
