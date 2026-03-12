@@ -25,7 +25,8 @@ import PrimaryButton from '@/components/primary-button';
 import { roleDisplayName } from '@/lib/roles';
 import { getAccountOems, industryHasBrands, brandsForIndustry } from '@/lib/oems';
 import { resolveAccountLocationId } from '@/lib/account-resolvers';
-import { SUPPORTED_INDUSTRIES, getIndustryDefaults } from '@/data/industry-defaults';
+import { INDUSTRY_TEMPLATES } from '@/data/industry-defaults';
+import type { IndustryDefaults } from '@/data/industry-defaults';
 import { providerDisplayName, providerUnsupportedMessage } from '@/lib/esp/provider-display';
 import {
   extractProviderCatalog,
@@ -743,13 +744,20 @@ interface RemoteCustomFieldRow {
   raw: Record<string, unknown>;
 }
 
-type CustomValuesSectionKey = 'global-default-values' | 'sync-sub-accounts' | 'remote-manager';
+type CustomValuesSectionKey = 'global-default-values' | 'manage-industries' | 'sync-sub-accounts' | 'remote-manager';
 
 const CUSTOM_VALUES_SECTIONS: Array<{ key: CustomValuesSectionKey; label: string }> = [
   { key: 'global-default-values', label: 'Global Default Values' },
+  { key: 'manage-industries', label: 'Manage Industries' },
   { key: 'sync-sub-accounts', label: 'Sync Sub-accounts' },
   { key: 'remote-manager', label: 'Remote Manager' },
 ];
+
+type IndustryTemplateEntry = {
+  name: string;
+  fields: IndustryDefaults;
+  builtin: boolean;
+};
 
 // ════════════════════════════════════════
 // Agency Integrations Tab
@@ -1321,7 +1329,16 @@ function CustomValuesTab() {
 
   // Industry defaults loader
   const [selectedIndustry, setSelectedIndustry] = useState('');
+  const [industryTemplates, setIndustryTemplates] = useState<Record<string, IndustryTemplateEntry>>({});
+  const [loadingIndustries, setLoadingIndustries] = useState(true);
   const [activeSection, setActiveSection] = useState<CustomValuesSectionKey>('global-default-values');
+
+  // Manage Industries state
+  const [newIndustryName, setNewIndustryName] = useState('');
+  const [newIndustryFields, setNewIndustryFields] = useState<Array<{ key: string; name: string }>>([]);
+  const [savingIndustry, setSavingIndustry] = useState(false);
+  const [editingIndustry, setEditingIndustry] = useState<string | null>(null);
+  const [editingFields, setEditingFields] = useState<Array<{ key: string; name: string }>>([]);
 
   // ── Pagination for account sync table ──
   const SYNC_PAGE_SIZE = 10;
@@ -1331,13 +1348,13 @@ function CustomValuesTab() {
 
   function handleLoadIndustryDefaults() {
     if (!selectedIndustry) return;
-    const template = getIndustryDefaults(selectedIndustry);
-    if (!template) return;
+    const entry = industryTemplates[selectedIndustry];
+    if (!entry) return;
 
     // Merge: only add fields that don't already exist in current defaults
     const merged = { ...defaults };
     let addedCount = 0;
-    for (const [key, def] of Object.entries(template)) {
+    for (const [key, def] of Object.entries(entry.fields)) {
       if (!merged[key]) {
         merged[key] = def;
         addedCount++;
@@ -1351,6 +1368,119 @@ function CustomValuesTab() {
 
     setDefaults(merged);
     toast.success(`Added ${addedCount} field${addedCount !== 1 ? 's' : ''} from ${selectedIndustry} template`);
+  }
+
+  // ── Load industry templates ──
+  const fetchIndustryTemplates = useCallback(async () => {
+    try {
+      const res = await fetch('/api/industry-templates');
+      if (!res.ok) {
+        // Fallback to static templates if API fails
+        const fallback: Record<string, IndustryTemplateEntry> = {};
+        for (const [name, fields] of Object.entries(INDUSTRY_TEMPLATES)) {
+          fallback[name] = { name, fields, builtin: true };
+        }
+        setIndustryTemplates(fallback);
+        return;
+      }
+      const data = await res.json();
+      setIndustryTemplates(data.templates || {});
+    } catch {
+      const fallback: Record<string, IndustryTemplateEntry> = {};
+      for (const [name, fields] of Object.entries(INDUSTRY_TEMPLATES)) {
+        fallback[name] = { name, fields, builtin: true };
+      }
+      setIndustryTemplates(fallback);
+    } finally {
+      setLoadingIndustries(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchIndustryTemplates(); }, [fetchIndustryTemplates]);
+
+  const industryNames = useMemo(() => Object.keys(industryTemplates).sort(), [industryTemplates]);
+
+  async function handleCreateIndustry() {
+    if (!newIndustryName.trim() || newIndustryFields.length === 0) return;
+    setSavingIndustry(true);
+    try {
+      const fields: Record<string, { name: string; value: string }> = {};
+      for (const f of newIndustryFields) {
+        if (f.key.trim()) {
+          fields[f.key.trim()] = { name: f.name.trim() || f.key.trim(), value: '' };
+        }
+      }
+      const res = await fetch('/api/industry-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newIndustryName.trim(), fields }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        toast.error(err.error || 'Failed to create industry');
+        return;
+      }
+      toast.success(`Created "${newIndustryName.trim()}" industry template`);
+      setNewIndustryName('');
+      setNewIndustryFields([]);
+      fetchIndustryTemplates();
+    } catch {
+      toast.error('Failed to create industry');
+    } finally {
+      setSavingIndustry(false);
+    }
+  }
+
+  async function handleUpdateIndustry() {
+    if (!editingIndustry || editingFields.length === 0) return;
+    setSavingIndustry(true);
+    try {
+      const fields: Record<string, { name: string; value: string }> = {};
+      for (const f of editingFields) {
+        if (f.key.trim()) {
+          fields[f.key.trim()] = { name: f.name.trim() || f.key.trim(), value: '' };
+        }
+      }
+      const res = await fetch('/api/industry-templates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editingIndustry, fields }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        toast.error(err.error || 'Failed to update industry');
+        return;
+      }
+      toast.success(`Updated "${editingIndustry}" industry template`);
+      setEditingIndustry(null);
+      setEditingFields([]);
+      fetchIndustryTemplates();
+    } catch {
+      toast.error('Failed to update industry');
+    } finally {
+      setSavingIndustry(false);
+    }
+  }
+
+  async function handleDeleteIndustry(name: string) {
+    const ok = await confirmDialog(`Delete "${name}" industry template? This cannot be undone.`);
+    if (!ok) return;
+    try {
+      const res = await fetch('/api/industry-templates', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        toast.error(err.error || 'Failed to delete industry');
+        return;
+      }
+      toast.success(`Deleted "${name}" industry template`);
+      fetchIndustryTemplates();
+    } catch {
+      toast.error('Failed to delete industry');
+    }
   }
 
   // ── Load global defaults ──
@@ -2062,9 +2192,10 @@ function CustomValuesTab() {
             value={selectedIndustry}
             onChange={e => setSelectedIndustry(e.target.value)}
             className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] focus:outline-none focus:border-[var(--primary)]"
+            disabled={loadingIndustries}
           >
-            <option value="">Select industry…</option>
-            {SUPPORTED_INDUSTRIES.map(ind => (
+            <option value="">{loadingIndustries ? 'Loading…' : 'Select industry…'}</option>
+            {industryNames.map(ind => (
               <option key={ind} value={ind}>{ind}</option>
             ))}
           </select>
@@ -2203,6 +2334,192 @@ function CustomValuesTab() {
         <p className="text-[10px] text-[var(--muted-foreground)] mt-3">
           Template token format: <code className="px-1 py-0.5 rounded bg-[var(--muted)] text-[var(--primary)] font-mono">{'{{custom_values.<field_key>}}'}</code>
         </p>
+      </section>
+      )}
+
+      {/* ── Section: Manage Industries ── */}
+      {activeSection === 'manage-industries' && (
+      <section className={sectionCardClass}>
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold text-[var(--foreground)]">Industry Templates</h3>
+          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+            Manage industry-specific field templates. Built-in templates cannot be edited or deleted.
+          </p>
+        </div>
+
+        {/* Existing industries */}
+        {loadingIndustries ? (
+          <div className="py-8 text-center text-sm text-[var(--muted-foreground)]">Loading...</div>
+        ) : (
+          <div className="space-y-3 mb-6">
+            {industryNames.map(name => {
+              const entry = industryTemplates[name];
+              const isEditing = editingIndustry === name;
+              return (
+                <div key={name} className="border border-[var(--border)] rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-medium text-[var(--foreground)]">{name}</h4>
+                      {entry.builtin && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)]">Built-in</span>
+                      )}
+                    </div>
+                    {!entry.builtin && !isEditing && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            setEditingIndustry(name);
+                            setEditingFields(Object.entries(entry.fields).map(([key, def]) => ({ key, name: def.name })));
+                          }}
+                          className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors"
+                          title="Edit"
+                        >
+                          <PencilSquareIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteIndustry(name)}
+                          className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          title="Delete"
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      {editingFields.map((f, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={f.key}
+                            onChange={e => {
+                              const updated = [...editingFields];
+                              updated[i] = { ...updated[i], key: e.target.value };
+                              setEditingFields(updated);
+                            }}
+                            placeholder="field_key"
+                            className={`${inputClass} font-mono flex-1`}
+                          />
+                          <input
+                            type="text"
+                            value={f.name}
+                            onChange={e => {
+                              const updated = [...editingFields];
+                              updated[i] = { ...updated[i], name: e.target.value };
+                              setEditingFields(updated);
+                            }}
+                            placeholder="Display Name"
+                            className={`${inputClass} flex-1`}
+                          />
+                          <button
+                            onClick={() => setEditingFields(editingFields.filter((_, j) => j !== i))}
+                            className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          >
+                            <XMarkIcon className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setEditingFields([...editingFields, { key: '', name: '' }])}
+                        className="flex items-center gap-1 text-xs font-medium text-[var(--primary)] hover:opacity-80 transition-opacity"
+                      >
+                        <PlusIcon className="w-3.5 h-3.5" />
+                        Add Field
+                      </button>
+                      <div className="flex items-center gap-2 pt-2">
+                        <PrimaryButton onClick={handleUpdateIndustry} disabled={savingIndustry || editingFields.length === 0}>
+                          {savingIndustry ? 'Saving...' : 'Save Changes'}
+                        </PrimaryButton>
+                        <button
+                          onClick={() => { setEditingIndustry(null); setEditingFields([]); }}
+                          className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--muted)] transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(entry.fields).map(([key, def]) => (
+                        <span key={key} className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--muted)] text-[var(--muted-foreground)] font-mono">
+                          {def.name || key}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Create new industry */}
+        <div className="border-t border-[var(--border)] pt-4">
+          <h4 className="text-sm font-medium text-[var(--foreground)] mb-3">Create New Industry</h4>
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={newIndustryName}
+              onChange={e => setNewIndustryName(e.target.value)}
+              placeholder="Industry name (e.g. Healthcare)"
+              className={inputClass}
+            />
+
+            {newIndustryFields.length > 0 && (
+              <div className="space-y-2">
+                {newIndustryFields.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={f.key}
+                      onChange={e => {
+                        const updated = [...newIndustryFields];
+                        updated[i] = { ...updated[i], key: e.target.value };
+                        setNewIndustryFields(updated);
+                      }}
+                      placeholder="field_key"
+                      className={`${inputClass} font-mono flex-1`}
+                    />
+                    <input
+                      type="text"
+                      value={f.name}
+                      onChange={e => {
+                        const updated = [...newIndustryFields];
+                        updated[i] = { ...updated[i], name: e.target.value };
+                        setNewIndustryFields(updated);
+                      }}
+                      placeholder="Display Name"
+                      className={`${inputClass} flex-1`}
+                    />
+                    <button
+                      onClick={() => setNewIndustryFields(newIndustryFields.filter((_, j) => j !== i))}
+                      className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <XMarkIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={() => setNewIndustryFields([...newIndustryFields, { key: '', name: '' }])}
+              className="flex items-center gap-1 text-xs font-medium text-[var(--primary)] hover:opacity-80 transition-opacity"
+            >
+              <PlusIcon className="w-3.5 h-3.5" />
+              Add Field
+            </button>
+
+            <PrimaryButton
+              onClick={handleCreateIndustry}
+              disabled={savingIndustry || !newIndustryName.trim() || newIndustryFields.length === 0}
+            >
+              {savingIndustry ? 'Creating...' : 'Create Industry'}
+            </PrimaryButton>
+          </div>
+        </div>
       </section>
       )}
 
