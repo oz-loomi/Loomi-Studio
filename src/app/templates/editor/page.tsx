@@ -7229,25 +7229,36 @@ export default function TemplateEditorPage() {
       ),
     ])
       .then(([rawData, parsedData]) => {
-        if (rawData.raw) {
-          setCode(rawData.raw);
-          setOriginalCode(rawData.raw);
+        const raw = typeof rawData.raw === "string" ? rawData.raw : "";
+        if (!raw) return;
+
+        setCode(raw);
+        setOriginalCode(raw);
+
+        const visualSource = hasVisualTemplateScaffold(raw);
+        if (!visualSource) {
+          setParsed(null);
+          setEditorMode("code");
+          compilePreview(raw);
+          return;
         }
-        if (parsedData.frontmatter) {
-          const parsedWithFontDefaults = applyResolvedFontDefaults(parsedData);
-          setParsed(parsedWithFontDefaults);
-          const previewCode = serializeTemplateForPreview(
-            parsedWithFontDefaults,
-            new Set(),
-          );
-          compilePreview(previewCode);
-        } else if (rawData.raw) {
-          compilePreview(rawData.raw);
+
+        const parsedWithFontDefaults = applyResolvedFontDefaults(
+          parsedData.frontmatter ? parsedData : parseTemplate(raw),
+        );
+        setParsed(parsedWithFontDefaults);
+        if (!isHtmlOnlyBuilder) {
+          setEditorMode("visual");
         }
+        const previewCode = serializeTemplateForPreview(
+          parsedWithFontDefaults,
+          new Set(),
+        );
+        compilePreview(previewCode);
       })
       .catch((err) => console.error("Error loading template:", err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [design, templateName, espTemplateId, accountKeyParam, libraryTemplateSlug, parsedBranding?.fonts?.body, modeParam]);
+  }, [design, templateName, espTemplateId, accountKeyParam, libraryTemplateSlug, parsedBranding?.fonts?.body, modeParam, isHtmlOnlyBuilder]);
 
   useEffect(() => {
     const hasCodeChanges = code !== originalCode;

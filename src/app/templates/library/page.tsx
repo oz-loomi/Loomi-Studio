@@ -77,6 +77,22 @@ function getLibraryTemplateTypeLabel(template: Pick<TemplateEntry, 'editorType'>
   return template.editorType === 'visual' ? 'Drag & Drop' : 'HTML';
 }
 
+function buildLibraryEditorHref(
+  template: Pick<TemplateEntry, 'design' | 'editorType'> | string,
+  options?: { campaignDraft?: boolean; editorType?: TemplateEntry['editorType'] },
+): string {
+  const design = typeof template === 'string' ? template : template.design;
+  const editorType = typeof template === 'string' ? options?.editorType : template.editorType;
+  const search = new URLSearchParams({ design });
+  if (editorType === 'code') {
+    search.set('builder', 'html');
+  }
+  if (options?.campaignDraft) {
+    search.set('campaignDraft', '1');
+  }
+  return `/templates/editor?${search.toString()}`;
+}
+
 function sanitizeFileName(value: string): string {
   const trimmed = value.trim().toLowerCase();
   const safe = trimmed
@@ -232,6 +248,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const [loaded, setLoaded] = useState(false);
   const [showCreateChoice, setShowCreateChoice] = useState(false);
   const [createStep, setCreateStep] = useState<'choice' | 'name'>('choice');
+  const [createMode, setCreateMode] = useState<'visual' | 'code' | null>(null);
   const [newName, setNewName] = useState('');
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
@@ -249,6 +266,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const [cloneToAccountDesign, setCloneToAccountDesign] = useState<string | null>(null);
   const [downloadingDesign, setDownloadingDesign] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const isCampaignDraft = campaignDraftQuery.length > 0;
 
   const loadTemplates = async () => {
     try {
@@ -276,8 +294,6 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
-
-  const editorHref = (design: string) => `/templates/editor?design=${encodeURIComponent(design)}${campaignDraftQuery ? '&campaignDraft=1' : ''}`;
 
   const tplMap = useMemo(() => {
     const map: Record<string, TemplateEntry> = {};
@@ -307,23 +323,27 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const filteredKeys = useMemo(() => filtered.map((t) => t.design), [filtered]);
 
   const createTemplate = async () => {
-    if (!newName.trim()) return;
+    if (!createMode || !newName.trim()) return;
     setSaving(true);
     try {
       const res = await fetch('/api/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ design: newName.trim() }),
+        body: JSON.stringify({ design: newName.trim(), mode: createMode }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to create'); setSaving(false); return; }
       toast.success('Template created');
       setShowCreateChoice(false);
       setCreateStep('choice');
+      setCreateMode(null);
       setNewName('');
       await loadTemplates();
       // Navigate to editor
-      router.push(editorHref(data.design));
+      router.push(buildLibraryEditorHref(
+        { design: data.design, editorType: createMode },
+        { campaignDraft: isCampaignDraft },
+      ));
     } catch { toast.error('Failed to create'); }
     setSaving(false);
   };
@@ -605,7 +625,12 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
               Bulk Edit
             </button>
             <PrimaryButton
-              onClick={() => { setShowCreateChoice(true); setCreateStep('choice'); setNewName(''); }}
+              onClick={() => {
+                setShowCreateChoice(true);
+                setCreateStep('choice');
+                setCreateMode(null);
+                setNewName('');
+              }}
             >
               <PlusIcon className="w-4 h-4" />
               Create Template
@@ -616,12 +641,25 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
 
       {/* Create choice modal */}
       {showCreateChoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in" onClick={() => { setShowCreateChoice(false); setCreateStep('choice'); }}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-overlay-in"
+          onClick={() => {
+            setShowCreateChoice(false);
+            setCreateStep('choice');
+            setCreateMode(null);
+          }}
+        >
           <div className="glass-modal w-[480px]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
               <div className="flex items-center gap-2">
                 {createStep === 'name' && (
-                  <button onClick={() => setCreateStep('choice')} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                  <button
+                    onClick={() => {
+                      setCreateStep('choice');
+                      setCreateMode(null);
+                    }}
+                    className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  >
                     <ArrowLeftIcon className="w-4 h-4" />
                   </button>
                 )}
@@ -629,7 +667,14 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                   {createStep === 'choice' ? 'Create New Template' : 'Name Your Template'}
                 </h3>
               </div>
-              <button onClick={() => { setShowCreateChoice(false); setCreateStep('choice'); }} className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+              <button
+                onClick={() => {
+                  setShowCreateChoice(false);
+                  setCreateStep('choice');
+                  setCreateMode(null);
+                }}
+                className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              >
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
@@ -639,7 +684,10 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                   <p className="text-sm text-[var(--muted-foreground)] mb-4">Choose how you&apos;d like to build your template:</p>
                   <div className="grid grid-cols-2 gap-4">
                     <button
-                      onClick={() => setCreateStep('name')}
+                      onClick={() => {
+                        setCreateMode('visual');
+                        setCreateStep('name');
+                      }}
                       className="group flex flex-col items-center gap-3 p-6 rounded-xl border-2 border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-center"
                     >
                       <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center group-hover:bg-[var(--primary)]/20 transition-colors">
@@ -651,7 +699,10 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                       </div>
                     </button>
                     <button
-                      onClick={() => setCreateStep('name')}
+                      onClick={() => {
+                        setCreateMode('code');
+                        setCreateStep('name');
+                      }}
                       className="group flex flex-col items-center gap-3 p-6 rounded-xl border-2 border-[var(--border)] hover:border-[var(--primary)] bg-[var(--card)] hover:bg-[var(--primary)]/5 transition-all text-center"
                     >
                       <div className="w-12 h-12 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center group-hover:bg-[var(--primary)]/20 transition-colors">
@@ -665,22 +716,27 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                   </div>
                 </>
               ) : (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && createTemplate()}
-                    placeholder="Template name (e.g. spring-sale)"
-                    className="flex-1 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
-                    autoFocus
-                  />
-                  <PrimaryButton
-                    onClick={createTemplate}
-                    disabled={saving || !newName.trim()}
-                  >
-                    {saving ? 'Creating...' : 'Create'}
-                  </PrimaryButton>
+                <div className="space-y-3">
+                  <p className="text-sm text-[var(--muted-foreground)]">
+                    Give your {createMode === 'code' ? 'HTML' : 'Drag & Drop'} template a name:
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && createTemplate()}
+                      placeholder="Template name (e.g. spring-sale)"
+                      className="flex-1 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--foreground)]"
+                      autoFocus
+                    />
+                    <PrimaryButton
+                      onClick={createTemplate}
+                      disabled={saving || !newName.trim()}
+                    >
+                      {saving ? 'Creating...' : 'Create'}
+                    </PrimaryButton>
+                  </div>
                 </div>
               )}
             </div>
@@ -763,7 +819,10 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                               View
                             </button>
                             <button
-                              onClick={() => { router.push(editorHref(t.design)); setMenuOpen(null); }}
+                              onClick={() => {
+                                router.push(buildLibraryEditorHref(t, { campaignDraft: isCampaignDraft }));
+                                setMenuOpen(null);
+                              }}
                               className="w-full text-left px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors flex items-center gap-2"
                             >
                               <PencilIcon className="w-4 h-4" />
@@ -952,7 +1011,16 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                   <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Preview in New Tab
                 </button>
                 <button
-                  onClick={() => { setPreviewDesign(null); router.push(editorHref(previewDesign)); }}
+                  onClick={() => {
+                    setPreviewDesign(null);
+                    router.push(buildLibraryEditorHref(
+                      previewDesign,
+                      {
+                        campaignDraft: isCampaignDraft,
+                        editorType: tplMap[previewDesign]?.editorType,
+                      },
+                    ));
+                  }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--primary)] border border-[var(--primary)]/30 rounded-lg hover:bg-[var(--primary)]/5 transition-colors"
                 >
                   <PencilSquareIcon className="w-3.5 h-3.5" /> Edit
@@ -993,7 +1061,6 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [previewDesign, setPreviewDesign] = useState<string | null>(null);
   const isCampaignDraft = campaignDraftQuery.length > 0;
-  const editorHref = (design: string) => `/templates/editor?design=${encodeURIComponent(design)}${campaignDraftQuery ? '&campaignDraft=1' : ''}`;
 
   useEffect(() => {
     Promise.all([
@@ -1094,7 +1161,7 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                 tabIndex={0}
                 onClick={() => {
                   if (isCampaignDraft) {
-                    router.push(editorHref(t.design));
+                    router.push(buildLibraryEditorHref(t, { campaignDraft: isCampaignDraft }));
                   } else {
                     setPreviewDesign(t.design);
                   }
@@ -1103,7 +1170,7 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
                     if (isCampaignDraft) {
-                      router.push(editorHref(t.design));
+                      router.push(buildLibraryEditorHref(t, { campaignDraft: isCampaignDraft }));
                     } else {
                       setPreviewDesign(t.design);
                     }
@@ -1178,7 +1245,13 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
                     <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Preview in New Tab
                   </button>
                   <button
-                    onClick={() => { setPreviewDesign(null); router.push(editorHref(previewDesign)); }}
+                    onClick={() => {
+                      setPreviewDesign(null);
+                      router.push(buildLibraryEditorHref(
+                        previewDesign,
+                        { campaignDraft: isCampaignDraft, editorType: pt?.editorType },
+                      ));
+                    }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--primary)] border border-[var(--primary)]/30 rounded-lg hover:bg-[var(--primary)]/5 transition-colors"
                   >
                     <PencilSquareIcon className="w-3.5 h-3.5" /> Edit

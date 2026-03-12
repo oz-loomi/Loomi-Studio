@@ -3,6 +3,7 @@ import { requireRole } from '@/lib/api-auth';
 import { MANAGEMENT_ROLES } from '@/lib/auth';
 import { parseTemplate } from '@/lib/template-parser';
 import { serializeTemplate } from '@/lib/template-serializer';
+import { getStarterTemplate } from '@/lib/template-starters';
 import * as templateService from '@/lib/services/templates';
 
 function extractFrontmatterTitle(content: string): string | undefined {
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest) {
   if (error) return error;
 
   try {
-    const { design, type: templateType } = await req.json();
+    const { design, type: templateType, mode } = await req.json();
 
     if (!design) {
       return NextResponse.json({ error: 'Missing design name' }, { status: 400 });
@@ -138,57 +139,8 @@ export async function POST(req: NextRequest) {
       .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(' ');
 
-    const starter = `---
-title: ${designLabel}
----
-
-<x-base>
-
-  <x-core.header />
-
-  <x-core.hero
-    headline="${designLabel}"
-    subheadline="Add a brief description that captures your audience's attention."
-    fallback-bg="#1a1a2e"
-    headline-color="#ffffff"
-    subheadline-color="#e0e0e0"
-    hero-height="420px"
-    text-align="center"
-    content-valign="middle"
-    primary-button-text="Get Started"
-    primary-button-url="#"
-    primary-button-bg-color="#4f46e5"
-    primary-button-text-color="#ffffff"
-    primary-button-radius="8px"
-  />
-
-  <x-core.spacer size="40" />
-
-  <x-core.copy
-    greeting="Hi {{contact.first_name}},"
-    body="Add your email content here."
-    align="center"
-    padding="20px 40px"
-  />
-
-  <x-core.spacer size="24" />
-
-  <x-core.cta
-    button-text="Learn More"
-    button-url="#"
-    button-bg-color="#4f46e5"
-    button-text-color="#ffffff"
-    button-radius="8px"
-    section-padding="20px 40px"
-    align="center"
-  />
-
-  <x-core.spacer size="40" />
-
-  <x-core.footer />
-
-</x-base>
-`;
+    const createMode = mode === 'code' ? 'code' : 'visual';
+    const starter = getStarterTemplate(createMode, designLabel);
 
     await templateService.createTemplate({
       slug: safeSlug,
