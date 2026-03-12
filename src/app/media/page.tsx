@@ -690,7 +690,7 @@ function MediaCard({
 
   return (
     <div
-      className={`glass-card rounded-xl group animate-fade-in-up ${isSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      className={`glass-card rounded-xl group animate-fade-in-up relative ${isMenuOpen ? 'z-30' : 'z-0'} ${isSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
       draggable={draggable}
       onDragStart={onDragStart}
     >
@@ -825,7 +825,7 @@ function MediaListRow({
 
   return (
     <div
-      className={`glass-card rounded-lg group animate-fade-in-up flex items-center gap-3 px-3 py-2.5 ${isSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      className={`glass-card rounded-lg group animate-fade-in-up relative ${isMenuOpen ? 'z-30' : 'z-0'} flex items-center gap-3 px-3 py-2.5 ${isSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
       draggable={draggable}
       onDragStart={onDragStart}
     >
@@ -2198,7 +2198,7 @@ export default function MediaPage() {
   // ── Render ──
 
   return (
-    <div>
+    <div data-unsaved-ignore="true">
       {/* Header */}
       <div className="page-sticky-header mb-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -2635,7 +2635,7 @@ export default function MediaPage() {
               {filteredFolders.map(folder => (
                 <div
                   key={folder.id}
-                  className={`glass-card rounded-xl p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up relative ${
+                  className={`glass-card rounded-xl p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up relative ${folderMenuId === folder.id ? 'z-30' : 'z-0'} ${
                     capabilities?.canMove ? 'cursor-grab active:cursor-grabbing' : ''
                   } ${dropTargetId === folder.id ? 'ring-2 ring-[var(--primary)] bg-[var(--primary)]/10 scale-[1.02] shadow-lg shadow-[var(--primary)]/20' : ''}`}
                   draggable={!!capabilities?.canMove}
