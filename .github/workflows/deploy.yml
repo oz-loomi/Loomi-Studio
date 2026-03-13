@@ -89,16 +89,7 @@ jobs:
 
             cd "$NEW_RELEASE"
 
-            npm ci --legacy-peer-deps --no-audit --no-fund
-
-            # Load env vars for build/runtime (Prisma needs DATABASE_URL, etc.)
-            set -a && source .env.local && set +a
-
-            npm run build
-
-            echo "=== Build complete, .next dir size ==="
-            du -sh .next
-
+            # Determine which slot is active so we can stop the idle one
             CURRENT_PORT=3000
             if [ -f "$ACTIVE_PORT_FILE" ]; then
               CURRENT_PORT=$(cat "$ACTIVE_PORT_FILE")
@@ -116,6 +107,32 @@ jobs:
               NEXT_APP=loomi-studio-blue
               OLD_APP=loomi-studio-green
             fi
+
+            # Ensure swap exists so npm ci / next build don't get OOM-killed
+            if [ ! -f /swapfile ]; then
+              echo "=== Creating 2G swap ==="
+              fallocate -l 2G /swapfile
+              chmod 600 /swapfile
+              mkswap /swapfile
+              swapon /swapfile
+              echo '/swapfile none swap sw 0 0' >> /etc/fstab
+            elif ! swapon --show | grep -q /swapfile; then
+              swapon /swapfile || true
+            fi
+
+            # Free memory: stop the idle PM2 slot (will be replaced after build)
+            pm2 stop "$NEXT_APP" 2>/dev/null || true
+            pm2 delete "$NEXT_APP" 2>/dev/null || true
+
+            npm ci --legacy-peer-deps --no-audit --no-fund
+
+            # Load env vars for build/runtime (Prisma needs DATABASE_URL, etc.)
+            set -a && source .env.local && set +a
+
+            npm run build
+
+            echo "=== Build complete, .next dir size ==="
+            du -sh .next
 
             echo "=== Starting candidate app: $NEXT_APP on port $NEXT_PORT ==="
             pm2 stop "$NEXT_APP" || true

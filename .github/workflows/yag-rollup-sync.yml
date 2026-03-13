@@ -79,7 +79,7 @@ jobs:
           script: |
             set -euo pipefail
 
-            cd /var/www/loomi-studio
+            cd /var/www/loomi-studio/current
             set -a && source .env.local && set +a
             WIPE_DRY_RUN='${{ steps.mode.outputs.wipe_dry_run }}' \
             WIPE_MODE='${{ steps.mode.outputs.wipe_mode }}' \
@@ -95,7 +95,7 @@ jobs:
           script: |
             set -euo pipefail
 
-            cd /var/www/loomi-studio
+            cd /var/www/loomi-studio/current
             set -a && source .env.local && set +a
             FULL_SYNC='${{ steps.mode.outputs.full_sync }}' \
             DRY_RUN='${{ steps.mode.outputs.dry_run }}' \
