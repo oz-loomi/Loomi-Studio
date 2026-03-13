@@ -2343,7 +2343,7 @@ function CustomValuesTab() {
         <div className="mb-4">
           <h3 className="text-sm font-semibold text-[var(--foreground)]">Industry Templates</h3>
           <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-            Manage industry-specific field templates. Built-in templates cannot be edited or deleted.
+            Manage industry-specific field templates. Built-in templates cannot be deleted.
           </p>
         </div>
 
@@ -2364,7 +2364,7 @@ function CustomValuesTab() {
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)]">Built-in</span>
                       )}
                     </div>
-                    {!entry.builtin && !isEditing && (
+                    {!isEditing && (
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => {
@@ -2376,13 +2376,15 @@ function CustomValuesTab() {
                         >
                           <PencilSquareIcon className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => handleDeleteIndustry(name)}
-                          className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          title="Delete"
-                        >
-                          <TrashIcon className="w-4 h-4" />
-                        </button>
+                        {!entry.builtin && (
+                          <button
+                            onClick={() => handleDeleteIndustry(name)}
+                            className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                            title="Delete"
+                          >
+                            <TrashIcon className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

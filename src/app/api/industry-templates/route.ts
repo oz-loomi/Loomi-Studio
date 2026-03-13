@@ -42,6 +42,8 @@ async function readCustomTemplates(): Promise<Record<string, TemplateEntry>> {
  * GET /api/industry-templates
  *
  * Returns all industry templates (builtin + user-created).
+ * Built-in templates can be overridden in DB; the DB version takes
+ * precedence for fields while preserving the builtin flag.
  */
 export async function GET() {
   const { error } = await requireRole('developer', 'super_admin');
@@ -49,10 +51,11 @@ export async function GET() {
 
   const customTemplates = await readCustomTemplates();
 
-  // Merge: builtins first, then custom
+  // Merge: builtins first, then overlay DB overrides, then add custom-only
   const templates: Record<string, TemplateEntry> = {};
   for (const [name, fields] of Object.entries(INDUSTRY_TEMPLATES)) {
-    templates[name] = { name, fields, builtin: true };
+    const override = customTemplates[name];
+    templates[name] = { name, fields: override ? override.fields : fields, builtin: true };
   }
   for (const [name, entry] of Object.entries(customTemplates)) {
     if (!templates[name]) {
@@ -107,7 +110,8 @@ export async function POST(req: NextRequest) {
 /**
  * PUT /api/industry-templates
  *
- * Update an existing user-defined industry template.
+ * Update an industry template (built-in or user-defined).
+ * Built-in overrides are stored in the DB alongside custom templates.
  * Body: { name: string, fields: Record<string, { name: string; value: string }>, newName?: string }
  */
 export async function PUT(req: NextRequest) {
@@ -121,24 +125,20 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Industry name is required' }, { status: 400 });
     }
 
-    if (INDUSTRY_TEMPLATES[name]) {
-      return NextResponse.json({ error: `"${name}" is a built-in industry and cannot be edited` }, { status: 403 });
-    }
-
+    const isBuiltin = !!INDUSTRY_TEMPLATES[name];
     const slug = slugify(name);
     const key = `${KEY_PREFIX}${slug}`;
-    const existing = await prisma.account.findUnique({ where: { key } });
-    if (!existing) {
-      return NextResponse.json({ error: `Industry "${name}" not found` }, { status: 404 });
-    }
-
     const displayName = newName?.trim() || name;
-    await prisma.account.update({
+    const defaultProvider = getDefaultEspProvider();
+
+    // Upsert: creates a DB row for built-in overrides, or updates existing custom entry
+    await prisma.account.upsert({
       where: { key },
-      data: { dealer: displayName, customValues: JSON.stringify(fields) },
+      update: { dealer: displayName, customValues: JSON.stringify(fields) },
+      create: { key, slug: `_industry-${slug}`, dealer: displayName, customValues: JSON.stringify(fields), espProvider: defaultProvider },
     });
 
-    return NextResponse.json({ name: displayName, fields, builtin: false });
+    return NextResponse.json({ name: displayName, fields, builtin: isBuiltin });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
