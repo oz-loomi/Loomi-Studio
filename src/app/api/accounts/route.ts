@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireRole } from '@/lib/api-auth';
+import { requireAuth, requireRole } from '@/lib/api-auth';
 import { ELEVATED_ROLES } from '@/lib/auth';
 import { normalizeOems } from '@/lib/oems';
 import * as accountService from '@/lib/services/accounts';
@@ -12,10 +12,20 @@ import { listOAuthConnections } from '@/lib/esp/oauth-connections';
 import { listApiKeyConnections } from '@/lib/esp/api-key-connections';
 import { listAccountProviderLinks } from '@/lib/esp/account-provider-links';
 import { getIndustryDefaults } from '@/data/industry-defaults';
+import { hasUnrestrictedAccountAccess } from '@/lib/roles';
 
 export async function GET() {
+  const { session, error } = await requireAuth();
+  if (error) return error;
+
   try {
-    const accounts = await accountService.getAccounts();
+    const userRole = session!.user.role;
+    const userAccountKeys = session!.user.accountKeys ?? [];
+    const accounts = hasUnrestrictedAccountAccess(userRole, userAccountKeys)
+      ? await accountService.getAccounts()
+      : userAccountKeys.length > 0
+        ? await accountService.getAccounts(userAccountKeys)
+        : [];
 
     // Fetch connection status in bulk (provider-agnostic OAuth + API-key rows)
     const allKeys = accounts.map(a => a.key);

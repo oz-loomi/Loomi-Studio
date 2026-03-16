@@ -1,17 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-auth';
 import * as accountEmailService from '@/lib/services/account-emails';
+import { hasUnrestrictedAccountAccess } from '@/lib/roles';
 
 export async function GET(req: NextRequest) {
-  const { error } = await requireAuth();
+  const { session, error } = await requireAuth();
   if (error) return error;
 
   const accountKey = req.nextUrl.searchParams.get('accountKey');
+  const userRole = session!.user.role;
+  const userAccountKeys = session!.user.accountKeys ?? [];
+  const unrestricted = hasUnrestrictedAccountAccess(userRole, userAccountKeys);
+
   if (accountKey) {
+    if (!unrestricted && !userAccountKeys.includes(accountKey)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const emails = await accountEmailService.getAccountEmails(accountKey);
     return NextResponse.json(emails);
   }
-  const emails = await accountEmailService.getAllEmails();
+
+  const emails = unrestricted
+    ? await accountEmailService.getAllEmails()
+    : userAccountKeys.length > 0
+      ? await accountEmailService.getEmailsForAccounts(userAccountKeys)
+      : [];
   return NextResponse.json(emails);
 }
 

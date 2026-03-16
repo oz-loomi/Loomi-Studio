@@ -1,9 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/api-auth';
 import { MANAGEMENT_ROLES } from '@/lib/auth';
 import { getAdapterForAccount } from '@/lib/esp/registry';
 import { readAccounts, withConcurrencyLimit } from '@/lib/esp/utils';
 import type { EspWorkflow } from '@/lib/esp/types';
+import { filterAccountKeysByAccess } from '@/lib/roles';
 import '@/lib/esp/init';
 
 /**
@@ -11,23 +12,24 @@ import '@/lib/esp/init';
  *
  * Provider-agnostic aggregate workflows/flows across ALL connected accounts.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const { session, error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {
     const accounts = await readAccounts();
     const allKeys = Object.keys(accounts).filter(k => !k.startsWith('_'));
+    const requestedKeys = (req.nextUrl.searchParams.get('accountKeys') || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
 
     const userRole = session!.user.role;
     const userAccountKeys: string[] = session!.user.accountKeys ?? [];
-    const hasUnrestrictedAccess =
-      userRole === 'developer'
-      || userRole === 'super_admin'
-      || (userRole === 'admin' && userAccountKeys.length === 0);
-    const allowedKeys = hasUnrestrictedAccess
-      ? allKeys
-      : allKeys.filter(k => userAccountKeys.includes(k));
+    const allowedKeys = filterAccountKeysByAccess(allKeys, userRole, userAccountKeys);
+    const selectedKeys = requestedKeys.length > 0
+      ? requestedKeys.filter((key) => allowedKeys.includes(key))
+      : allowedKeys;
 
     const allWorkflows: (EspWorkflow & { accountKey: string; dealer: string; provider: string })[] = [];
     const perAccount: Record<string, { dealer: string; count: number; connected: boolean; provider: string }> = {};
@@ -36,7 +38,7 @@ export async function GET() {
     let skippedNoAdapter = 0;
     let skippedNoCredentials = 0;
 
-    const tasks = allowedKeys.map((accountKey) => async () => {
+    const tasks = selectedKeys.map((accountKey) => async () => {
       const account = accounts[accountKey];
       const dealer = account?.dealer || accountKey;
 

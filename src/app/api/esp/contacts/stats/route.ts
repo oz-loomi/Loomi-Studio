@@ -4,6 +4,7 @@ import { MANAGEMENT_ROLES } from '@/lib/auth';
 import * as accountService from '@/lib/services/accounts';
 import { getAdapterForAccount } from '@/lib/esp/registry';
 import { withConcurrencyLimit } from '@/lib/esp/utils';
+import { filterAccountKeysByAccess } from '@/lib/roles';
 import '@/lib/esp/init';
 
 /**
@@ -11,29 +12,31 @@ import '@/lib/esp/init';
  *
  * Provider-agnostic contact count stats across all accounts.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const { session, error } = await requireRole(...MANAGEMENT_ROLES);
   if (error) return error;
 
   try {
+    const { searchParams } = new URL(req.url);
     const allAccounts = await accountService.getAccounts();
     const accountMap = new Map(allAccounts.map((account) => [account.key, account]));
     const allKeys = allAccounts.filter(a => !a.key.startsWith('_')).map(a => a.key);
+    const requestedKeys = (searchParams.get('accountKeys') || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
 
     const userRole = session!.user.role;
     const userAccountKeys: string[] = session!.user.accountKeys ?? [];
-    const hasUnrestrictedAccess =
-      userRole === 'developer'
-      || userRole === 'super_admin'
-      || (userRole === 'admin' && userAccountKeys.length === 0);
-    const allowedKeys = hasUnrestrictedAccess
-      ? allKeys
-      : allKeys.filter(k => userAccountKeys.includes(k));
+    const allowedKeys = filterAccountKeysByAccess(allKeys, userRole, userAccountKeys);
+    const selectedKeys = requestedKeys.length > 0
+      ? requestedKeys.filter((key) => allowedKeys.includes(key))
+      : allowedKeys;
 
     const stats: Record<string, { dealer: string; count: number; connected: boolean; cached: boolean; provider: string }> = {};
     const errors: Record<string, string> = {};
 
-    const tasks = allowedKeys.map((accountKey) => async () => {
+    const tasks = selectedKeys.map((accountKey) => async () => {
       const account = accountMap.get(accountKey);
       const dealer = account?.dealer || accountKey;
 
@@ -74,7 +77,7 @@ export async function GET() {
     return NextResponse.json({
       stats,
       errors,
-      meta: { totalContacts, connectedAccounts, accountsFetched: allowedKeys.length },
+      meta: { totalContacts, connectedAccounts, accountsFetched: selectedKeys.length },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to fetch contact stats';

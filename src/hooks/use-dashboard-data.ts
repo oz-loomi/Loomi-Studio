@@ -27,6 +27,26 @@ const DASHBOARD_SWR_CONFIG = {
   errorRetryCount: 1,
 } as const;
 
+type DashboardAggregateOptions = {
+  enabled?: boolean;
+  accountKeys?: string[];
+  limitPerAccount?: number;
+};
+
+function buildDashboardUrl(path: string, options: DashboardAggregateOptions): string {
+  const params = new URLSearchParams();
+
+  if (options.accountKeys && options.accountKeys.length > 0) {
+    params.set('accountKeys', options.accountKeys.join(','));
+  }
+  if (typeof options.limitPerAccount === 'number') {
+    params.set('limitPerAccount', String(options.limitPerAccount));
+  }
+
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 // ── Response Types ──
 
 type PerAccountEntry = {
@@ -74,33 +94,37 @@ export type ContactStatsResponse = {
 
 // ── Hooks ──
 
-export function useContactsAggregate(enabled = true) {
+export function useContactsAggregate(options: DashboardAggregateOptions = {}) {
+  const enabled = options.enabled ?? true;
   return useSWR<ContactsAggregateResponse>(
-    enabled ? '/api/esp/contacts/aggregate' : null,
+    enabled ? buildDashboardUrl('/api/esp/contacts/aggregate', options) : null,
     jsonFetcher,
     DASHBOARD_SWR_CONFIG,
   );
 }
 
-export function useCampaignsAggregate(enabled = true) {
+export function useCampaignsAggregate(options: DashboardAggregateOptions = {}) {
+  const enabled = options.enabled ?? true;
   return useSWR<CampaignsAggregateResponse>(
-    enabled ? '/api/esp/campaigns/aggregate' : null,
+    enabled ? buildDashboardUrl('/api/esp/campaigns/aggregate', options) : null,
     jsonFetcher,
     DASHBOARD_SWR_CONFIG,
   );
 }
 
-export function useWorkflowsAggregate(enabled = true) {
+export function useWorkflowsAggregate(options: DashboardAggregateOptions = {}) {
+  const enabled = options.enabled ?? true;
   return useSWR<WorkflowsAggregateResponse>(
-    enabled ? '/api/esp/workflows/aggregate' : null,
+    enabled ? buildDashboardUrl('/api/esp/workflows/aggregate', options) : null,
     jsonFetcher,
     DASHBOARD_SWR_CONFIG,
   );
 }
 
-export function useContactStats(enabled = true) {
+export function useContactStats(options: DashboardAggregateOptions = {}) {
+  const enabled = options.enabled ?? true;
   return useSWR<ContactStatsResponse>(
-    enabled ? '/api/esp/contacts/stats' : null,
+    enabled ? buildDashboardUrl('/api/esp/contacts/stats', options) : null,
     jsonFetcher,
     DASHBOARD_SWR_CONFIG,
   );

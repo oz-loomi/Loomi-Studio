@@ -19,3 +19,19 @@ export function roleDisplayName(role: string): string {
   if (role === 'super_admin') return 'Super Admin';
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
+
+export function hasUnrestrictedAccountAccess(role: UserRole, accountKeys: string[]): boolean {
+  return role === 'developer' || role === 'super_admin' || (role === 'admin' && accountKeys.length === 0);
+}
+
+export function filterAccountKeysByAccess(
+  allKeys: string[],
+  role: UserRole,
+  accountKeys: string[],
+): string[] {
+  if (hasUnrestrictedAccountAccess(role, accountKeys)) {
+    return allKeys;
+  }
+  const allowed = new Set(accountKeys);
+  return allKeys.filter((key) => allowed.has(key));
+}

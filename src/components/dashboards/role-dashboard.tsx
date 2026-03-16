@@ -607,17 +607,52 @@ function ManagementRoleDashboard({
   const [mockCampaignPerAccount, setMockCampaignPerAccount] = useState<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>({});
   const [mockWorkflowPerAccount, setMockWorkflowPerAccount] = useState<Record<string, { dealer: string; count: number; connected: boolean; provider: string }>>({});
 
-  // SWR hooks — disabled when using mock data
-  const contactsAgg = useContactsAggregate(!usingMockData);
-  const campaignsAgg = useCampaignsAggregate(!usingMockData);
-  const workflowsAgg = useWorkflowsAggregate(!usingMockData);
-  const contactStatsHook = useContactStats(!usingMockData);
+  const aggregateAccountKeys = useMemo(() => {
+    const availableAccountKeys = Object.keys(accounts);
+    let keys = selectedAccounts.filter((key) => availableAccountKeys.includes(key));
+
+    if (keys.length === 0 && isAccountMode && focusedAccountKey) {
+      keys = [focusedAccountKey];
+    }
+
+    if (role === 'super_admin' && selectedRepIds.length > 0) {
+      const repScopedKeys = availableAccountKeys.filter((key) =>
+        selectedRepIds.includes(accountRepScopeId(accounts[key])),
+      );
+      keys = keys.length > 0
+        ? keys.filter((key) => repScopedKeys.includes(key))
+        : repScopedKeys;
+    }
+
+    return [...new Set(keys)];
+  }, [accounts, selectedAccounts, isAccountMode, focusedAccountKey, role, selectedRepIds]);
+
+  // SWR hooks — wait for phase-1 load (accounts/emails) so we have the right
+  // account key scope before firing expensive aggregate fetches.
+  const aggregatesReady = !loading && !usingMockData;
+  const contactsAgg = useContactsAggregate({
+    enabled: aggregatesReady,
+    accountKeys: aggregateAccountKeys,
+    limitPerAccount: aggregateAccountKeys.length > 0 ? 120 : 60,
+  });
+  const campaignsAgg = useCampaignsAggregate({
+    enabled: aggregatesReady,
+    accountKeys: aggregateAccountKeys,
+  });
+  const workflowsAgg = useWorkflowsAggregate({
+    enabled: aggregatesReady,
+    accountKeys: aggregateAccountKeys,
+  });
+  const contactStatsHook = useContactStats({
+    enabled: aggregatesReady,
+    accountKeys: aggregateAccountKeys,
+  });
 
   // Bridge variables — downstream useMemos reference these exact names
   const contacts: AggregateContact[] = usingMockData
     ? mockContacts
     : (contactsAgg.data?.contacts as AggregateContact[] | undefined) ?? [];
-  const contactsAggregateLoading = usingMockData ? false : contactsAgg.isLoading;
+  const contactsAggregateLoading = usingMockData ? false : !aggregatesReady || contactsAgg.isLoading;
 
   const espCampaigns: EspCampaign[] = usingMockData
     ? mockEspCampaigns
@@ -625,7 +660,7 @@ function ManagementRoleDashboard({
   const campaignPerAccount = usingMockData
     ? mockCampaignPerAccount
     : campaignsAgg.data?.perAccount ?? {};
-  const campaignsAggregateLoading = usingMockData ? false : campaignsAgg.isLoading;
+  const campaignsAggregateLoading = usingMockData ? false : !aggregatesReady || campaignsAgg.isLoading;
 
   const espWorkflows: EspWorkflow[] = usingMockData
     ? mockEspWorkflows
@@ -633,7 +668,8 @@ function ManagementRoleDashboard({
   const workflowPerAccount = usingMockData
     ? mockWorkflowPerAccount
     : workflowsAgg.data?.perAccount ?? {};
-  const workflowsAggregateLoading = usingMockData ? false : workflowsAgg.isLoading;
+  const workflowsAggregateLoading = usingMockData ? false : !aggregatesReady || workflowsAgg.isLoading;
+  const contactStatsLoading = usingMockData ? false : !aggregatesReady || contactStatsHook.isLoading;
 
   const contactStats: Record<string, ContactStatsRow> = useMemo(() => {
     if (usingMockData) return mockContactStats;
@@ -1168,8 +1204,12 @@ function ManagementRoleDashboard({
     return [
       {
         label: 'Contact Stats',
-        ok: !errors.contactsStats,
-        detail: errors.contactsStats ? errors.contactsStats : `${Object.keys(contactStats).length} account rows`,
+        ok: contactStatsLoading ? true : !errors.contactsStats,
+        detail: contactStatsLoading
+          ? 'Loading contact stats...'
+          : errors.contactsStats
+            ? errors.contactsStats
+            : `${Object.keys(contactStats).length} account rows`,
       },
       {
         label: 'Contact Aggregate',
@@ -1221,6 +1261,7 @@ function ManagementRoleDashboard({
     espWorkflows.length,
     loomiEmailCampaigns.length,
     loomiSmsCampaigns.length,
+    contactStatsLoading,
     contactsAggregateLoading,
     campaignsAggregateLoading,
     workflowsAggregateLoading,
@@ -2519,7 +2560,7 @@ function ManagementRoleDashboard({
                   accounts={selectedAccountMap}
                   crmStats={contactStats}
                   emailsByAccount={emailRollupByAccount}
-                  loading={loading}
+                  loading={loading || contactStatsLoading}
                 />
               </div>
             ) : isDeveloper ? (

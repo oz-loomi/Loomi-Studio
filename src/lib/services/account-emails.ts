@@ -28,6 +28,14 @@ export async function getAllEmails() {
   });
 }
 
+export async function getEmailsForAccounts(accountKeys: string[]) {
+  return prisma.accountEmail.findMany({
+    where: { accountKey: { in: accountKeys } },
+    select: emailListSelect,
+    orderBy: { updatedAt: 'desc' },
+  });
+}
+
 export async function getAccountEmail(id: string) {
   return prisma.accountEmail.findUnique({
     where: { id },
