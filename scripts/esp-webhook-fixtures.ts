@@ -4,7 +4,6 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { NextRequest } from 'next/server';
 import '@/lib/esp/init';
-import { prisma } from '@/lib/prisma';
 import {
   POST as providerFamilyPostRoute,
 } from '@/app/api/webhooks/esp/[provider]/[family]/route';
@@ -12,7 +11,6 @@ import {
 type JsonObject = Record<string, unknown>;
 
 const FIXTURE_DIR = path.join(process.cwd(), 'scripts', 'fixtures', 'webhooks');
-const FIXTURE_PREFIX = '__webhook-fixture__';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -49,85 +47,8 @@ function buildPostRequest(params: {
   }));
 }
 
-async function resetFixtureRows() {
-  await prisma.campaignEmailStats.deleteMany({
-    where: {
-      OR: [
-        { accountId: { startsWith: FIXTURE_PREFIX } },
-        { campaignId: { startsWith: FIXTURE_PREFIX } },
-      ],
-    },
-  });
-}
-
-async function runGhlFixtureScenario() {
-  const scenarioId = `${FIXTURE_PREFIX}:ghl:${Date.now()}`;
-  const accountId = `${scenarioId}:location`;
-  const campaignId = `${scenarioId}:campaign`;
-  const nowSeconds = Math.floor(Date.now() / 1000);
-
-  const deliveredFixture = applyReplacements(
-    await loadFixture('ghl-delivered.json'),
-    {
-      '__LOCATION_ID__': accountId,
-      '__CAMPAIGN_ID__': campaignId,
-      '__EVENT_ID__': `${scenarioId}:delivered`,
-      '__TIMESTAMP__': String(nowSeconds),
-    },
-  );
-  const openedFixture = applyReplacements(
-    await loadFixture('ghl-opened.json'),
-    {
-      '__LOCATION_ID__': accountId,
-      '__CAMPAIGN_ID__': campaignId,
-      '__EVENT_ID__': `${scenarioId}:opened`,
-      '__TIMESTAMP__': String(nowSeconds + 10),
-    },
-  );
-
-  (process.env as Record<string, string | undefined>).NODE_ENV = 'development';
-
-  const deliveredRes = await providerFamilyPostRoute(
-    buildPostRequest({
-      url: 'http://localhost/api/webhooks/esp/ghl/email-stats',
-      body: deliveredFixture,
-      headers: {
-        'x-wh-signature': 'fixture-signature',
-      },
-    }),
-    { params: Promise.resolve({ provider: 'ghl', family: 'email-stats' }) },
-  );
-  assert(deliveredRes.status === 200, `GHL delivered fixture failed (${deliveredRes.status})`);
-
-  const openedRes = await providerFamilyPostRoute(
-    buildPostRequest({
-      url: 'http://localhost/api/webhooks/esp/ghl/email-stats',
-      body: openedFixture,
-      headers: {
-        'x-wh-signature': 'fixture-signature',
-      },
-    }),
-    { params: Promise.resolve({ provider: 'ghl', family: 'email-stats' }) },
-  );
-  assert(openedRes.status === 200, `GHL opened fixture failed (${openedRes.status})`);
-
-  const row = await prisma.campaignEmailStats.findUnique({
-    where: {
-      provider_accountId_campaignId: {
-        provider: 'ghl',
-        accountId,
-        campaignId,
-      },
-    },
-  });
-  assert(row, 'GHL fixture did not produce a CampaignEmailStats row');
-  assert(row.deliveredCount === 1, `GHL deliveredCount expected 1, received ${row.deliveredCount}`);
-  assert(row.openedCount === 1, `GHL openedCount expected 1, received ${row.openedCount}`);
-  assert(Boolean(row.firstDeliveredAt), 'GHL firstDeliveredAt should be set after delivered event');
-}
-
 async function runKlaviyoFixtureScenario() {
-  const scenarioId = `${FIXTURE_PREFIX}:klaviyo:${Date.now()}`;
+  const scenarioId = `__webhook-fixture__:klaviyo:${Date.now()}`;
   const accountId = `${scenarioId}:account`;
   const campaignId = `${scenarioId}:campaign`;
   const timestamp = String(Math.floor(Date.now() / 1000));
@@ -162,19 +83,6 @@ async function runKlaviyoFixtureScenario() {
     { params: Promise.resolve({ provider: 'klaviyo', family: 'email-stats' }) },
   );
   assert(res.status === 200, `Klaviyo fixture failed (${res.status})`);
-
-  const row = await prisma.campaignEmailStats.findUnique({
-    where: {
-      provider_accountId_campaignId: {
-        provider: 'klaviyo',
-        accountId,
-        campaignId,
-      },
-    },
-  });
-  assert(row, 'Klaviyo fixture did not produce a CampaignEmailStats row');
-  assert(row.deliveredCount === 1, `Klaviyo deliveredCount expected 1, received ${row.deliveredCount}`);
-  assert(row.clickedCount === 1, `Klaviyo clickedCount expected 1, received ${row.clickedCount}`);
 }
 
 async function runUnsupportedFamilyScenario() {
@@ -193,22 +101,13 @@ async function runUnsupportedFamilyScenario() {
 }
 
 async function main() {
-  await resetFixtureRows();
-  try {
-    await runGhlFixtureScenario();
-    await runKlaviyoFixtureScenario();
-    await runUnsupportedFamilyScenario();
-    console.log('Webhook fixtures passed: GHL + Klaviyo email-stats handlers');
-  } finally {
-    await resetFixtureRows();
-  }
+  await runKlaviyoFixtureScenario();
+  await runUnsupportedFamilyScenario();
+  console.log('Webhook fixtures passed: Klaviyo email-stats handler + unknown-family guard');
 }
 
 main()
   .catch((err) => {
     console.error('Webhook fixture validation failed:', err);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

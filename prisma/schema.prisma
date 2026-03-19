@@ -181,26 +181,6 @@ model YagRollupRunHistory {
   @@index([triggeredByUserId, createdAt])
 }
 
-model CampaignEmailStats {
-  id                String    @id @default(cuid())
-  provider          String // provider id
-  accountId         String // provider-specific account/location identifier
-  campaignId        String // provider campaign/schedule identifier from webhook payload
-  firstDeliveredAt  DateTime? // precise "Sent Date" — timestamp of first delivered event
-  deliveredCount    Int       @default(0)
-  openedCount       Int       @default(0)
-  clickedCount      Int       @default(0)
-  bouncedCount      Int       @default(0)
-  complainedCount   Int       @default(0)
-  unsubscribedCount Int       @default(0)
-  lastEventAt       DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  @@unique([provider, accountId, campaignId])
-  @@index([provider, accountId])
-}
-
 // ─────────────────────────────────────────────────────
 // ESP Connections (API-key-based providers)
 // ─────────────────────────────────────────────────────

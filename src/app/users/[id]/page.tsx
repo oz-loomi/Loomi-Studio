@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
@@ -87,10 +87,31 @@ function UserDetailContent() {
         setAvatarUrl(data.avatarUrl ?? null);
         setRole(data.role);
         setAccountKeys(data.accountKeys || []);
+        userSnapshotRef.current = {
+          name: data.name,
+          title: data.title ?? '',
+          email: data.email,
+          role: data.role,
+          accountKeys: JSON.stringify(data.accountKeys || []),
+        };
       })
       .catch(() => toast.error('User not found'))
       .finally(() => setLoading(false));
   }, [userId]);
+
+  const userSnapshotRef = useRef<Record<string, string> | null>(null);
+
+  const hasChanges = useMemo(() => {
+    const snap = userSnapshotRef.current;
+    if (!snap) return false;
+    const current: Record<string, string> = {
+      name, title, email, role,
+      accountKeys: JSON.stringify(accountKeys),
+    };
+    // Password is additive — any non-empty password counts as a change
+    if (password.length > 0) return true;
+    return Object.keys(snap).some(k => snap[k] !== current[k]);
+  }, [name, title, email, role, accountKeys, password]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -121,6 +142,13 @@ function UserDetailContent() {
       setRole(updated.role);
       setAccountKeys(updated.accountKeys || []);
       setPassword('');
+      userSnapshotRef.current = {
+        name: updated.name,
+        title: updated.title ?? '',
+        email: updated.email,
+        role: updated.role,
+        accountKeys: JSON.stringify(updated.accountKeys || []),
+      };
       if (session?.user.id === userId) {
         await update({
           name: updated.name,
@@ -129,6 +157,7 @@ function UserDetailContent() {
           role: updated.role,
           accountKeys: updated.accountKeys,
         });
+        router.refresh();
       }
       markClean();
       toast.success('User updated');
@@ -314,7 +343,7 @@ function UserDetailContent() {
             </button>
             <PrimaryButton
               onClick={handleSave}
-              disabled={saving || !name || !email}
+              disabled={saving || !name || !email || !hasChanges}
             >
               {saving ? 'Saving...' : 'Save Changes'}
             </PrimaryButton>

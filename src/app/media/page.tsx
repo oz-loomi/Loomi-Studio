@@ -22,6 +22,7 @@ import {
   FolderArrowDownIcon,
   Squares2X2Icon,
   ListBulletIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { safeJson } from '@/lib/safe-json';
@@ -30,6 +31,10 @@ import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
 import { AccountAvatar } from '@/components/account-avatar';
 import BulkActionDock from '@/components/bulk-action-dock';
 import PrimaryButton from '@/components/primary-button';
+
+// ── Constants ──
+
+const MAX_MEDIA_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 
 // ── Types ──
 
@@ -661,6 +666,7 @@ interface MediaCardProps {
   onSelect: () => void;
   onPreview: () => void;
   onCopyUrl: () => void;
+  onDownload?: () => void;
   onMove?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
@@ -681,6 +687,7 @@ function MediaCard({
   onSelect,
   onPreview,
   onCopyUrl,
+  onDownload,
   onMove,
   onRename,
   onDelete,
@@ -754,6 +761,14 @@ function MediaCard({
                   >
                     <Square2StackIcon className="w-4 h-4" /> Copy URL
                   </button>
+                  {onDownload && (
+                    <button
+                      onClick={() => { onMenuClose(); onDownload(); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                    >
+                      <ArrowDownTrayIcon className="w-4 h-4" /> Download
+                    </button>
+                  )}
                   {caps?.canMove && onMove && (
                     <button
                       onClick={() => { onMenuClose(); onMove(); }}
@@ -816,6 +831,7 @@ function MediaListRow({
   onSelect,
   onPreview,
   onCopyUrl,
+  onDownload,
   onMove,
   onRename,
   onDelete,
@@ -890,6 +906,14 @@ function MediaListRow({
               >
                 <Square2StackIcon className="w-4 h-4" /> Copy URL
               </button>
+              {onDownload && (
+                <button
+                  onClick={() => { onMenuClose(); onDownload(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                >
+                  <ArrowDownTrayIcon className="w-4 h-4" /> Download
+                </button>
+              )}
               {caps?.canMove && onMove && (
                 <button
                   onClick={() => { onMenuClose(); onMove(); }}
@@ -1362,10 +1386,17 @@ export default function MediaPage() {
   const stageFiles = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     const newFiles = Array.from(fileList);
+    const oversized = newFiles.filter((f) => f.size > MAX_MEDIA_FILE_SIZE);
+    if (oversized.length > 0) {
+      const names = oversized.map((f) => `${f.name} (${formatFileSize(f.size)})`).join(', ');
+      toast.error(`${oversized.length} file${oversized.length > 1 ? 's exceed' : ' exceeds'} the 25 MB limit: ${names}`);
+    }
+    const valid = newFiles.filter((f) => f.size <= MAX_MEDIA_FILE_SIZE);
+    if (valid.length === 0) return;
     setStagedFiles((prev) => {
       const seen = new Set(prev.map(stagedFileKey));
       const merged = [...prev];
-      for (const file of newFiles) {
+      for (const file of valid) {
         const fingerprint = stagedFileKey(file);
         if (seen.has(fingerprint)) continue;
         seen.add(fingerprint);
@@ -1654,6 +1685,19 @@ export default function MediaPage() {
     } catch {
       toast.error('Failed to copy URL');
     }
+  };
+
+  // ── Download File ──
+
+  const downloadFile = (url: string, name: string) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const handleCropSave = async (crop: CropRect) => {
@@ -2445,6 +2489,7 @@ export default function MediaPage() {
                       onSelect={() => toggleSelectFile(f.id)}
                       onPreview={() => setPreviewFile(f)}
                       onCopyUrl={() => copyUrl(f.url)}
+                      onDownload={() => downloadFile(f.url, f.name)}
                       onRename={() => { setRenameValue(f.name); setRenameFile(f); }}
                       onDelete={() => setDeleteFile(f)}
                     />
@@ -2746,6 +2791,7 @@ export default function MediaPage() {
                     onSelect={() => toggleSelectFile(f.id)}
                     onPreview={() => setPreviewFile(f)}
                     onCopyUrl={() => copyUrl(f.url)}
+                    onDownload={() => downloadFile(f.url, f.name)}
                     onMove={capabilities?.canMove ? () => openMoveModal([{ id: f.id, type: 'file', name: f.name }]) : undefined}
                     onRename={capabilities?.canRename ? () => { setRenameValue(f.name); setRenameFile(f); } : undefined}
                     onDelete={capabilities?.canDelete ? () => setDeleteFile(f) : undefined}
@@ -3176,6 +3222,7 @@ export default function MediaPage() {
                     <p className={`${stagedFiles.length > 0 ? 'text-xs' : 'text-sm'} text-[var(--foreground)] font-medium mb-0.5`}>
                       {stagedFiles.length > 0 ? 'Drop more files or click to add' : 'Drop files here or click to browse'}
                     </p>
+                    <p className="text-[10px] text-[var(--muted-foreground)]">Max file size: 25 MB</p>
                   </>
                 )}
               </div>

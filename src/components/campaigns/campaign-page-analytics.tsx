@@ -11,7 +11,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { FlowIcon } from '@/components/icon-map';
 import { iconColorHex } from '@/lib/icon-colors';
-import { formatRatePct, sumCampaignEngagement } from '@/lib/campaign-engagement';
 import {
   type DateRangeKey,
   getDateRangeBounds,
@@ -36,16 +35,6 @@ interface Campaign {
   accountKey?: string;
   dealer?: string;
   sentCount?: number;
-  deliveredCount?: number;
-  openedCount?: number;
-  clickedCount?: number;
-  repliedCount?: number;
-  bouncedCount?: number;
-  failedCount?: number;
-  unsubscribedCount?: number;
-  openRate?: number;
-  clickRate?: number;
-  replyRate?: number;
 }
 
 interface Workflow {
@@ -184,13 +173,10 @@ export function CampaignPageAnalytics({
       }).length,
     }));
 
-    const engagement = sumCampaignEngagement(campaigns);
-
     return {
       statusEntries, sentCount, scheduledCount, draftCount,
       byAccountAll, byAccount, maxAccount, hasMoreAccounts,
       monthBuckets,
-      engagement,
     };
   }, [campaigns, showAccountBreakdown, accountNames, dateRange, customRange]);
 
@@ -467,32 +453,6 @@ export function CampaignPageAnalytics({
         />
       </div>
 
-      {analytics.engagement.hasAny && (
-        <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-1">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <h4 className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              Email Engagement
-            </h4>
-            <span className="text-[10px] text-[var(--muted-foreground)]">
-              {analytics.engagement.campaignsWithSignals} campaign{analytics.engagement.campaignsWithSignals === 1 ? '' : 's'} with signal
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-            <EngagementMetric label="Delivered" value={analytics.engagement.deliveredCount} />
-            <EngagementMetric label="Opened" value={analytics.engagement.openedCount} />
-            <EngagementMetric label="Clicked" value={analytics.engagement.clickedCount} />
-            <EngagementMetric label="Open Rate" value={formatRatePct(analytics.engagement.openRate)} rate={analytics.engagement.openRate} animated={animated} />
-            <EngagementMetric label="Click Rate" value={formatRatePct(analytics.engagement.clickRate)} rate={analytics.engagement.clickRate} animated={animated} />
-            <EngagementMetric
-              label="Unsub + Bounce"
-              value={analytics.engagement.unsubscribedCount + analytics.engagement.bouncedCount}
-            />
-          </div>
-        </div>
-      )}
-
       {/* Campaigns vs Workflows timeline */}
       {timelineData.hasData && (
         <div className="glass-card rounded-xl p-4 animate-fade-in-up animate-stagger-2">
@@ -580,29 +540,3 @@ function StatCard({
   );
 }
 
-function EngagementMetric({
-  label,
-  value,
-  rate,
-  animated,
-}: {
-  label: string;
-  value: number | string;
-  rate?: number;
-  animated?: boolean;
-}) {
-  return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 px-2.5 py-2">
-      <p className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider">{label}</p>
-      <p className="text-sm font-semibold tabular-nums mt-0.5">{value}</p>
-      {rate !== undefined && (
-        <div className="mt-1.5 h-1 rounded-full bg-[var(--muted)] overflow-hidden">
-          <div
-            className="h-full rounded-full bg-emerald-400 transition-all duration-700 ease-out"
-            style={{ width: animated ? `${Math.min(rate * 100, 100)}%` : '0%', opacity: 0.75 }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}

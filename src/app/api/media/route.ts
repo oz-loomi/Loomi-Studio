@@ -148,6 +148,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'file is required' }, { status: 400 });
   }
 
+  const MAX_UPLOAD_SIZE = 25 * 1024 * 1024; // 25 MB
+  if (file.size > MAX_UPLOAD_SIZE) {
+    return NextResponse.json(
+      { error: `File size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the 25 MB limit` },
+      { status: 413 },
+    );
+  }
+
   // Access check
   if (accountKey === null) {
     if (!canAccessAdminMedia(session!)) {

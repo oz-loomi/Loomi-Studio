@@ -28,7 +28,7 @@ type ResolvedMediaObject = {
 };
 type MoveStrategy = {
   label: string;
-  method: 'POST' | 'PUT';
+  method: 'POST' | 'PUT' | 'PATCH';
   url: string;
   body?: JsonRecord;
 };
@@ -458,6 +458,18 @@ function buildMoveStrategies(
 
   return [
     {
+      label: 'single-patch-minimal',
+      method: 'PATCH',
+      url: `${GHL_BASE}/medias/${encodedMediaId}?${updateParams.toString()}`,
+      body: { parentId: targetFolderId },
+    },
+    {
+      label: 'single-patch-full',
+      method: 'PATCH',
+      url: `${GHL_BASE}/medias/${encodedMediaId}?${updateParams.toString()}`,
+      body: singleUpdateBody,
+    },
+    {
       label: 'single-update-query',
       method: 'POST',
       url: `${GHL_BASE}/medias/${encodedMediaId}?${updateParams.toString()}`,
@@ -884,18 +896,13 @@ export async function moveMedia(
     locationId,
     mediaId,
     normalizedTarget,
-    6,
-    300,
+    8,
+    500,
   );
   if (verification.matched) {
     invalidateAllCaches(locationId);
     return;
   }
-
-  const targetLabel = normalizedTarget ?? 'root';
-  const observedLabel = verification.found
-    ? (verification.observedParentId ?? 'root')
-    : 'not-found';
 
   console.error('[ghl-media] Failed to move media after all strategies', {
     locationId,
@@ -907,7 +914,7 @@ export async function moveMedia(
 
   if (acceptedAny) {
     throw new Error(
-      `Move request was accepted but the file/folder parent did not change (target: ${targetLabel}, observed: ${observedLabel})`,
+      'GHL accepted the move but the file didn\u2019t relocate. This may be a temporary GHL issue \u2014 try again, or move the file directly in GoHighLevel.',
     );
   }
 

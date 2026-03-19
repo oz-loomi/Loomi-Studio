@@ -24,7 +24,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { AccountAvatar as SharedAccountAvatar } from '@/components/account-avatar';
 import { useLoomiDialog } from '@/contexts/loomi-dialog-context';
-import { formatInlineEngagement } from '@/lib/campaign-engagement';
 import { getCampaignEditUrl, getCampaignStatsUrl } from '@/lib/esp/provider-links';
 import { resolveLocationId, resolveProviderId } from '@/lib/esp/provider-resolution';
 
@@ -42,16 +41,6 @@ interface Campaign {
   scheduledAt?: string;
   sentAt?: string;
   sentCount?: number;
-  deliveredCount?: number;
-  openedCount?: number;
-  clickedCount?: number;
-  repliedCount?: number;
-  bouncedCount?: number;
-  failedCount?: number;
-  unsubscribedCount?: number;
-  openRate?: number;
-  clickRate?: number;
-  replyRate?: number;
   locationId?: string;
   accountKey?: string;
   dealer?: string;
@@ -422,8 +411,6 @@ function CampaignRow({
   const normalizedStatus = normalizeStatus(item.status);
   const scheduledParts = getScheduledDateParts(item);
   const updatedParts = getLastUpdatedDateParts(item);
-  const engagementSummary = formatInlineEngagement(item);
-  const showNoEngagementHint = normalizedStatus === 'sent' && !engagementSummary;
   const StatusIcon = STATUS_ICON[normalizedStatus];
   const canPreview = Boolean(accountKey && getCampaignScheduleId(item));
 
@@ -433,11 +420,6 @@ function CampaignRow({
         <EnvelopeIcon className="w-4 h-4 text-[var(--muted-foreground)] flex-shrink-0" />
         <span className="min-w-0">
           <span className="text-sm font-medium truncate block">{item.name || '(Untitled)'}</span>
-          {(engagementSummary || showNoEngagementHint) && (
-            <span className="text-[10px] text-[var(--muted-foreground)] truncate block mt-0.5">
-              {engagementSummary || 'No engagement data yet'}
-            </span>
-          )}
         </span>
       </span>
       {showAccount && accountKey && (

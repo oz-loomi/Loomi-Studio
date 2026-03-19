@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAccount } from '@/contexts/account-context';
@@ -242,6 +242,8 @@ function AccountSettingsTab() {
   const [logoBlack, setLogoBlack] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const snapshotRef = useRef<Record<string, string> | null>(null);
+
   useEffect(() => {
     if (accountData) {
       setDealer(accountData.dealer || '');
@@ -251,8 +253,27 @@ function AccountSettingsTab() {
       setLogoDark(accountData.logos?.dark || '');
       setLogoWhite(accountData.logos?.white || '');
       setLogoBlack(accountData.logos?.black || '');
+      snapshotRef.current = {
+        dealer: accountData.dealer || '',
+        category: accountData.category || '',
+        oems: JSON.stringify(getAccountOems(accountData)),
+        logoLight: accountData.logos?.light || '',
+        logoDark: accountData.logos?.dark || '',
+        logoWhite: accountData.logos?.white || '',
+        logoBlack: accountData.logos?.black || '',
+      };
     }
   }, [accountData]);
+
+  const hasChanges = useMemo(() => {
+    const snap = snapshotRef.current;
+    if (!snap) return false;
+    const current: Record<string, string> = {
+      dealer, category, oems: JSON.stringify(oems),
+      logoLight, logoDark, logoWhite, logoBlack,
+    };
+    return Object.keys(snap).some(k => snap[k] !== current[k]);
+  }, [dealer, category, oems, logoLight, logoDark, logoWhite, logoBlack]);
 
   if (!accountData || !accountKey) {
     return (
@@ -288,6 +309,10 @@ function AccountSettingsTab() {
       });
 
       if (res.ok) {
+        snapshotRef.current = {
+          dealer, category, oems: JSON.stringify(oems),
+          logoLight, logoDark, logoWhite, logoBlack,
+        };
         await refreshAccounts();
         markClean();
         toast.success('Settings saved!');
@@ -376,7 +401,7 @@ function AccountSettingsTab() {
       <div className="lg:col-span-2 flex items-center justify-end gap-3">
         <PrimaryButton
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || !hasChanges}
         >
           {saving ? 'Saving...' : 'Save Settings'}
         </PrimaryButton>

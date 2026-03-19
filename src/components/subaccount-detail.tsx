@@ -4,12 +4,17 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
+  AdjustmentsHorizontalIcon,
   ArrowLeftIcon,
   ArrowPathIcon,
+  BuildingStorefrontIcon,
   CheckCircleIcon,
   ChevronDownIcon,
   LinkIcon,
+  PaintBrushIcon,
   PencilSquareIcon,
+  SwatchIcon,
+  UsersIcon,
   XMarkIcon,
   ShieldCheckIcon,
   CloudArrowUpIcon,
@@ -154,7 +159,9 @@ function buildAuthorizeHref(input: {
   return `/api/esp/connections/authorize?${params.toString()}`;
 }
 
-const TABS: { key: DetailTab; label: string }[] = [
+type TabDef = { key: DetailTab; label: string; icon?: React.ComponentType<{ className?: string }> };
+
+const TABS: TabDef[] = [
   { key: 'company', label: 'Company' },
   { key: 'branding', label: 'Branding' },
   { key: 'integration', label: 'Integrations' },
@@ -162,13 +169,13 @@ const TABS: { key: DetailTab; label: string }[] = [
   { key: 'contacts', label: 'Contacts' },
 ];
 
-const SETTINGS_TABS: { key: DetailTab; label: string }[] = [
-  { key: 'company', label: 'Company' },
-  { key: 'branding', label: 'Branding' },
-  { key: 'users', label: 'Users' },
-  { key: 'integration', label: 'Integrations' },
-  { key: 'custom-values', label: 'Custom Values' },
-  { key: 'appearance', label: 'Appearance' },
+const SETTINGS_TABS: TabDef[] = [
+  { key: 'company', label: 'Company', icon: BuildingStorefrontIcon },
+  { key: 'branding', label: 'Branding', icon: PaintBrushIcon },
+  { key: 'users', label: 'Users', icon: UsersIcon },
+  { key: 'integration', label: 'Integrations', icon: LinkIcon },
+  { key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon },
+  { key: 'appearance', label: 'Appearance', icon: SwatchIcon },
 ];
 
 interface SubAccountDetailPageProps {
@@ -311,7 +318,65 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
     // Custom values
     setCustomValues(accountData.customValues || {});
     setSavedCustomValues(accountData.customValues || {});
+
+    // Snapshot for change detection
+    formSnapshotRef.current = buildFormSnapshot(accountData);
   }
+
+  /** Build a flat object capturing saveable form fields from an account. */
+  function buildFormSnapshot(a: AccountData) {
+    return {
+      dealer: a.dealer || '',
+      category: a.category || 'General',
+      oems: JSON.stringify(getAccountOems(a)),
+      bizEmail: resolveAccountEmail(a),
+      bizPhone: resolveAccountPhone(a),
+      bizPhoneSales: a.phoneSales || a.salesPhone || '',
+      bizPhoneService: a.phoneService || a.servicePhone || '',
+      bizPhoneParts: a.phoneParts || a.partsPhone || '',
+      bizAddress: resolveAccountAddress(a),
+      bizCity: resolveAccountCity(a),
+      bizState: resolveAccountState(a),
+      bizZip: resolveAccountPostalCode(a),
+      bizWebsite: resolveAccountWebsite(a),
+      bizTimezone: resolveAccountTimezone(a),
+      accountRepId: a.accountRepId ?? '',
+      logoLight: a.logos?.light || '',
+      logoDark: a.logos?.dark || '',
+      logoWhite: a.logos?.white || '',
+      logoBlack: a.logos?.black || '',
+      brandPrimaryColor: a.branding?.colors?.primary || '#2563eb',
+      brandSecondaryColor: a.branding?.colors?.secondary || '#1d4ed8',
+      brandAccentColor: a.branding?.colors?.accent || '#0ea5e9',
+      brandBackgroundColor: a.branding?.colors?.background || '#ffffff',
+      brandTextColor: a.branding?.colors?.text || '#111827',
+      brandHeadingFont: a.branding?.fonts?.heading || DEFAULT_HEADING_FONT,
+      brandBodyFont: a.branding?.fonts?.body || DEFAULT_BODY_FONT,
+    };
+  }
+
+  const formSnapshotRef = useRef<Record<string, string> | null>(null);
+
+  const hasFormChanges = useMemo(() => {
+    const snap = formSnapshotRef.current;
+    if (!snap) return false;
+    const current: Record<string, string> = {
+      dealer, category, oems: JSON.stringify(oems),
+      bizEmail, bizPhone, bizPhoneSales, bizPhoneService, bizPhoneParts,
+      bizAddress, bizCity, bizState, bizZip, bizWebsite, bizTimezone,
+      accountRepId: accountRepId ?? '',
+      logoLight, logoDark, logoWhite, logoBlack,
+      brandPrimaryColor, brandSecondaryColor, brandAccentColor,
+      brandBackgroundColor, brandTextColor, brandHeadingFont, brandBodyFont,
+    };
+    return Object.keys(snap).some(k => snap[k] !== current[k]);
+  }, [
+    dealer, category, oems, bizEmail, bizPhone, bizPhoneSales, bizPhoneService, bizPhoneParts,
+    bizAddress, bizCity, bizState, bizZip, bizWebsite, bizTimezone, accountRepId,
+    logoLight, logoDark, logoWhite, logoBlack,
+    brandPrimaryColor, brandSecondaryColor, brandAccentColor,
+    brandBackgroundColor, brandTextColor, brandHeadingFont, brandBodyFont,
+  ]);
 
   function applyProviderCatalog(catalog: ProviderCatalogEntry[]) {
     setProviderCatalog(catalog);
@@ -779,6 +844,7 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
         setAccount(updated as AccountData);
         setCustomValues(customValuesToSave);
         setSavedCustomValues(customValuesToSave); // Update saved state after successful save
+        formSnapshotRef.current = buildFormSnapshot(updated as AccountData);
         await refreshAccountList();
         markClean();
         if (syncWarning) {
@@ -1073,7 +1139,7 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
               {showSaveButton && (
                 <button
                   onClick={handleSave}
-                  disabled={saving}
+                  disabled={saving || !hasFormChanges}
                   className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex-shrink-0"
                 >
                   {saving ? 'Saving...' : 'Save Changes'}
@@ -1150,7 +1216,7 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
             </div>
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || !hasFormChanges}
               className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex-shrink-0"
             >
               {saving ? 'Saving...' : 'Save Changes'}
@@ -1171,6 +1237,7 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
               }`}
             >
               <span className="flex items-center gap-1.5">
+                {tab.icon && <tab.icon className="w-4 h-4" />}
                 {tab.label}
                 {tab.key === 'custom-values' && hasEmptyCustomValues && (
                   <ExclamationTriangleIcon className="w-3.5 h-3.5 text-amber-400" />
@@ -1186,6 +1253,85 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
         {/* ════════════ COMPANY TAB ════════════ */}
         {activeTab === 'company' && (
           <div className="max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <section className={sectionCardClass}>
+              <h3 className={sectionHeadingClass}>Business Details</h3>
+              <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
+                {activeProviderConnected && activeProviderSupportsBusinessDetailsSync
+                  ? 'These details are synced to your connected platform when saved.'
+                  : activeProviderConnected
+                    ? `${providerUnsupportedMessage(activeProvider, 'business detail push sync')} Changes are saved locally in Loomi.`
+                    : 'Connect an integration to sync these details. Until then, changes are saved locally in Loomi.'}
+              </p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>{isEcommerceIndustry ? 'Support Email' : 'Email'}</label>
+                    <input type="email" value={bizEmail} onChange={e => setBizEmail(e.target.value)} className={inputClass} placeholder={isEcommerceIndustry ? 'support@store.com' : 'info@dealer.com'} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>{isEcommerceIndustry ? 'Support Phone' : 'Main Phone'}</label>
+                    <input type="tel" value={bizPhone} onChange={e => setBizPhone(e.target.value)} className={inputClass} placeholder="(801) 555-1234" />
+                  </div>
+                </div>
+                {isAutomotiveIndustry && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className={labelClass}>Sales Phone</label>
+                      <input type="tel" value={bizPhoneSales} onChange={e => setBizPhoneSales(e.target.value)} className={inputClass} placeholder="(801) 555-1001" />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Service Phone</label>
+                      <input type="tel" value={bizPhoneService} onChange={e => setBizPhoneService(e.target.value)} className={inputClass} placeholder="(801) 555-1002" />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Parts Phone</label>
+                      <input type="tel" value={bizPhoneParts} onChange={e => setBizPhoneParts(e.target.value)} className={inputClass} placeholder="(801) 555-1003" />
+                    </div>
+                  </div>
+                )}
+                {!isEcommerceIndustry && (
+                  <>
+                    <div>
+                      <label className={labelClass}>Street Address</label>
+                      <input type="text" value={bizAddress} onChange={e => setBizAddress(e.target.value)} className={inputClass} placeholder="1234 Main St" />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className={labelClass}>City</label>
+                        <input type="text" value={bizCity} onChange={e => setBizCity(e.target.value)} className={inputClass} placeholder="Ogden" />
+                      </div>
+                      <div>
+                        <label className={labelClass}>State</label>
+                        <input type="text" value={bizState} onChange={e => setBizState(e.target.value)} className={inputClass} placeholder="UT" />
+                      </div>
+                      <div>
+                        <label className={labelClass}>Zip Code</label>
+                        <input type="text" value={bizZip} onChange={e => setBizZip(e.target.value)} className={inputClass} placeholder="84401" />
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>{isEcommerceIndustry ? 'Store URL' : 'Website'}</label>
+                    <input type="url" value={bizWebsite} onChange={e => setBizWebsite(e.target.value)} className={inputClass} placeholder={isEcommerceIndustry ? 'https://store.com' : 'https://dealer.com'} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Timezone</label>
+                    <select value={bizTimezone} onChange={e => setBizTimezone(e.target.value)} className={inputClass}>
+                      <option value="">Select...</option>
+                      <option value="US/Eastern">Eastern (ET)</option>
+                      <option value="US/Central">Central (CT)</option>
+                      <option value="US/Mountain">Mountain (MT)</option>
+                      <option value="US/Pacific">Pacific (PT)</option>
+                      <option value="US/Alaska">Alaska (AKT)</option>
+                      <option value="US/Hawaii">Hawaii (HT)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <section className={sectionCardClass}>
               <h3 className={sectionHeadingClass}>General</h3>
               <div className="space-y-5">
@@ -1304,85 +1450,6 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
                       </div>
                     );
                   })()}
-                </div>
-              </div>
-            </section>
-
-            <section className={sectionCardClass}>
-              <h3 className={sectionHeadingClass}>Business Details</h3>
-              <p className="text-[11px] text-[var(--muted-foreground)] mb-4 -mt-2">
-                {activeProviderConnected && activeProviderSupportsBusinessDetailsSync
-                  ? 'These details are synced to your connected platform when saved.'
-                  : activeProviderConnected
-                    ? `${providerUnsupportedMessage(activeProvider, 'business detail push sync')} Changes are saved locally in Loomi.`
-                    : 'Connect an integration to sync these details. Until then, changes are saved locally in Loomi.'}
-              </p>
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className={labelClass}>{isEcommerceIndustry ? 'Support Email' : 'Email'}</label>
-                    <input type="email" value={bizEmail} onChange={e => setBizEmail(e.target.value)} className={inputClass} placeholder={isEcommerceIndustry ? 'support@store.com' : 'info@dealer.com'} />
-                  </div>
-                  <div>
-                    <label className={labelClass}>{isEcommerceIndustry ? 'Support Phone' : 'Main Phone'}</label>
-                    <input type="tel" value={bizPhone} onChange={e => setBizPhone(e.target.value)} className={inputClass} placeholder="(801) 555-1234" />
-                  </div>
-                </div>
-                {isAutomotiveIndustry && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className={labelClass}>Sales Phone</label>
-                      <input type="tel" value={bizPhoneSales} onChange={e => setBizPhoneSales(e.target.value)} className={inputClass} placeholder="(801) 555-1001" />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Service Phone</label>
-                      <input type="tel" value={bizPhoneService} onChange={e => setBizPhoneService(e.target.value)} className={inputClass} placeholder="(801) 555-1002" />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Parts Phone</label>
-                      <input type="tel" value={bizPhoneParts} onChange={e => setBizPhoneParts(e.target.value)} className={inputClass} placeholder="(801) 555-1003" />
-                    </div>
-                  </div>
-                )}
-                {!isEcommerceIndustry && (
-                  <>
-                    <div>
-                      <label className={labelClass}>Street Address</label>
-                      <input type="text" value={bizAddress} onChange={e => setBizAddress(e.target.value)} className={inputClass} placeholder="1234 Main St" />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <label className={labelClass}>City</label>
-                        <input type="text" value={bizCity} onChange={e => setBizCity(e.target.value)} className={inputClass} placeholder="Ogden" />
-                      </div>
-                      <div>
-                        <label className={labelClass}>State</label>
-                        <input type="text" value={bizState} onChange={e => setBizState(e.target.value)} className={inputClass} placeholder="UT" />
-                      </div>
-                      <div>
-                        <label className={labelClass}>Zip Code</label>
-                        <input type="text" value={bizZip} onChange={e => setBizZip(e.target.value)} className={inputClass} placeholder="84401" />
-                      </div>
-                    </div>
-                  </>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className={labelClass}>{isEcommerceIndustry ? 'Store URL' : 'Website'}</label>
-                    <input type="url" value={bizWebsite} onChange={e => setBizWebsite(e.target.value)} className={inputClass} placeholder={isEcommerceIndustry ? 'https://store.com' : 'https://dealer.com'} />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Timezone</label>
-                    <select value={bizTimezone} onChange={e => setBizTimezone(e.target.value)} className={inputClass}>
-                      <option value="">Select...</option>
-                      <option value="US/Eastern">Eastern (ET)</option>
-                      <option value="US/Central">Central (CT)</option>
-                      <option value="US/Mountain">Mountain (MT)</option>
-                      <option value="US/Pacific">Pacific (PT)</option>
-                      <option value="US/Alaska">Alaska (AKT)</option>
-                      <option value="US/Hawaii">Hawaii (HT)</option>
-                    </select>
-                  </div>
                 </div>
               </div>
             </section>

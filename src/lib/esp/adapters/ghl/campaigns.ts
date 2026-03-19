@@ -1,5 +1,4 @@
 import { GHL_BASE, API_VERSION } from './constants';
-import { getWebhookStatsForProviderAccount, type CampaignWebhookStats } from './webhook-stats';
 
 // ── Types ──
 
@@ -1203,7 +1202,7 @@ export async function fetchCampaigns(
       raw = bestEmptyResult;
     } else {
       const hint = 'If this is an OAuth-connected account, re-authorize with "emails/schedule.readonly".';
-      const detail = errors.length > 0 ? errors[errors.length - 1] : 'Failed to fetch campaigns';
+      const detail = errors.length > 0 ? errors[0] : 'Failed to fetch campaigns';
       throw new Error(`${detail} ${hint}`);
     }
   }
@@ -1288,47 +1287,6 @@ export async function fetchCampaigns(
   const deduped = dedupeByKey(campaigns, (c) =>
     `${c.scheduleId || c.id || 'no-id'}|${c.campaignId || 'no-campaign'}|${c.name.toLowerCase()}|${c.status.toLowerCase()}|${c.createdAt || c.updatedAt || c.sentAt || ''}`,
   );
-
-  // Merge webhook-derived stats (sentAt, delivery counts, etc.)
-  try {
-    const webhookStats = await getWebhookStatsForProviderAccount('ghl', locationId);
-    if (webhookStats.size > 0) {
-      const mergeCount = (existing: number | undefined, incoming: number): number | undefined => {
-        if (!Number.isFinite(incoming) || incoming <= 0) return existing;
-        if (existing === undefined || !Number.isFinite(existing)) return incoming;
-        return Math.max(existing, incoming);
-      };
-
-      for (const campaign of deduped) {
-        const matchIds = [campaign.scheduleId, campaign.campaignId, campaign.id].filter(Boolean) as string[];
-        let stats: CampaignWebhookStats | undefined;
-        for (const id of matchIds) {
-          stats = webhookStats.get(id);
-          if (stats) break;
-        }
-        if (!stats) continue;
-
-        if (stats.firstDeliveredAt) {
-          if (!campaign.sentAt) {
-            campaign.sentAt = stats.firstDeliveredAt.toISOString();
-          } else {
-            const currentSentTs = new Date(campaign.sentAt).getTime();
-            const incomingSentTs = stats.firstDeliveredAt.getTime();
-            if (Number.isNaN(currentSentTs) || incomingSentTs < currentSentTs) {
-              campaign.sentAt = stats.firstDeliveredAt.toISOString();
-            }
-          }
-        }
-        campaign.deliveredCount = mergeCount(campaign.deliveredCount, stats.deliveredCount);
-        campaign.openedCount = mergeCount(campaign.openedCount, stats.openedCount);
-        campaign.clickedCount = mergeCount(campaign.clickedCount, stats.clickedCount);
-        campaign.bouncedCount = mergeCount(campaign.bouncedCount, stats.bouncedCount);
-        campaign.unsubscribedCount = mergeCount(campaign.unsubscribedCount, stats.unsubscribedCount);
-      }
-    }
-  } catch (err) {
-    console.error('[campaigns] Failed to merge webhook stats:', err);
-  }
 
   campaignCache.set(locationId, { campaigns: deduped, fetchedAt: Date.now() });
   return deduped;

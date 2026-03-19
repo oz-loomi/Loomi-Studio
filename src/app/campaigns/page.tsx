@@ -61,16 +61,6 @@ interface Campaign {
   scheduledAt?: string;
   sentAt?: string;
   sentCount?: number;
-  deliveredCount?: number;
-  openedCount?: number;
-  clickedCount?: number;
-  repliedCount?: number;
-  bouncedCount?: number;
-  failedCount?: number;
-  unsubscribedCount?: number;
-  openRate?: number;
-  clickRate?: number;
-  replyRate?: number;
   locationId?: string;
   accountKey?: string;
   dealer?: string;
@@ -146,12 +136,14 @@ function inRange(campaign: Campaign, start: Date, end: Date): boolean {
 }
 
 function withCampaignErrorHint(message: string): string {
+  if (message.includes('not yet supported by the IAM Service')) {
+    return 'Some accounts need their GHL integration re-authorized to access campaigns. Go to each account\u2019s Settings \u2192 Integrations tab.';
+  }
   if (
-    message.includes('not yet supported by the IAM Service') ||
     message.includes('emails/schedule.readonly') ||
     message.includes('not authorized')
   ) {
-    return `${message} Reconnect this account's integration to grant campaign schedule scope.`;
+    return `${message} Re-authorize the integration to grant the campaigns scope.`;
   }
   return message;
 }
@@ -183,8 +175,13 @@ function AdminCampaignsPage() {
       return withCampaignErrorHint(aggError instanceof Error ? aggError.message : 'Failed to fetch campaign data.');
     }
     if (aggData?.errors && Object.keys(aggData.errors).length > 0) {
+      const errorCount = Object.keys(aggData.errors).length;
+      const totalAccounts = Object.keys(aggData.perAccount || {}).length;
       const firstError = Object.values(aggData.errors)[0];
-      return withCampaignErrorHint(`Some accounts returned campaign API errors. ${firstError}`);
+      const prefix = totalAccounts > errorCount
+        ? `${errorCount} of ${totalAccounts} account${errorCount > 1 ? 's' : ''} had campaign API errors.`
+        : 'All accounts returned campaign API errors.';
+      return withCampaignErrorHint(`${prefix} ${firstError}`);
     }
     const skippedCreds = (aggData?.meta as Record<string, unknown>)?.skippedNoCredentials;
     if (typeof skippedCreds === 'number' && skippedCreds > 0) {
@@ -675,7 +672,11 @@ function AdminCampaignsPage() {
         {/* Main content column */}
         <div className="min-w-0">
           {campaignError && (
-            <div className="px-4 py-3 mb-4 rounded-xl border border-red-500/20 bg-red-500/10 text-sm text-red-300">
+            <div className={`px-4 py-3 mb-4 rounded-xl border text-sm ${
+              campaigns.length > 0
+                ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+                : 'border-red-500/20 bg-red-500/10 text-red-300'
+            }`}>
               {campaignError}
             </div>
           )}

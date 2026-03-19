@@ -17,8 +17,6 @@ import type {
   AccountDetailsSyncAdapter,
   MessagesAdapter,
   UsersAdapter,
-  WebhookAdapter,
-  WebhookVerifyInput,
   CustomValuesAdapter,
   TemplatesAdapter,
   MediaAdapter,
@@ -130,18 +128,12 @@ import {
 } from './users';
 
 import {
-  verifyWebhookSignature,
-} from './webhook';
-
-import {
   fetchCustomValues,
   createCustomValue,
   updateCustomValue,
   deleteCustomValue,
   syncCustomValues,
 } from './custom-values';
-import { ghlEmailStatsWebhookHandler } from '@/lib/esp/webhooks/providers/ghl-email-stats';
-
 // ── OAuth Sub-adapter ──
 
 class GhlOAuthAdapter implements EspOAuthAdapter {
@@ -572,17 +564,6 @@ class GhlUsersAdapter implements UsersAdapter {
   }
 }
 
-// ── Webhook Sub-adapter ──
-
-class GhlWebhookAdapter implements WebhookAdapter {
-  readonly provider = 'ghl' as const;
-  readonly signatureHeaderCandidates = ['x-wh-signature'] as const;
-
-  verifySignature(input: WebhookVerifyInput): boolean {
-    return verifyWebhookSignature(input.rawBody, input.signature);
-  }
-}
-
 // ── Templates Sub-adapter ──
 
 class GhlTemplatesAdapter implements TemplatesAdapter {
@@ -753,7 +734,7 @@ export class GhlAdapter implements EspAdapter {
     workflows: true,
     messages: true,
     users: true,
-    webhooks: true,
+    webhooks: false,
     customValues: true,
     templates: true,
     media: true,
@@ -774,10 +755,6 @@ export class GhlAdapter implements EspAdapter {
   readonly accountDetailsSync = new GhlAccountDetailsSyncAdapter();
   readonly messages = new GhlMessagesAdapter();
   readonly users = new GhlUsersAdapter();
-  readonly webhook = new GhlWebhookAdapter();
-  readonly webhookFamilies = {
-    'email-stats': ghlEmailStatsWebhookHandler,
-  };
   readonly customValues = new GhlCustomValuesAdapter();
   readonly templates = new GhlTemplatesAdapter();
   readonly media = new GhlMediaAdapter();
