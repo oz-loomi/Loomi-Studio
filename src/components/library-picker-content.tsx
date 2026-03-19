@@ -142,7 +142,7 @@ export function LibraryPickerContent({ onSelect }: LibraryPickerContentProps) {
           <div className="flex flex-col items-center justify-center h-full text-[var(--muted-foreground)]">
             <BookOpenIcon className="w-10 h-10 mb-2 opacity-30" />
             <p className="text-sm">
-              {search || selectedTag ? 'No templates match your filters.' : 'No library templates available.'}
+              {search || selectedTag ? 'No templates were found.' : 'No library templates available.'}
             </p>
             {!search && !selectedTag && (
               <p className="text-xs mt-1">Create templates in the Template Library first.</p>

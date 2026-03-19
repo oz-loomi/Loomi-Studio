@@ -749,7 +749,7 @@ function DeveloperView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
         <div className="text-center py-16 border border-dashed border-[var(--border)] rounded-xl">
           <BookOpenIcon className="w-8 h-8 mx-auto mb-3 text-[var(--muted-foreground)]" />
           <p className="text-[var(--muted-foreground)] text-sm">
-            {search || selectedTag ? 'No templates match your filters.' : 'No templates yet.'}
+            {search || selectedTag ? 'No templates were found.' : 'No templates yet.'}
           </p>
         </div>
       ) : (
@@ -1146,7 +1146,7 @@ function AdminView({ campaignDraftQuery }: { campaignDraftQuery: string }) {
         <div className="text-center py-16 border border-dashed border-[var(--border)] rounded-xl">
           <BookOpenIcon className="w-8 h-8 mx-auto mb-3 text-[var(--muted-foreground)]" />
           <p className="text-[var(--muted-foreground)] text-sm">
-            {search || selectedTag ? 'No templates match your filters.' : 'No templates available.'}
+            {search || selectedTag ? 'No templates were found.' : 'No templates available.'}
           </p>
         </div>
       ) : (

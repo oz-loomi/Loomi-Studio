@@ -407,7 +407,7 @@ export default function ChangelogPage() {
       {/* No results for current filter */}
       {!loading && entries.length > 0 && filteredEntries.length === 0 && (
         <div className="text-center py-16 text-[var(--muted-foreground)]">
-          <p className="text-sm">No entries match your filters.</p>
+          <p className="text-sm">No entries were found.</p>
           <p className="text-xs mt-1">
             Try a different filter or clear your search.
           </p>
