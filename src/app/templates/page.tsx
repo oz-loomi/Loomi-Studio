@@ -17,7 +17,6 @@ import {
   CodeBracketIcon,
   EllipsisVerticalIcon,
   ArrowUpTrayIcon,
-  ExclamationTriangleIcon,
   BuildingStorefrontIcon,
   ArrowLeftIcon,
   ChevronDownIcon,
@@ -760,10 +759,6 @@ interface ToolbarProps {
   uniqueProviders: string[];
   viewMode: 'card' | 'list';
   toggleView: (mode: 'card' | 'list') => void;
-  canSync: boolean;
-  syncLabel: string;
-  syncing: boolean;
-  handleSync: () => void;
   // Bulk selection
   selectMode: boolean;
   setSelectMode: (v: boolean) => void;
@@ -795,10 +790,6 @@ function Toolbar({
   uniqueProviders,
   viewMode,
   toggleView,
-  canSync,
-  syncLabel,
-  syncing,
-  handleSync,
   selectMode,
   setSelectMode,
   selectedIds,
@@ -994,17 +985,6 @@ function Toolbar({
             </button>
           </div>
 
-          {/* Sync */}
-          {canSync && (
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
-            >
-              <ArrowPathIcon className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Syncing...' : syncLabel}
-            </button>
-          )}
         </div>
       </div>
 
@@ -1124,7 +1104,7 @@ function TemplateListView({
               <p className="text-xs mb-4">Click &quot;Sync&quot; to pull templates from your connected platform, or create a new one.</p>
             </>
           ) : (
-            <p className="text-sm">No templates match your filters.</p>
+            <p className="text-sm">No templates were found.</p>
           )}
         </div>
       )}
@@ -1186,69 +1166,6 @@ function TemplateListView({
   );
 }
 
-interface TemplateAccountCardProps {
-  accountKey: string;
-  accountData: AccountData | undefined;
-  templateCount: number;
-  providers: string[];
-  onSelect: () => void;
-}
-
-function TemplateAccountCard({
-  accountKey,
-  accountData,
-  templateCount,
-  providers,
-  onSelect,
-}: TemplateAccountCardProps) {
-  const accountName = accountData?.dealer || accountKey;
-  const location = [accountData?.city, accountData?.state].filter(Boolean).join(', ');
-
-  return (
-    <button
-      onClick={onSelect}
-      className="glass-card rounded-xl p-5 text-left group hover:ring-1 hover:ring-[var(--primary)]/30 transition-all animate-fade-in-up"
-    >
-      <div className="flex items-start gap-3">
-        <AccountAvatar
-          name={accountName}
-          accountKey={accountKey}
-          storefrontImage={accountData?.storefrontImage}
-          logos={accountData?.logos}
-          size={40}
-          className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-[var(--border)]"
-        />
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold truncate group-hover:text-[var(--primary)] transition-colors">
-            {accountName}
-          </h3>
-          {location && (
-            <p className="text-[11px] text-[var(--muted-foreground)] truncate mt-0.5">{location}</p>
-          )}
-          {providers.length > 0 && (
-            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-              {providers.slice(0, 4).map((provider) => (
-                <ProviderLogoCircle key={`${accountKey}:${provider}`} provider={provider} size={16} />
-              ))}
-            </div>
-          )}
-        </div>
-        <ChevronRightIcon className="w-4 h-4 text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex-shrink-0" />
-      </div>
-      <div className="mt-3 pt-3 border-t border-[var(--border)]">
-        <div className="flex items-center gap-1.5 text-[10px] text-[var(--muted-foreground)]">
-          <EnvelopeIcon className="w-3.5 h-3.5" />
-          <span>
-            {templateCount === 0
-              ? 'No templates'
-              : `${templateCount} template${templateCount === 1 ? '' : 's'}`}
-          </span>
-        </div>
-      </div>
-    </button>
-  );
-}
-
 // ── Page ──
 
 export default function TemplatesPage() {
@@ -1261,7 +1178,6 @@ export default function TemplatesPage() {
   // State
   const [allTemplates, setAllTemplates] = useState<EspTemplateRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [search, setSearch] = useState('');
   const [providerFilter, setProviderFilter] = useState<string>('all');
@@ -1279,6 +1195,11 @@ export default function TemplatesPage() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [cloning, setCloning] = useState(false);
   const [renaming, setRenaming] = useState(false);
+
+  // Admin overview table sort + pagination
+  const [overviewSortField, setOverviewSortField] = useState<'name' | 'location' | 'templates' | 'integrations'>('name');
+  const [overviewSortDir, setOverviewSortDir] = useState<'asc' | 'desc'>('asc');
+  const [overviewPage, setOverviewPage] = useState(1);
 
   // Library picker (inside create modal)
   const [libraryPickerMode, setLibraryPickerMode] = useState(false);
@@ -1553,6 +1474,56 @@ export default function TemplatesPage() {
     });
   }, [allAccountKeys, accounts, search]);
 
+  const OVERVIEW_PAGE_SIZE = 10;
+
+  const overviewSortedKeys = useMemo(() => {
+    const dir = overviewSortDir === 'asc' ? 1 : -1;
+    return [...overviewFilteredAccountKeys].sort((a, b) => {
+      let cmp = 0;
+      if (overviewSortField === 'name') {
+        cmp = (accounts[a]?.dealer || a).localeCompare(accounts[b]?.dealer || b);
+      } else if (overviewSortField === 'location') {
+        const locA = [accounts[a]?.city, accounts[a]?.state].filter(Boolean).join(', ');
+        const locB = [accounts[b]?.city, accounts[b]?.state].filter(Boolean).join(', ');
+        cmp = locA.localeCompare(locB);
+      } else if (overviewSortField === 'templates') {
+        cmp = (accountGroups[a]?.templates.length || 0) - (accountGroups[b]?.templates.length || 0);
+      } else if (overviewSortField === 'integrations') {
+        const provsA = new Set([...(accounts[a]?.connectedProviders || []), ...(accountGroups[a]?.providers || [])]);
+        const provsB = new Set([...(accounts[b]?.connectedProviders || []), ...(accountGroups[b]?.providers || [])]);
+        cmp = provsA.size - provsB.size;
+      }
+      if (cmp === 0) cmp = (accounts[a]?.dealer || a).localeCompare(accounts[b]?.dealer || b);
+      return cmp * dir;
+    });
+  }, [overviewFilteredAccountKeys, overviewSortField, overviewSortDir, accounts, accountGroups]);
+
+  const overviewTotalPages = Math.max(1, Math.ceil(overviewSortedKeys.length / OVERVIEW_PAGE_SIZE));
+
+  useEffect(() => {
+    if (overviewPage > overviewTotalPages) setOverviewPage(overviewTotalPages);
+  }, [overviewPage, overviewTotalPages]);
+
+  const overviewPageStart = (overviewPage - 1) * OVERVIEW_PAGE_SIZE;
+  const overviewPagedKeys = overviewSortedKeys.slice(overviewPageStart, overviewPageStart + OVERVIEW_PAGE_SIZE);
+  const overviewShowingStart = overviewSortedKeys.length === 0 ? 0 : overviewPageStart + 1;
+  const overviewShowingEnd = Math.min(overviewPageStart + OVERVIEW_PAGE_SIZE, overviewSortedKeys.length);
+
+  const toggleOverviewSort = (field: typeof overviewSortField) => {
+    if (overviewSortField === field) {
+      setOverviewSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setOverviewSortField(field);
+      setOverviewSortDir('asc');
+    }
+    setOverviewPage(1);
+  };
+
+  const overviewSortIndicator = (field: typeof overviewSortField) => {
+    if (overviewSortField !== field) return '↕';
+    return overviewSortDir === 'asc' ? '↑' : '↓';
+  };
+
   const createFilteredAccountKeys = useMemo(() => {
     const q = createAccountSearch.trim().toLowerCase();
     if (!q) return allAccountKeys;
@@ -1602,8 +1573,6 @@ export default function TemplatesPage() {
         errors: [] as string[],
       };
     }
-
-    if (!options?.silent) setSyncing(true);
 
     let succeeded = 0;
     let failed = 0;
@@ -1664,7 +1633,6 @@ export default function TemplatesPage() {
         }
       }
     } finally {
-      if (!options?.silent) setSyncing(false);
     }
 
     return {
@@ -1679,27 +1647,6 @@ export default function TemplatesPage() {
     };
   }, [accounts, loadTemplates]);
 
-  const syncAccountKeys = useMemo(() => {
-    if (effectiveAccountKey) return [effectiveAccountKey];
-    if (accountFilter !== 'all') return [accountFilter];
-    if (isAdmin) {
-      return allAccountKeys.filter((key) => {
-        const account = accounts[key];
-        const hasConnection =
-          Boolean(account?.espProvider) ||
-          (account?.connectedProviders?.length ?? 0) > 0;
-        const hasLocalTemplates = Boolean(accountGroups[key]?.templates.length);
-        return hasConnection || hasLocalTemplates;
-      });
-    }
-    return [];
-  }, [effectiveAccountKey, accountFilter, isAdmin, allAccountKeys, accounts, accountGroups]);
-
-  const canSync = syncAccountKeys.length > 0;
-  const syncLabel =
-    isAdmin && !effectiveAccountKey && accountFilter === 'all'
-      ? 'Sync All'
-      : 'Sync';
 
   useEffect(() => {
     const keysToAutoSync = effectiveAccountKey
@@ -1710,13 +1657,6 @@ export default function TemplatesPage() {
     if (keysToAutoSync.length === 0) return;
     void syncTemplatesForAccounts(keysToAutoSync, { silent: true, force: false });
   }, [effectiveAccountKey, accountFilter, syncTemplatesForAccounts]);
-
-  // ── Sync from ESP ──
-
-  const handleSync = useCallback(async () => {
-    if (!canSync || syncing) return;
-    await syncTemplatesForAccounts(syncAccountKeys, { force: true, silent: false });
-  }, [canSync, syncing, syncTemplatesForAccounts, syncAccountKeys]);
 
   // Account filter label
   const selectedAccountData = accountFilter !== 'all' ? accounts[accountFilter] : null;
@@ -2364,9 +2304,6 @@ export default function TemplatesPage() {
     }
   };
 
-  // ── No connection state (account-level) ──
-  const connectedProviders = accountData?.connectedProviders;
-  const hasConnection = effectiveAccountKey && connectedProviders && connectedProviders.length > 0;
 
   const openAdminAccount = useCallback((nextAccountKey: string) => {
     setAccountFilter(nextAccountKey);
@@ -2422,10 +2359,6 @@ export default function TemplatesPage() {
     uniqueProviders,
     viewMode,
     toggleView,
-    canSync,
-    syncLabel,
-    syncing,
-    handleSync,
     selectMode,
     setSelectMode,
     selectedIds,
@@ -2702,56 +2635,135 @@ export default function TemplatesPage() {
               <input
                 type="text"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setOverviewPage(1); }}
                 className="w-full text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-[var(--foreground)]"
                 placeholder="Search sub-accounts..."
               />
             </div>
-            <div className="flex items-center gap-2">
-              {canSync && (
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  className="flex items-center gap-1.5 px-3 py-2 border border-[var(--border)] text-[var(--foreground)] rounded-lg text-sm font-medium hover:bg-[var(--muted)] transition-colors disabled:opacity-50"
-                >
-                  <ArrowPathIcon className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                  {syncing ? 'Syncing...' : syncLabel}
-                </button>
-              )}
-            </div>
           </div>
 
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-[var(--muted-foreground)]">
-              {overviewFilteredAccountKeys.length} account{overviewFilteredAccountKeys.length === 1 ? '' : 's'}
-              {search.trim() && ` matching "${search.trim()}"`}
-            </p>
-          </div>
-
-          {overviewFilteredAccountKeys.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {overviewFilteredAccountKeys.map((key) => {
-                const group = accountGroups[key];
-                const connected = accounts[key]?.connectedProviders || [];
-                const groupedProviders = group ? [...group.providers] : [];
-                const providers = [...new Set([...connected, ...groupedProviders])];
-                return (
-                  <TemplateAccountCard
-                    key={key}
-                    accountKey={key}
-                    accountData={accounts[key]}
-                    templateCount={group?.templates.length || 0}
-                    providers={providers}
-                    onSelect={() => openAdminAccount(key)}
-                  />
-                );
-              })}
-            </div>
-          ) : (
+          {overviewSortedKeys.length === 0 ? (
             <div className="text-center py-12 text-[var(--muted-foreground)]">
               <MagnifyingGlassIcon className="w-8 h-8 mx-auto mb-2 opacity-30" />
               <p className="text-sm">No sub-accounts match &quot;{search.trim()}&quot;</p>
             </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto glass-table">
+                <table className="w-full min-w-[600px]">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                      <th className="w-12 px-3 py-2"></th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <button type="button" onClick={() => toggleOverviewSort('name')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                          Sub-Account Name
+                          <span className="text-[10px]">{overviewSortIndicator('name')}</span>
+                        </button>
+                      </th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <button type="button" onClick={() => toggleOverviewSort('location')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                          Location
+                          <span className="text-[10px]">{overviewSortIndicator('location')}</span>
+                        </button>
+                      </th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <button type="button" onClick={() => toggleOverviewSort('templates')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                          Templates
+                          <span className="text-[10px]">{overviewSortIndicator('templates')}</span>
+                        </button>
+                      </th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <button type="button" onClick={() => toggleOverviewSort('integrations')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                          Integrations
+                          <span className="text-[10px]">{overviewSortIndicator('integrations')}</span>
+                        </button>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overviewPagedKeys.map((key) => {
+                      const acct = accounts[key];
+                      const accountName = acct?.dealer || key;
+                      const location = [acct?.city, acct?.state].filter(Boolean).join(', ');
+                      const group = accountGroups[key];
+                      const templateCount = group?.templates.length || 0;
+                      const connected = acct?.connectedProviders || [];
+                      const groupedProviders = group ? [...group.providers] : [];
+                      const providers = [...new Set([...connected, ...groupedProviders])];
+
+                      return (
+                        <tr
+                          key={key}
+                          onClick={() => openAdminAccount(key)}
+                          className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--muted)]/50 transition-colors cursor-pointer"
+                        >
+                          <td className="px-3 py-2 align-middle">
+                            <div className="flex items-center justify-center h-full">
+                              <AccountAvatar
+                                name={accountName}
+                                accountKey={key}
+                                storefrontImage={acct?.storefrontImage}
+                                logos={acct?.logos}
+                                size={36}
+                                className="w-9 h-9 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
+                              />
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 align-middle">
+                            <span className="text-sm font-medium">{accountName}</span>
+                          </td>
+                          <td className="px-3 py-2 align-middle">
+                            <span className="text-xs text-[var(--muted-foreground)]">{location || '—'}</span>
+                          </td>
+                          <td className="px-3 py-2 align-middle">
+                            <span className="text-xs text-[var(--muted-foreground)]">
+                              {templateCount === 0 ? '—' : `${templateCount} template${templateCount === 1 ? '' : 's'}`}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 align-middle">
+                            <div className="flex items-center gap-1.5">
+                              {providers.length === 0 ? (
+                                <span className="text-xs text-[var(--muted-foreground)]">—</span>
+                              ) : (
+                                providers.map((provider) => (
+                                  <ProviderLogoCircle key={`${key}:${provider}`} provider={provider} size={20} />
+                                ))
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex items-center justify-between mt-3">
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  Showing {overviewShowingStart}-{overviewShowingEnd} of {overviewSortedKeys.length}
+                  {search.trim() && ` matching "${search.trim()}"`}
+                </p>
+                {overviewTotalPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => setOverviewPage(1)} disabled={overviewPage === 1} className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors">First</button>
+                    <button type="button" onClick={() => setOverviewPage((p) => Math.max(1, p - 1))} disabled={overviewPage === 1} className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors">Prev</button>
+                    {(() => {
+                      const maxVisible = 5;
+                      const tp = overviewTotalPages;
+                      let start = Math.max(1, overviewPage - Math.floor(maxVisible / 2));
+                      let end = start + maxVisible - 1;
+                      if (end > tp) { end = tp; start = Math.max(1, end - maxVisible + 1); }
+                      const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+                      return pages.map((p) => (
+                        <button key={p} type="button" onClick={() => setOverviewPage(p)} className={`px-2 py-1 text-xs rounded-md border transition-colors ${p === overviewPage ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] hover:bg-[var(--muted)]'}`}>{p}</button>
+                      ));
+                    })()}
+                    <button type="button" onClick={() => setOverviewPage((p) => Math.min(overviewTotalPages, p + 1))} disabled={overviewPage === overviewTotalPages} className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors">Next</button>
+                    <button type="button" onClick={() => setOverviewPage(overviewTotalPages)} disabled={overviewPage === overviewTotalPages} className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors">Last</button>
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </>
       )}
@@ -2776,17 +2788,8 @@ export default function TemplatesPage() {
             </div>
           )}
 
-          {/* No integration connection */}
-          {effectiveAccountKey && !hasConnection && !loading && (
-            <div className="text-center py-16 text-[var(--muted-foreground)]">
-              <ExclamationTriangleIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-sm font-medium mb-1">No Integration Connected</p>
-              <p className="text-xs">Connect an integration in your account settings to manage email templates.</p>
-            </div>
-          )}
-
           {/* Account-level template view */}
-          {effectiveAccountKey && (hasConnection || loading) && (
+          {effectiveAccountKey && (
             <>
               <Toolbar {...toolbarProps} />
               {inlineFolderGrid}
