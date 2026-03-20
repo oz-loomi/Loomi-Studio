@@ -329,6 +329,7 @@ async function fetchTemplatesFromBuilderEndpoint(
     if (rows.length === 0) break;
 
     for (const row of rows) {
+      if (isGhlFolder(row)) continue;
       const template = toEspTemplate(row);
       if (!template.id) continue;
       templatesById.set(template.id, template);
