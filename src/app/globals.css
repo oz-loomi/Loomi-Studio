@@ -284,13 +284,19 @@ body {
   border-radius: 0.75rem;
   backdrop-filter: blur(12px) saturate(140%);
   transition:
+    padding 0.2s ease,
     background-color 0.2s ease,
     border-color 0.2s ease,
     box-shadow 0.2s ease,
     backdrop-filter 0.2s ease;
 }
 
+.page-sticky-header.pad-on-scroll {
+  padding: 0;
+}
+
 main[data-scrolled='true'] .page-sticky-header {
+  padding: 0.75rem 1rem;
   background: var(--sidebar-bg);
   border-color: var(--sidebar-border);
   backdrop-filter: blur(24px) saturate(180%);

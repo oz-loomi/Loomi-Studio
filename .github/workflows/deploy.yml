@@ -120,6 +120,12 @@ jobs:
               swapon /swapfile || true
             fi
 
+            # Install pm2-logrotate if not already present (prevents disk fill)
+            pm2 describe pm2-logrotate > /dev/null 2>&1 || pm2 install pm2-logrotate
+            pm2 set pm2-logrotate:max_size 10M
+            pm2 set pm2-logrotate:retain 5
+            pm2 set pm2-logrotate:compress true
+
             # Free memory: stop the idle PM2 slot (will be replaced after build)
             pm2 stop "$NEXT_APP" 2>/dev/null || true
             pm2 delete "$NEXT_APP" 2>/dev/null || true
@@ -137,7 +143,12 @@ jobs:
             echo "=== Starting candidate app: $NEXT_APP on port $NEXT_PORT ==="
             pm2 stop "$NEXT_APP" || true
             pm2 delete "$NEXT_APP" || true
-            NODE_ENV=production pm2 start ./node_modules/.bin/next --name "$NEXT_APP" --cwd "$NEW_RELEASE" -- start -p "$NEXT_PORT"
+            NODE_ENV=production NODE_OPTIONS="--max-old-space-size=768" pm2 start ./node_modules/.bin/next \
+              --name "$NEXT_APP" \
+              --cwd "$NEW_RELEASE" \
+              --max-memory-restart 512M \
+              --merge-logs \
+              -- start -p "$NEXT_PORT"
 
             echo "=== Waiting for candidate health ==="
             CANDIDATE_OK=0

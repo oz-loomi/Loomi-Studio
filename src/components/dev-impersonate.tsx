@@ -221,7 +221,10 @@ export function DevImpersonate() {
 
           {/* Dropdown panel */}
           {open && (
-            <div className="absolute left-0 right-0 bottom-full mb-2 z-50 glass-dropdown rounded-xl overflow-hidden animate-fade-in-up">
+            <div
+              className="absolute left-0 bottom-full mb-2 z-[60] w-[24rem] glass-dropdown rounded-xl overflow-hidden animate-fade-in-up shadow-lg"
+              style={{ maxWidth: 'calc(100vw - 1.5rem)' }}
+            >
               {/* Search */}
               <div className="p-1.5 border-b border-[var(--border)]">
                 <div className="relative">

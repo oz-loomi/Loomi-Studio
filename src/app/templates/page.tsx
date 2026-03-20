@@ -2611,7 +2611,7 @@ export default function TemplatesPage() {
               : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
           }`}
         >
-          Account Templates
+          Sub-account Templates
         </Link>
         <Link
           href={subHref('/templates/library')}

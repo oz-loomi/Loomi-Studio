@@ -133,7 +133,7 @@ This is a **UI-layer concern** — the API routes are separate endpoints. The fr
 
 Changes:
 - Add a new data source: `GET /api/esp/templates?accountKey=` fetched per-account
-- ESP templates displayed in a new section/filter on the existing "Account Templates" tab
+- ESP templates displayed in a new section/filter on the existing "Sub-account Templates" tab
 - Each ESP template card shows:
   - Name, type badge, preview thumbnail (if available), ESP provider badge
   - Actions: "Import to Loomi" (creates local AccountEmail from ESP HTML), "Edit" (opens editor), "Delete from ESP"

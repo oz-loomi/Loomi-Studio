@@ -8,19 +8,25 @@ import { slugToAccountKey } from '@/lib/account-slugs';
 export default function SubaccountLayout({ children }: { children: React.ReactNode }) {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
-  const { accounts, accountsLoaded, setAccount, accountKey, userRole } = useAccount();
+  const { accounts, accountsLoaded, setAccount, account, accountKey, userRole } = useAccount();
   const syncedRef = useRef(false);
 
   const resolvedKey = slugToAccountKey(slug, accounts);
 
-  // Sync context from URL slug
+  // Sync context from URL slug.
+  // When this layout first mounts from an admin route, the shared account
+  // context is still in admin mode and needs to be hydrated from the URL.
+  // We only skip the sync after this layout has already been active once and
+  // the user has explicitly switched back to admin, which avoids reverting
+  // that outbound navigation during the brief unmount window.
   useEffect(() => {
     if (!accountsLoaded || !resolvedKey) return;
+    if (account.mode === 'admin' && syncedRef.current) return;
     if (accountKey !== resolvedKey) {
       setAccount({ mode: 'account', accountKey: resolvedKey });
     }
     syncedRef.current = true;
-  }, [accountsLoaded, resolvedKey, accountKey, setAccount]);
+  }, [accountsLoaded, resolvedKey, account.mode, accountKey, setAccount]);
 
   // Validate access: ensure user can access this account
   useEffect(() => {

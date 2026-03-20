@@ -140,7 +140,7 @@ export default function SettingsPage() {
 
   return (
     <div className="animate-fade-in-up">
-      <div className="page-sticky-header mb-8">
+      <div className="mb-6 px-1">
         <h1 className="flex items-center gap-2 text-2xl font-bold text-[var(--foreground)]">
           <CogIcon className="w-6 h-6" />
           Settings
@@ -150,49 +150,69 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-8 border-b border-[var(--border)]">
-        {tabs.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => {
-              const destination = tab.key === 'jobs'
-                ? `/settings/jobs/${routeJobKey || DEFAULT_JOB_KEY}`
-                : `/settings/${tab.key}`;
-              confirmNavigation(() => router.push(destination), destination);
-            }}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors relative ${
-              activeTab === tab.key
-                ? 'text-[var(--foreground)]'
-                : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-            }`}
-          >
-            <tab.icon className="w-4 h-4" />
-            {tab.label}
-            {activeTab === tab.key && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
-            )}
-          </button>
-        ))}
-      </div>
+      <div className="border-b border-[var(--border)] mb-6" />
 
-      {/* Tab content */}
-      {activeTab === 'subaccounts' && <AccountsList listPath="/settings/subaccounts" detailBasePath="/settings/subaccounts" />}
-      {activeTab === 'subaccount' && <AccountSettingsTab />}
-      {activeTab === 'users' && <UsersTab />}
-      {activeTab === 'integrations' && (
-        isAccount
-          ? <AccountDetailTabRedirect targetTab="integration" />
-          : <AgencyIntegrationsTab />
-      )}
-      {activeTab === 'custom-values' && (
-        isAccount
-          ? <AccountDetailTabRedirect targetTab="custom-values" />
-          : <CustomValuesTab />
-      )}
-      {activeTab === 'knowledge' && hasAdminAccess && isAdmin && <KnowledgeBaseTab />}
-      {activeTab === 'jobs' && hasRollupAccess && isAdmin && <JobsTab activeJobKey={routeJobKey || DEFAULT_JOB_KEY} />}
-      {activeTab === 'appearance' && <AppearanceTab />}
+      {/* Sidebar nav + content */}
+      <div className="flex gap-6">
+        {/* Vertical nav — sticky */}
+        <nav className="flex flex-col gap-1 w-48 shrink-0 sticky top-4 self-start">
+          {tabs.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => {
+                const destination = tab.key === 'jobs'
+                  ? `/settings/jobs/${routeJobKey || DEFAULT_JOB_KEY}`
+                  : `/settings/${tab.key}`;
+                confirmNavigation(() => router.push(destination), destination);
+              }}
+              className={`flex items-center gap-2.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left ${
+                activeTab === tab.key
+                  ? 'bg-[var(--accent)] text-[var(--foreground)]'
+                  : 'text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50 hover:text-[var(--foreground)]'
+              }`}
+            >
+              <tab.icon className="w-4 h-4 shrink-0" />
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* Tab content */}
+        <div className="flex-1 min-w-0">
+          {/* Sticky tab title bar */}
+          {(() => {
+            const activeTabObj = tabs.find(t => t.key === activeTab);
+            if (!activeTabObj) return null;
+            const TabIcon = activeTabObj.icon;
+            return (
+              <div className="page-sticky-header pad-on-scroll flex items-center justify-between mb-6">
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--foreground)]">
+                  <TabIcon className="w-5 h-5" />
+                  {activeTabObj.label}
+                </h2>
+                <div id="settings-title-actions" className="flex items-center gap-2" />
+              </div>
+            );
+          })()}
+
+          {activeTab === 'subaccounts' && <AccountsList listPath="/settings/subaccounts" detailBasePath="/settings/subaccounts" />}
+          {activeTab === 'subaccount' && <AccountSettingsTab />}
+          {activeTab === 'users' && <UsersTab />}
+          {activeTab === 'integrations' && (
+            isAccount
+              ? <AccountDetailTabRedirect targetTab="integration" />
+              : <AgencyIntegrationsTab />
+          )}
+          {activeTab === 'custom-values' && (
+            isAccount
+              ? <AccountDetailTabRedirect targetTab="custom-values" />
+              : <CustomValuesTab />
+          )}
+          {activeTab === 'knowledge' && hasAdminAccess && isAdmin && <KnowledgeBaseTab />}
+          {activeTab === 'jobs' && hasRollupAccess && isAdmin && <JobsTab activeJobKey={routeJobKey || DEFAULT_JOB_KEY} />}
+          {activeTab === 'appearance' && <AppearanceTab />}
+        </div>
+      </div>
     </div>
   );
 }
@@ -426,10 +446,12 @@ function KnowledgeBaseTab() {
   useEffect(() => {
     if (hasChanges) {
       markDirty();
-      return;
+    } else {
+      markClean();
     }
-    markClean();
-  }, [hasChanges, markClean, markDirty]);
+    // markClean/markDirty are stable refs from context — safe to omit
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasChanges]);
 
   useEffect(() => {
     fetch('/api/knowledge')
@@ -1845,8 +1867,9 @@ function CustomValuesTab() {
     setSelectedKeys(new Set());
   }
 
-  const ghlReadyAccounts = accountStatuses.filter(
-    (status) => status.provider === 'ghl' && status.readyForSync,
+  const ghlReadyAccounts = useMemo(
+    () => accountStatuses.filter((status) => status.provider === 'ghl' && status.readyForSync),
+    [accountStatuses],
   );
 
   useEffect(() => {
@@ -3460,61 +3483,51 @@ function JobsTab({ activeJobKey }: { activeJobKey: string }) {
   const safeJobs = jobs.length > 0 ? jobs : [{ key: DEFAULT_JOB_KEY, label: 'YAG Rollup' }];
   const activeJob = safeJobs.find((job) => job.key === activeJobKey) || safeJobs[0];
 
+  const titleActionsEl = typeof document !== 'undefined' ? document.getElementById('settings-title-actions') : null;
+
   return (
     <div className="space-y-6">
-      <section className="glass-section-card rounded-xl p-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h3 className="text-sm font-semibold text-[var(--foreground)]">Automation Jobs</h3>
-            <p className="text-xs text-[var(--muted-foreground)] mt-1">
-              Each job has its own schedule, source accounts, and sync rules.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={openHistorySidebar}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
-            >
-              <ClockIcon className="w-4 h-4" />
-              History
-            </button>
-            <PrimaryButton
-              type="button"
-              onClick={openCreateJobModal}
-              disabled={creatingJob}
-            >
-              <PlusIcon className="w-4 h-4" />
-              New Job
-            </PrimaryButton>
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {loadingJobs && safeJobs.length === 0 && (
-            <span className="text-xs text-[var(--muted-foreground)]">Loading jobs...</span>
-          )}
-          {safeJobs.map((job) => {
-            const selected = job.key === activeJob.key;
-            const destination = `/settings/jobs/${job.key}`;
+      {/* Portal action buttons into the settings title bar */}
+      {titleActionsEl && createPortal(
+        <>
+          <button
+            type="button"
+            onClick={openHistorySidebar}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+          >
+            <ClockIcon className="w-4 h-4" />
+            History
+          </button>
+          <PrimaryButton
+            type="button"
+            onClick={openCreateJobModal}
+            disabled={creatingJob}
+          >
+            <PlusIcon className="w-4 h-4" />
+            New Job
+          </PrimaryButton>
+        </>,
+        titleActionsEl,
+      )}
 
-            return (
-              <button
-                key={job.key}
-                type="button"
-                onClick={() => confirmNavigation(() => router.push(destination), destination)}
-                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors ${
-                  selected
-                    ? 'border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--foreground)]'
-                    : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]'
-                }`}
-              >
-                <ArrowPathIcon className="w-4 h-4" />
-                {job.label}
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      {/* Job selector dropdown */}
+      <div>
+        <select
+          value={activeJob.key}
+          onChange={(e) => {
+            const destination = `/settings/jobs/${e.target.value}`;
+            confirmNavigation(() => router.push(destination), destination);
+          }}
+          className="px-3 py-1.5 text-sm bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
+        >
+          {loadingJobs && safeJobs.length === 0 && (
+            <option disabled>Loading jobs...</option>
+          )}
+          {safeJobs.map((job) => (
+            <option key={job.key} value={job.key}>{job.label}</option>
+          ))}
+        </select>
+      </div>
 
       {showCreateJobModal && (
         <div
@@ -4151,7 +4164,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
   }
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-6">
       <section className="glass-section-card rounded-xl p-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
@@ -4175,52 +4188,26 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
-          <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-2">
-              Target Account (Rollup Destination)
-            </label>
-            <select
-              value={targetAccountKey}
-              onChange={(event) => {
-                const nextTarget = event.target.value;
-                setTargetAccountKey(nextTarget);
-                setSourceAccountKeys((current) => current.filter((key) => key !== nextTarget));
-              }}
-              className="w-full h-10 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm"
-            >
-              <option value="">Select target account</option>
-              {snapshot.targetOptions.map((account) => (
-                <option key={account.key} value={account.key}>
-                  {account.dealer}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <LoomiToggle
-              checked={enabled}
-              onToggle={() => setEnabled((current) => !current)}
-              icon={ClockIcon}
-              label="Turn on automatic rollup sync"
-              description="If off, the background scheduler will skip automatic rollup runs."
-            />
-            <LoomiToggle
-              checked={scrubInvalidEmails}
-              onToggle={() => setScrubInvalidEmails((current) => !current)}
-              icon={EnvelopeIcon}
-              label="Filter out invalid emails"
-              description="Skips contacts with malformed or likely undeliverable email addresses."
-            />
-            <LoomiToggle
-              checked={scrubInvalidPhones}
-              onToggle={() => setScrubInvalidPhones((current) => !current)}
-              icon={PhoneIcon}
-              label="Filter out invalid phone numbers"
-              description="Skips contacts with malformed or non-dialable phone numbers."
-            />
-          </div>
+        <div className="mt-5">
+          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-2">
+            Target Account (Rollup Destination)
+          </label>
+          <select
+            value={targetAccountKey}
+            onChange={(event) => {
+              const nextTarget = event.target.value;
+              setTargetAccountKey(nextTarget);
+              setSourceAccountKeys((current) => current.filter((key) => key !== nextTarget));
+            }}
+            className="w-full h-10 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-sm"
+          >
+            <option value="">Select target account</option>
+            {snapshot.targetOptions.map((account) => (
+              <option key={account.key} value={account.key}>
+                {account.dealer}
+              </option>
+            ))}
+          </select>
         </div>
 
         {selectedTargetAccount && (
@@ -4241,7 +4228,31 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+        <div className="mt-5 space-y-2">
+          <LoomiToggle
+            checked={enabled}
+            onToggle={() => setEnabled((current) => !current)}
+            icon={ClockIcon}
+            label="Turn on automatic rollup sync"
+            description="If off, the background scheduler will skip automatic rollup runs."
+          />
+          <LoomiToggle
+            checked={scrubInvalidEmails}
+            onToggle={() => setScrubInvalidEmails((current) => !current)}
+            icon={EnvelopeIcon}
+            label="Filter out invalid emails"
+            description="Skips contacts with malformed or likely undeliverable email addresses."
+          />
+          <LoomiToggle
+            checked={scrubInvalidPhones}
+            onToggle={() => setScrubInvalidPhones((current) => !current)}
+            icon={PhoneIcon}
+            label="Filter out invalid phone numbers"
+            description="Skips contacts with malformed or non-dialable phone numbers."
+          />
+        </div>
+
+        <div className="space-y-4 mt-5">
           <div className="rounded-lg border border-[var(--border)] p-4 space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
               Incremental Schedule (UTC)
@@ -4461,7 +4472,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
         </div>
       </section>
 
-      <section className="glass-section-card rounded-xl p-6">
+      <section className="glass-section-card rounded-xl p-6 lg:col-span-2">
         <h3 className="text-base font-semibold">Manual Sync</h3>
         <p className="text-sm text-[var(--muted-foreground)] mt-1 mb-4">
           Run a sync now without waiting for the scheduled cron run.
@@ -4561,7 +4572,7 @@ function YagRollupTab({ jobKey }: { jobKey: string }) {
         )}
       </section>
 
-      <section className="glass-section-card rounded-xl p-6">
+      <section className="glass-section-card rounded-xl p-6 lg:col-span-2">
         <h3 className="text-base font-semibold">Target Contact Wipe</h3>
         <p className="text-sm text-[var(--muted-foreground)] mt-1 mb-4">
           Optional cleanup helper for the YAG destination account. Run a dry run first.

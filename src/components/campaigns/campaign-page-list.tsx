@@ -1,15 +1,13 @@
 'use client';
 
 import { useMemo, useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
 import {
   MagnifyingGlassIcon,
   ArrowTopRightOnSquareIcon,
-  ChevronRightIcon,
+  ChevronLeftIcon,
   ChevronUpIcon,
   ChevronDownIcon,
   ChevronUpDownIcon,
-  PaperAirplaneIcon,
   EllipsisHorizontalIcon,
   EyeIcon,
   ArrowDownTrayIcon,
@@ -123,7 +121,7 @@ const STATUS_ICON: Record<string, React.ComponentType<React.SVGProps<SVGSVGEleme
   cancelled:  XCircleIcon,
 };
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 10;
 
 function normalizeStatus(status: string): string {
   const s = status.toLowerCase().trim();
@@ -182,16 +180,21 @@ function getLastUpdatedDateParts(campaign: Campaign): { date: string; time: stri
   return getDateTimeParts(campaign.updatedAt || campaign.createdAt);
 }
 
+function formatShortDate(ts: number): string {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 // ── Sort ──
 
-type SortField = 'status' | 'scheduled' | 'updated';
+type CampaignSortField = 'status' | 'scheduled' | 'updated';
 type SortDir = 'asc' | 'desc';
 
 const STATUS_ORDER: Record<string, number> = {
   sent: 0, scheduled: 1, draft: 2, paused: 3, cancelled: 4,
 };
 
-function compareCampaigns(a: Campaign, b: Campaign, field: SortField, dir: SortDir): number {
+function compareCampaigns(a: Campaign, b: Campaign, field: CampaignSortField, dir: SortDir): number {
   let cmp = 0;
   if (field === 'status') {
     const aOrder = STATUS_ORDER[normalizeStatus(a.status)] ?? 99;
@@ -207,12 +210,43 @@ function compareCampaigns(a: Campaign, b: Campaign, field: SortField, dir: SortD
   return dir === 'desc' ? -cmp : cmp;
 }
 
+// ── Account table sort ──
+
+type AccountSortField = 'dealer' | 'campaigns' | 'sent' | 'lastActivity';
+
+interface AccountRow {
+  key: string;
+  label: string;
+  campaigns: Campaign[];
+  sentCount: number;
+  scheduledCount: number;
+  lastActivityTs: number;
+  storefrontImage?: string;
+  logos?: { light?: string; dark?: string; white?: string; black?: string };
+}
+
+function compareAccountRows(a: AccountRow, b: AccountRow, field: AccountSortField, dir: SortDir): number {
+  let cmp = 0;
+  if (field === 'dealer') {
+    cmp = a.label.toLowerCase().localeCompare(b.label.toLowerCase());
+  } else if (field === 'campaigns') {
+    cmp = a.campaigns.length - b.campaigns.length;
+  } else if (field === 'sent') {
+    cmp = a.sentCount - b.sentCount;
+  } else if (field === 'lastActivity') {
+    cmp = a.lastActivityTs - b.lastActivityTs;
+  }
+  if (cmp === 0) cmp = a.label.toLowerCase().localeCompare(b.label.toLowerCase());
+  return dir === 'desc' ? -cmp : cmp;
+}
+
+// ── Download helpers ──
+
 function sanitizeFileName(value: string): string {
   const trimmed = value.trim().toLowerCase();
   const safe = trimmed.replace(/[^a-z0-9-_]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
   return safe || 'campaign-email';
 }
-
 
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -225,10 +259,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/**
- * Download a high-res PNG screenshot of a campaign email via the server-side
- * screenshot API (uses @sparticuz/chromium in production).
- */
 async function downloadServerScreenshot(
   accountKey: string,
   scheduleId: string,
@@ -254,45 +284,25 @@ async function downloadServerScreenshot(
   downloadBlob(blob, `${sanitizeFileName(fileBaseName)}.png`);
 }
 
-interface CampaignGroup {
-  key: string;
-  label: string;
-  campaigns: Campaign[];
-}
+// ── Pagination helper ──
 
-function groupByAccount(
-  campaigns: Campaign[],
-  accountNames?: Record<string, string>,
-): CampaignGroup[] {
-  const map = new Map<string, Campaign[]>();
-
-  campaigns.forEach((c) => {
-    const key = campaignAccountKey(c) || c.dealer || '_unknown';
-    const arr = map.get(key);
-    if (arr) arr.push(c);
-    else map.set(key, [c]);
-  });
-
-  return [...map.entries()]
-    .map(([key, items]) => ({
-      key,
-      label:
-        (accountNames && accountNames[key]) ||
-        items[0]?.dealer ||
-        key,
-      campaigns: items,
-    }))
-    .sort((a, b) => {
-      // Sort by most recent campaign date (descending) — active accounts surface first
-      const aMax = Math.max(...a.campaigns.map(c => getLastUpdatedTs(c)), 0);
-      const bMax = Math.max(...b.campaigns.map(c => getLastUpdatedTs(c)), 0);
-      return bMax - aMax;
-    });
+function getVisiblePages(currentPage: number, totalPages: number, maxVisible = 5): number[] {
+  if (totalPages <= maxVisible) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+  const halfWindow = Math.floor(maxVisible / 2);
+  let start = Math.max(1, currentPage - halfWindow);
+  let end = start + maxVisible - 1;
+  if (end > totalPages) {
+    end = totalPages;
+    start = Math.max(1, end - maxVisible + 1);
+  }
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
 // ── Sortable Column Header ──
 
-function SortHeader({
+function SortHeader<F extends string>({
   label,
   field,
   activeField,
@@ -301,10 +311,10 @@ function SortHeader({
   className,
 }: {
   label: string;
-  field: SortField;
-  activeField: SortField | null;
+  field: F;
+  activeField: F | null;
   activeDir: SortDir;
-  onToggle: (f: SortField) => void;
+  onToggle: (f: F) => void;
   className?: string;
 }) {
   const isActive = activeField === field;
@@ -312,7 +322,7 @@ function SortHeader({
     <button
       type="button"
       onClick={() => onToggle(field)}
-      className={`inline-flex items-center justify-end gap-1 hover:text-[var(--foreground)] transition-colors ${
+      className={`inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors ${
         isActive ? 'text-[var(--foreground)]' : ''
       } ${className || ''}`}
     >
@@ -328,47 +338,12 @@ function SortHeader({
   );
 }
 
-// ── Account Avatar ──
+// ── Campaign Row (table row) ──
 
-function AccountAvatar({
-  accountKey,
-  dealer,
-  storefrontImage,
-  logos,
-}: {
-  accountKey: string;
-  dealer: string;
-  storefrontImage?: string;
-  logos?: { light?: string; dark?: string; white?: string; black?: string };
-}) {
-  return (
-    <Link
-      href={`/accounts/${accountKey}`}
-      className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-      title={`${dealer} — View account`}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <SharedAccountAvatar
-        name={dealer}
-        accountKey={accountKey}
-        storefrontImage={storefrontImage}
-        logos={logos}
-        size={24}
-        className="w-6 h-6 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
-      />
-      <span className="text-xs text-[var(--muted-foreground)] truncate">{dealer}</span>
-    </Link>
-  );
-}
-
-// ── Campaign Row ──
-
-function CampaignRow({
+function CampaignTableRow({
   item,
-  accountNames,
   accountMeta,
   accountProviders,
-  showAccount,
   isMenuOpen,
   downloading,
   onToggleMenu,
@@ -376,10 +351,8 @@ function CampaignRow({
   onDownload,
 }: {
   item: Campaign;
-  accountNames?: Record<string, string>;
   accountMeta?: Record<string, AccountMeta>;
   accountProviders?: Record<string, string>;
-  showAccount: boolean;
   isMenuOpen: boolean;
   downloading: boolean;
   onToggleMenu: (item: Campaign) => void;
@@ -387,13 +360,6 @@ function CampaignRow({
   onDownload: (item: Campaign) => void;
 }) {
   const accountKey = campaignAccountKey(item);
-  const accountName = showAccount
-    ? (accountKey && accountNames?.[accountKey]) ||
-      item.dealer ||
-      accountKey ||
-      '—'
-    : null;
-  const meta = accountKey ? accountMeta?.[accountKey] : undefined;
   const provider = resolveProviderId(item, accountProviders, '');
   const locationId = resolveLocationId(item, accountMeta);
   const providerUrl = getCampaignEditUrl({
@@ -415,190 +381,188 @@ function CampaignRow({
   const canPreview = Boolean(accountKey && getCampaignScheduleId(item));
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--muted)] transition-colors group">
-      <span className="flex-1 min-w-0 flex items-center gap-2">
-        <EnvelopeIcon className="w-4 h-4 text-[var(--muted-foreground)] flex-shrink-0" />
-        <span className="min-w-0">
-          <span className="text-sm font-medium truncate block">{item.name || '(Untitled)'}</span>
-        </span>
-      </span>
-      {showAccount && accountKey && (
-        <span className="w-36">
-          <AccountAvatar
-            accountKey={accountKey}
-            dealer={accountName || '—'}
-            storefrontImage={meta?.storefrontImage}
-            logos={meta?.logos}
-          />
-        </span>
-      )}
-      <span className="w-20 flex justify-end">
+    <tr className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--muted)]/50 transition-colors">
+      <td className="px-3 py-2.5 align-middle">
+        <div className="flex items-center gap-2 min-w-0">
+          <EnvelopeIcon className="w-4 h-4 text-[var(--muted-foreground)] flex-shrink-0" />
+          <span className="text-sm font-medium truncate">{item.name || '(Untitled)'}</span>
+        </div>
+      </td>
+      <td className="px-3 py-2.5 align-middle">
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${statusBadgeClass(item.status)}`}>
           {StatusIcon && <StatusIcon className="w-3 h-3" />}
           {statusLabel(item.status)}
         </span>
-      </span>
-      <span className="w-36 text-right tabular-nums leading-tight">
+      </td>
+      <td className="px-3 py-2.5 align-middle text-right tabular-nums leading-tight">
         {scheduledParts ? (
           <>
             <span className="block text-xs text-[var(--muted-foreground)]">{scheduledParts.date}</span>
             <span className="block text-[10px] text-[var(--muted-foreground)]">{scheduledParts.time}</span>
           </>
         ) : (
-          <span className="block text-xs text-[var(--muted-foreground)]">—</span>
+          <span className="text-xs text-[var(--muted-foreground)]">—</span>
         )}
-      </span>
-      <span className="w-36 text-right tabular-nums leading-tight">
+      </td>
+      <td className="px-3 py-2.5 align-middle text-right tabular-nums leading-tight">
         {updatedParts ? (
           <>
             <span className="block text-xs text-[var(--muted-foreground)]">{updatedParts.date}</span>
             <span className="block text-[10px] text-[var(--muted-foreground)]">{updatedParts.time}</span>
           </>
         ) : (
-          <span className="block text-xs text-[var(--muted-foreground)]">—</span>
+          <span className="text-xs text-[var(--muted-foreground)]">—</span>
         )}
-      </span>
-      <div className="w-14 flex justify-end gap-1.5">
-        <div className="relative" onClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            onClick={() => onToggleMenu(item)}
-            className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] transition-colors"
-            aria-label="More actions"
-          >
-            <EllipsisHorizontalIcon className="w-4 h-4" />
-          </button>
+      </td>
+      <td className="px-3 py-2.5 align-middle">
+        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => onToggleMenu(item)}
+              className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] transition-colors"
+              aria-label="More actions"
+            >
+              <EllipsisHorizontalIcon className="w-4 h-4" />
+            </button>
 
-          {isMenuOpen && (
-            <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown shadow-lg p-1.5">
-              {providerUrl ? (
-                <a
-                  href={providerUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-                >
-                  Edit
-                  <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-                </a>
-              ) : (
+            {isMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 z-50 w-44 glass-dropdown shadow-lg p-1.5">
+                {providerUrl ? (
+                  <a
+                    href={providerUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    Edit
+                    <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--muted-foreground)] opacity-50 cursor-not-allowed"
+                  >
+                    Edit
+                  </button>
+                )}
+
                 <button
                   type="button"
-                  disabled
-                  className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--muted-foreground)] opacity-50 cursor-not-allowed"
+                  onClick={() => onPreview(item)}
+                  disabled={!canPreview}
+                  className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Edit
+                  Preview Email
+                  <EyeIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
                 </button>
-              )}
 
-              <button
-                type="button"
-                onClick={() => onPreview(item)}
-                disabled={!canPreview}
-                className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Preview Email
-                <EyeIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onDownload(item)}
-                disabled={!canPreview || downloading}
-                className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {downloading ? 'Downloading...' : 'Download Email'}
-                <ArrowDownTrayIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-              </button>
-
-              {normalizedStatus === 'sent' && providerStatsUrl && (
-                <a
-                  href={providerStatsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                <button
+                  type="button"
+                  onClick={() => onDownload(item)}
+                  disabled={!canPreview || downloading}
+                  className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  View Analytics
-                  <ChartBarIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-                </a>
-              )}
-            </div>
-          )}
+                  {downloading ? 'Downloading...' : 'Download Email'}
+                  <ArrowDownTrayIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                </button>
+
+                {normalizedStatus === 'sent' && providerStatsUrl && (
+                  <a
+                    href={providerStatsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    View Analytics
+                    <ChartBarIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
-// ── Group Header ──
+// ── Pagination UI ──
 
-function GroupHeader({
-  groupKey,
-  label,
-  isOpen,
-  campaignCount,
-  sentCount,
-  scheduledCount,
-  lastActivityDate,
-  storefrontImage,
-  logos,
-  onToggle,
+function PaginationBar({
+  page,
+  totalPages,
+  totalItems,
+  pageSize,
+  onPageChange,
+  itemLabel = 'items',
 }: {
-  groupKey: string;
-  label: string;
-  isOpen: boolean;
-  campaignCount: number;
-  sentCount: number;
-  scheduledCount?: number;
-  lastActivityDate?: string | null;
-  storefrontImage?: string;
-  logos?: { light?: string; dark?: string; white?: string; black?: string };
-  onToggle: () => void;
+  page: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (p: number) => void;
+  itemLabel?: string;
 }) {
-  const avatar = (
-    <SharedAccountAvatar
-      name={label}
-      accountKey={groupKey}
-      storefrontImage={storefrontImage}
-      logos={logos}
-      size={24}
-      className="w-6 h-6 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
-    />
-  );
+  if (totalPages <= 1) return null;
+  const showingStart = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+  const showingEnd = Math.min(page * pageSize, totalItems);
+  const visiblePages = getVisiblePages(page, totalPages);
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2">
-      <button
-        onClick={onToggle}
-        className="flex items-center gap-2 hover:opacity-80 transition-opacity text-left flex-1 min-w-0"
-      >
-        <ChevronRightIcon
-          className="chevron-icon w-3.5 h-3.5 text-[var(--muted-foreground)] flex-shrink-0"
-          data-open={isOpen}
-        />
-        {avatar}
-        <span className="text-sm font-semibold text-[var(--foreground)] truncate">
-          {label}
-        </span>
-        <span className="text-[10px] tabular-nums text-[var(--muted-foreground)] flex-shrink-0">
-          {campaignCount} campaign{campaignCount !== 1 ? 's' : ''}
-        </span>
-        {sentCount > 0 && (
-          <span className="text-[10px] tabular-nums text-green-400 flex-shrink-0">
-            {sentCount} sent
-          </span>
-        )}
-        {(scheduledCount ?? 0) > 0 && (
-          <span className="text-[10px] tabular-nums text-blue-400 flex-shrink-0">
-            {scheduledCount} sched
-          </span>
-        )}
-        {lastActivityDate && (
-          <span className="text-[10px] tabular-nums text-[var(--muted-foreground)] flex-shrink-0 ml-auto">
-            Last: {lastActivityDate}
-          </span>
-        )}
-      </button>
+    <div className="flex items-center justify-between mt-3">
+      <p className="text-xs text-[var(--muted-foreground)]">
+        Showing {showingStart}-{showingEnd} of {totalItems} {itemLabel}
+      </p>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onPageChange(1)}
+          disabled={page === 1}
+          className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+        >
+          First
+        </button>
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page === 1}
+          className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+        >
+          Prev
+        </button>
+        {visiblePages.map((pageNumber) => (
+          <button
+            key={pageNumber}
+            type="button"
+            onClick={() => onPageChange(pageNumber)}
+            className={`px-2 py-1 text-xs rounded-md border transition-colors ${
+              pageNumber === page
+                ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                : 'border-[var(--border)] hover:bg-[var(--muted)]'
+            }`}
+          >
+            {pageNumber}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+          disabled={page === totalPages}
+          className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+        >
+          Next
+        </button>
+        <button
+          type="button"
+          onClick={() => onPageChange(totalPages)}
+          disabled={page === totalPages}
+          className="px-2 py-1 text-xs rounded-md border border-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--muted)] transition-colors"
+        >
+          Last
+        </button>
+      </div>
     </div>
   );
 }
@@ -614,18 +578,28 @@ export function CampaignPageList({
   emptyState,
 }: CampaignPageListProps) {
   const { alert } = useLoomiDialog();
+
+  // Search
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('flat');
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const initialCollapseDone = useRef(false);
-  const [page, setPage] = useState(1);
+
+  // Drill-down state: null = accounts table, string = that account's campaigns
+  const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
+
+  // Account table state
+  const [accountPage, setAccountPage] = useState(1);
+  const [accountSortField, setAccountSortField] = useState<AccountSortField>('lastActivity');
+  const [accountSortDir, setAccountSortDir] = useState<SortDir>('desc');
+
+  // Campaign table state
+  const [campaignPage, setCampaignPage] = useState(1);
+  const [campaignSortField, setCampaignSortField] = useState<CampaignSortField | null>(null);
+  const [campaignSortDir, setCampaignSortDir] = useState<SortDir>('desc');
+
+  // Menu/preview/download state
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [sortField, setSortField] = useState<SortField | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
-
   const [previewCampaign, setPreviewCampaign] = useState<Campaign | null>(null);
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewUrl, setPreviewUrl] = useState('');
@@ -639,94 +613,140 @@ export function CampaignPageList({
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
-  // Apply text search
-  const searchedCampaigns = useMemo(() => {
-    if (!debouncedSearch) return campaigns;
-    const q = debouncedSearch.toLowerCase();
-    return campaigns.filter(c =>
-      c.name.toLowerCase().includes(q) ||
-      c.status.toLowerCase().includes(q) ||
-      statusLabel(c.status).toLowerCase().includes(q) ||
-      (c.dealer || '').toLowerCase().includes(q)
-    );
-  }, [campaigns, debouncedSearch]);
-
-  // Apply sorting
-  const filteredCampaigns = useMemo(() => {
-    if (!sortField) return searchedCampaigns;
-    return [...searchedCampaigns].sort((a, b) => compareCampaigns(a, b, sortField, sortDir));
-  }, [searchedCampaigns, sortField, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredCampaigns.length / PAGE_SIZE));
-
-  const pagedCampaigns = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return filteredCampaigns.slice(start, start + PAGE_SIZE);
-  }, [filteredCampaigns, page]);
-
+  // Reset pagination on search change
   useEffect(() => {
-    setPage(1);
+    setAccountPage(1);
+    setCampaignPage(1);
   }, [debouncedSearch, campaigns.length]);
 
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  // When drilling into an account, reset campaign table state
+  function drillInto(accountKey: string) {
+    setSelectedAccount(accountKey);
+    setCampaignPage(1);
+    setCampaignSortField(null);
+    setCampaignSortDir('desc');
+    setSearch('');
+    setOpenMenuId(null);
+  }
 
-  // Group into account sections (use ALL filtered campaigns, not paged)
-  const groups = useMemo(
-    () => groupByAccount(filteredCampaigns, accountNames),
-    [filteredCampaigns, accountNames],
+  function drillOut() {
+    setSelectedAccount(null);
+    setSearch('');
+    setOpenMenuId(null);
+  }
+
+  // ── Build account rows ──
+  const accountRows: AccountRow[] = useMemo(() => {
+    const map = new Map<string, Campaign[]>();
+    campaigns.forEach((c) => {
+      const key = campaignAccountKey(c) || c.dealer || '_unknown';
+      const arr = map.get(key);
+      if (arr) arr.push(c);
+      else map.set(key, [c]);
+    });
+
+    return [...map.entries()].map(([key, items]) => {
+      const sentCount = items.filter(c => normalizeStatus(c.status) === 'sent').length;
+      const scheduledCount = items.filter(c => normalizeStatus(c.status) === 'scheduled').length;
+      const lastActivityTs = Math.max(...items.map(c => getLastUpdatedTs(c)), 0);
+      const meta = accountMeta?.[key];
+      return {
+        key,
+        label: accountNames?.[key] || items[0]?.dealer || key,
+        campaigns: items,
+        sentCount,
+        scheduledCount,
+        lastActivityTs,
+        storefrontImage: meta?.storefrontImage,
+        logos: meta?.logos,
+      };
+    });
+  }, [campaigns, accountNames, accountMeta]);
+
+  // ── Accounts table: filter + sort + paginate ──
+  const filteredAccountRows = useMemo(() => {
+    if (!debouncedSearch) return accountRows;
+    const q = debouncedSearch.toLowerCase();
+    return accountRows.filter(r => r.label.toLowerCase().includes(q));
+  }, [accountRows, debouncedSearch]);
+
+  const sortedAccountRows = useMemo(() => {
+    return [...filteredAccountRows].sort((a, b) =>
+      compareAccountRows(a, b, accountSortField, accountSortDir),
+    );
+  }, [filteredAccountRows, accountSortField, accountSortDir]);
+
+  const accountTotalPages = Math.max(1, Math.ceil(sortedAccountRows.length / PAGE_SIZE));
+
+  useEffect(() => {
+    if (accountPage > accountTotalPages) setAccountPage(accountTotalPages);
+  }, [accountPage, accountTotalPages]);
+
+  const pagedAccountRows = useMemo(() => {
+    const start = (accountPage - 1) * PAGE_SIZE;
+    return sortedAccountRows.slice(start, start + PAGE_SIZE);
+  }, [sortedAccountRows, accountPage]);
+
+  function toggleAccountSort(field: AccountSortField) {
+    if (accountSortField === field) {
+      setAccountSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setAccountSortField(field);
+      setAccountSortDir('asc');
+    }
+    setAccountPage(1);
+  }
+
+  const accountSortIndicator = (field: AccountSortField) => {
+    if (accountSortField !== field) return '↕';
+    return accountSortDir === 'asc' ? '↑' : '↓';
+  };
+
+  // ── Campaign table (drill-down): filter + sort + paginate ──
+  const selectedAccountRow = useMemo(
+    () => accountRows.find(r => r.key === selectedAccount) || null,
+    [accountRows, selectedAccount],
   );
 
-  const hasMultipleAccounts = groups.length > 1;
-
-  // Auto-collapse all groups for super admins on first data load
-  useEffect(() => {
-    if (!initialCollapseDone.current && groups.length > 5) {
-      const next: Record<string, boolean> = {};
-      groups.forEach((g) => { next[g.key] = true; });
-      setCollapsed(next);
-      initialCollapseDone.current = true;
+  const selectedCampaigns = useMemo(() => {
+    if (!selectedAccountRow) return [];
+    let result = selectedAccountRow.campaigns;
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      result = result.filter(c =>
+        c.name.toLowerCase().includes(q) ||
+        c.status.toLowerCase().includes(q) ||
+        statusLabel(c.status).toLowerCase().includes(q),
+      );
     }
-  }, [groups]);
+    if (campaignSortField) {
+      result = [...result].sort((a, b) => compareCampaigns(a, b, campaignSortField, campaignSortDir));
+    }
+    return result;
+  }, [selectedAccountRow, debouncedSearch, campaignSortField, campaignSortDir]);
 
-  // Group pagination
-  const GROUPS_PER_PAGE = 10;
-  const [groupPage, setGroupPage] = useState(1);
-  const totalGroupPages = Math.max(1, Math.ceil(groups.length / GROUPS_PER_PAGE));
-  const pagedGroups = useMemo(() => {
-    const start = (groupPage - 1) * GROUPS_PER_PAGE;
-    return groups.slice(start, start + GROUPS_PER_PAGE);
-  }, [groups, groupPage]);
+  const campaignTotalPages = Math.max(1, Math.ceil(selectedCampaigns.length / PAGE_SIZE));
 
-  // Reset group page on filter/search change
   useEffect(() => {
-    setGroupPage(1);
-  }, [debouncedSearch, campaigns.length]);
+    if (campaignPage > campaignTotalPages) setCampaignPage(campaignTotalPages);
+  }, [campaignPage, campaignTotalPages]);
 
-  function toggleGroup(key: string) {
-    setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
-  }
+  const pagedCampaigns = useMemo(() => {
+    const start = (campaignPage - 1) * PAGE_SIZE;
+    return selectedCampaigns.slice(start, start + PAGE_SIZE);
+  }, [selectedCampaigns, campaignPage]);
 
-  function collapseAll() {
-    const next: Record<string, boolean> = {};
-    groups.forEach(g => { next[g.key] = true; });
-    setCollapsed(next);
-  }
-
-  function expandAll() {
-    setCollapsed({});
-  }
-
-  function toggleSort(field: SortField) {
-    if (sortField === field) {
-      if (sortDir === 'desc') setSortDir('asc');
-      else { setSortField(null); setSortDir('desc'); }
+  function toggleCampaignSort(field: CampaignSortField) {
+    if (campaignSortField === field) {
+      if (campaignSortDir === 'desc') setCampaignSortDir('asc');
+      else { setCampaignSortField(null); setCampaignSortDir('desc'); }
     } else {
-      setSortField(field);
-      setSortDir('desc');
+      setCampaignSortField(field);
+      setCampaignSortDir('desc');
     }
   }
+
+  // ── Preview / Download ──
 
   async function fetchPreviewForCampaign(campaign: Campaign): Promise<PreviewPayload> {
     const accountKey = campaignAccountKey(campaign);
@@ -805,7 +825,7 @@ export function CampaignPageList({
     }
   }
 
-  const allCollapsed = groups.length > 0 && groups.every(g => collapsed[g.key]);
+  // ── Loading skeleton ──
 
   if (loading) {
     return (
@@ -825,281 +845,251 @@ export function CampaignPageList({
     );
   }
 
+  // ── Render ──
+
   return (
     <>
-      <div className="glass-card rounded-xl overflow-hidden animate-fade-in-up animate-stagger-3">
-        {/* Header + Search */}
-        <div className="flex items-center justify-between gap-4 px-4 pt-4 pb-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)]">
-            <PaperAirplaneIcon className="w-3.5 h-3.5" />
-            Campaigns
-            <span className="ml-1 tabular-nums opacity-60">
-              {filteredCampaigns.length !== campaigns.length
-                ? `${filteredCampaigns.length} / ${campaigns.length}`
-                : campaigns.length}
-            </span>
-            {(viewMode === 'flat' || !hasMultipleAccounts) && totalPages > 1 && (
-              <span className="ml-1 opacity-60">
-                · Page {page} of {totalPages}
-              </span>
-            )}
-            {viewMode === 'grouped' && hasMultipleAccounts && totalGroupPages > 1 && (
-              <span className="ml-1 opacity-60">
-                · {groups.length} accounts
-              </span>
-            )}
-          </div>
-
+      <div className="animate-fade-in-up animate-stagger-3">
+        {/* Header bar */}
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            {/* View mode toggle */}
-            {hasMultipleAccounts && (
-              <div className="flex items-center rounded-lg border border-[var(--border)] overflow-hidden">
-                <button
-                  onClick={() => setViewMode('flat')}
-                  className={`px-2.5 py-1.5 text-[10px] font-medium transition-colors ${
-                    viewMode === 'flat'
-                      ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
-                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                  }`}
-                >
-                  All Campaigns
-                </button>
-                <button
-                  onClick={() => setViewMode('grouped')}
-                  className={`px-2.5 py-1.5 text-[10px] font-medium transition-colors ${
-                    viewMode === 'grouped'
-                      ? 'bg-[var(--primary)]/10 text-[var(--primary)]'
-                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                  }`}
-                >
-                  By Account
-                </button>
-              </div>
-            )}
-
-            {/* Collapse / Expand toggle (grouped view only) */}
-            {hasMultipleAccounts && viewMode === 'grouped' && (
+            {selectedAccount && (
               <button
-                onClick={allCollapsed ? expandAll : collapseAll}
-                className="text-[10px] font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors px-1.5 py-1"
+                type="button"
+                onClick={drillOut}
+                className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
               >
-                {allCollapsed ? 'Expand all' : 'Collapse all'}
+                <ChevronLeftIcon className="w-3.5 h-3.5" />
+                All Accounts
               </button>
             )}
-
-            <div className="relative">
-              <MagnifyingGlassIcon className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search campaigns..."
-                className="w-44 pl-8 pr-3 py-1.5 text-xs rounded-lg bg-[var(--muted)] border border-[var(--border)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
-              />
-            </div>
-
+            <p className="text-sm text-[var(--muted-foreground)]">
+              {selectedAccount
+                ? (
+                  <>
+                    <span className="text-[var(--foreground)] font-medium">{selectedAccountRow?.label}</span>
+                    {' · '}
+                    {selectedCampaigns.length} campaign{selectedCampaigns.length !== 1 ? 's' : ''}
+                    {debouncedSearch ? ' found' : ''}
+                  </>
+                )
+                : (
+                  <>
+                    {sortedAccountRows.length} account{sortedAccountRows.length !== 1 ? 's' : ''}
+                    {debouncedSearch ? ' found' : ''}
+                    {' · '}
+                    {campaigns.length} campaign{campaigns.length !== 1 ? 's' : ''}
+                  </>
+                )}
+            </p>
+          </div>
+          <div className="relative">
+            <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => {
+                setSearch(e.target.value);
+                if (selectedAccount) setCampaignPage(1);
+                else setAccountPage(1);
+              }}
+              placeholder={selectedAccount ? 'Search campaigns...' : 'Search sub-accounts...'}
+              className="w-52 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
+            />
           </div>
         </div>
 
-        {/* List */}
-        <div className="px-4 pb-4">
-          {filteredCampaigns.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-sm text-[var(--muted-foreground)]">
-                {debouncedSearch
-                  ? 'No campaigns match your search'
-                  : (emptyState?.title || 'No campaigns found')}
-              </p>
-              {!debouncedSearch && emptyState?.subtitle && (
-                <p className="text-xs text-[var(--muted-foreground)] mt-1">
-                  {emptyState.subtitle}
+        {/* ── Accounts Table (Level 1) ── */}
+        {!selectedAccount && (
+          <>
+            {sortedAccountRows.length === 0 ? (
+              <div className="text-center py-16 text-[var(--muted-foreground)]">
+                <p className="text-sm">
+                  {debouncedSearch
+                    ? 'No sub-accounts match your search.'
+                    : (emptyState?.title || 'No campaigns found')}
                 </p>
-              )}
-              {!debouncedSearch && emptyState?.actionHref && emptyState?.actionLabel && (
-                <a
-                  href={emptyState.actionHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--primary)] bg-[var(--primary)]/10 hover:bg-[var(--primary)]/20 transition-colors"
-                >
-                  {emptyState.actionLabel}
-                  <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
-                </a>
-              )}
-            </div>
-          ) : hasMultipleAccounts && viewMode === 'grouped' ? (
-            /* ── Grouped view ── */
-            <div className="space-y-1 mt-1">
-              {pagedGroups.map((group) => {
-                const isOpen = !collapsed[group.key];
-                const sentCount = group.campaigns.filter(
-                  c => normalizeStatus(c.status) === 'sent'
-                ).length;
-                const scheduledCount = group.campaigns.filter(
-                  c => normalizeStatus(c.status) === 'scheduled'
-                ).length;
-                const lastCampaignTs = Math.max(...group.campaigns.map(c => getLastUpdatedTs(c)), 0);
-                const lastActivityDate = lastCampaignTs > 0
-                  ? new Date(lastCampaignTs).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                  : null;
-
-                return (
-                  <div key={group.key}>
-                    {/* Group header */}
-                    <GroupHeader
-                      groupKey={group.key}
-                      label={group.label}
-                      isOpen={isOpen}
-                      campaignCount={group.campaigns.length}
-                      sentCount={sentCount}
-                      scheduledCount={scheduledCount}
-                      lastActivityDate={lastActivityDate}
-                      storefrontImage={accountMeta?.[group.key]?.storefrontImage}
-                      logos={accountMeta?.[group.key]?.logos}
-                      onToggle={() => toggleGroup(group.key)}
-                    />
-
-                    {/* Collapsible content */}
-                    <div className="collapsible-wrapper" data-open={isOpen}>
-                      <div className="collapsible-inner">
-                        {/* Column header */}
-                        <div className="flex items-center gap-3 px-3 py-1 ml-5.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                          <span className="flex-1">Name</span>
-                          <span className="w-20 text-right">
-                            <SortHeader label="STATUS" field="status" activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+                {!debouncedSearch && emptyState?.subtitle && (
+                  <p className="text-xs mt-1">{emptyState.subtitle}</p>
+                )}
+                {!debouncedSearch && emptyState?.actionHref && emptyState?.actionLabel && (
+                  <a
+                    href={emptyState.actionHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--primary)] bg-[var(--primary)]/10 hover:bg-[var(--primary)]/20 transition-colors"
+                  >
+                    {emptyState.actionLabel}
+                    <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto glass-table">
+                <table className="w-full min-w-[600px]">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                      <th className="w-12 px-3 py-2"></th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <button type="button" onClick={() => toggleAccountSort('dealer')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                          Sub-Account
+                          <span className="text-[10px]">{accountSortIndicator('dealer')}</span>
+                        </button>
+                      </th>
+                      <th className="text-center px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <button type="button" onClick={() => toggleAccountSort('campaigns')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                          Campaigns
+                          <span className="text-[10px]">{accountSortIndicator('campaigns')}</span>
+                        </button>
+                      </th>
+                      <th className="text-center px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <button type="button" onClick={() => toggleAccountSort('sent')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                          Sent
+                          <span className="text-[10px]">{accountSortIndicator('sent')}</span>
+                        </button>
+                      </th>
+                      <th className="text-center px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        Scheduled
+                      </th>
+                      <th className="text-right px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <button type="button" onClick={() => toggleAccountSort('lastActivity')} className="inline-flex items-center gap-1 hover:text-[var(--foreground)] transition-colors">
+                          Last Activity
+                          <span className="text-[10px]">{accountSortIndicator('lastActivity')}</span>
+                        </button>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedAccountRows.map((row) => (
+                      <tr
+                        key={row.key}
+                        onClick={() => drillInto(row.key)}
+                        className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--muted)]/50 transition-colors cursor-pointer"
+                      >
+                        <td className="px-3 py-2 align-middle">
+                          <div className="flex items-center justify-center h-full">
+                            <SharedAccountAvatar
+                              name={row.label}
+                              accountKey={row.key}
+                              storefrontImage={row.storefrontImage}
+                              logos={row.logos}
+                              size={36}
+                              className="w-9 h-9 rounded-md object-cover flex-shrink-0 border border-[var(--border)]"
+                            />
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 align-middle">
+                          <span className="text-sm font-medium">{row.label}</span>
+                        </td>
+                        <td className="px-3 py-2 align-middle text-center">
+                          <span className="text-xs tabular-nums text-[var(--muted-foreground)]">{row.campaigns.length}</span>
+                        </td>
+                        <td className="px-3 py-2 align-middle text-center">
+                          {row.sentCount > 0 ? (
+                            <span className="text-xs tabular-nums text-green-400">{row.sentCount}</span>
+                          ) : (
+                            <span className="text-xs text-[var(--muted-foreground)]">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-center">
+                          {row.scheduledCount > 0 ? (
+                            <span className="text-xs tabular-nums text-blue-400">{row.scheduledCount}</span>
+                          ) : (
+                            <span className="text-xs text-[var(--muted-foreground)]">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-right">
+                          <span className="text-xs tabular-nums text-[var(--muted-foreground)]">
+                            {formatShortDate(row.lastActivityTs)}
                           </span>
-                          <span className="w-36 text-right">
-                            <SortHeader label="SCHEDULED" field="scheduled" activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-                          </span>
-                          <span className="w-36 text-right">
-                            <SortHeader label="LAST UPDATED" field="updated" activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-                          </span>
-                          <span className="w-14 text-right" />
-                        </div>
-                        <div className="ml-5.5 divide-y divide-[var(--border)]">
-                          {group.campaigns.map((item) => {
-                            const rowKey = getCampaignKey(item);
-                            return (
-                              <CampaignRow
-                                key={rowKey}
-                                item={item}
-                                accountNames={accountNames}
-                                accountMeta={accountMeta}
-                                accountProviders={accountProviders}
-                                showAccount={false}
-                                isMenuOpen={openMenuId === rowKey}
-                                downloading={downloadingId === rowKey}
-                                onToggleMenu={(campaign) => {
-                                  const key = getCampaignKey(campaign);
-                                  setOpenMenuId((prev) => (prev === key ? null : key));
-                                }}
-                                onPreview={handlePreview}
-                                onDownload={handleDownload}
-                              />
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            /* ── Flat view (single account or no grouping needed) ── */
-            <div className="mt-1">
-              <div className="flex items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                <span className="flex-1">Name</span>
-                <span className="w-36">Sub-Account</span>
-                <span className="w-20 text-right">
-                  <SortHeader label="STATUS" field="status" activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-                </span>
-                <span className="w-36 text-right">
-                  <SortHeader label="SCHEDULED" field="scheduled" activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-                </span>
-                <span className="w-36 text-right">
-                  <SortHeader label="LAST UPDATED" field="updated" activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-                </span>
-                <span className="w-14 text-right" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <div className="divide-y divide-[var(--border)]">
-              {pagedCampaigns.map((item) => {
-                const rowKey = getCampaignKey(item);
-                return (
-                  <CampaignRow
-                    key={rowKey}
-                    item={item}
-                    accountNames={accountNames}
-                    accountMeta={accountMeta}
-                    accountProviders={accountProviders}
-                    showAccount={true}
-                    isMenuOpen={openMenuId === rowKey}
-                    downloading={downloadingId === rowKey}
-                    onToggleMenu={(campaign) => {
-                      const key = getCampaignKey(campaign);
-                      setOpenMenuId((prev) => (prev === key ? null : key));
-                    }}
-                    onPreview={handlePreview}
-                    onDownload={handleDownload}
-                  />
-                );
-              })}
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* Flat view pagination */}
-          {(viewMode === 'flat' || !hasMultipleAccounts) && totalPages > 1 && (
-            <div className="mt-4 pt-3 border-t border-[var(--border)] flex items-center justify-between">
-              <p className="text-[11px] text-[var(--muted-foreground)]">
-                Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filteredCampaigns.length)} of {filteredCampaigns.length}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
+            <PaginationBar
+              page={accountPage}
+              totalPages={accountTotalPages}
+              totalItems={sortedAccountRows.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setAccountPage}
+              itemLabel="accounts"
+            />
+          </>
+        )}
 
-          {/* Grouped view pagination */}
-          {hasMultipleAccounts && viewMode === 'grouped' && totalGroupPages > 1 && (
-            <div className="mt-4 pt-3 border-t border-[var(--border)] flex items-center justify-between">
-              <p className="text-[11px] text-[var(--muted-foreground)]">
-                Showing accounts {(groupPage - 1) * GROUPS_PER_PAGE + 1}-{Math.min(groupPage * GROUPS_PER_PAGE, groups.length)} of {groups.length}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setGroupPage((p) => Math.max(1, p - 1))}
-                  disabled={groupPage === 1}
-                  className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setGroupPage((p) => Math.min(totalGroupPages, p + 1))}
-                  disabled={groupPage === totalGroupPages}
-                  className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
+        {/* ── Campaign Table (Level 2 — drill-down) ── */}
+        {selectedAccount && (
+          <>
+            {selectedCampaigns.length === 0 ? (
+              <div className="text-center py-16 text-[var(--muted-foreground)]">
+                <p className="text-sm">
+                  {debouncedSearch
+                    ? 'No campaigns match your search.'
+                    : 'No campaigns found for this account.'}
+                </p>
               </div>
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="overflow-x-auto glass-table">
+                <table className="w-full min-w-[600px]">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        Name
+                      </th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <SortHeader label="Status" field="status" activeField={campaignSortField} activeDir={campaignSortDir} onToggle={toggleCampaignSort} />
+                      </th>
+                      <th className="text-right px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <SortHeader label="Scheduled" field="scheduled" activeField={campaignSortField} activeDir={campaignSortDir} onToggle={toggleCampaignSort} />
+                      </th>
+                      <th className="text-right px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                        <SortHeader label="Last Updated" field="updated" activeField={campaignSortField} activeDir={campaignSortDir} onToggle={toggleCampaignSort} />
+                      </th>
+                      <th className="w-14 px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedCampaigns.map((item) => {
+                      const rowKey = getCampaignKey(item);
+                      return (
+                        <CampaignTableRow
+                          key={rowKey}
+                          item={item}
+                          accountMeta={accountMeta}
+                          accountProviders={accountProviders}
+                          isMenuOpen={openMenuId === rowKey}
+                          downloading={downloadingId === rowKey}
+                          onToggleMenu={(campaign) => {
+                            const key = getCampaignKey(campaign);
+                            setOpenMenuId((prev) => (prev === key ? null : key));
+                          }}
+                          onPreview={handlePreview}
+                          onDownload={handleDownload}
+                        />
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <PaginationBar
+              page={campaignPage}
+              totalPages={campaignTotalPages}
+              totalItems={selectedCampaigns.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCampaignPage}
+              itemLabel="campaigns"
+            />
+          </>
+        )}
       </div>
 
+      {/* Preview modal */}
       {previewCampaign && (
         <div
           className="fixed inset-0 z-[130] bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4"
@@ -1160,7 +1150,6 @@ export function CampaignPageList({
           </div>
         </div>
       )}
-
     </>
   );
 }

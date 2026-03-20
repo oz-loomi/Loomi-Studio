@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { MagnifyingGlassIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { useAccount, type AccountData } from '@/contexts/account-context';
@@ -111,10 +112,6 @@ export function UsersTab() {
     return users.filter((user) => user.accountKeys.includes(accountKey));
   }, [users, isAccount, accountKey]);
 
-  const scopedAccountLabel = isAccount && accountKey
-    ? (accounts[accountKey]?.dealer || accountKey)
-    : null;
-
   const filteredUsers = useMemo(() => {
     if (!search) return scopedUsers;
 
@@ -187,35 +184,34 @@ export function UsersTab() {
     return sortDirection === 'asc' ? '\u2191' : '\u2193';
   };
 
+  const titleActionsEl = typeof document !== 'undefined' ? document.getElementById('settings-title-actions') : null;
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-[var(--muted-foreground)]">
-          {sortedUsers.length} user{sortedUsers.length !== 1 ? 's' : ''}{search ? ' found' : ''}
-          {scopedAccountLabel ? ` in ${scopedAccountLabel}` : ''}
-        </p>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Search users..."
-              className="w-52 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
-            />
-          </div>
-          {canEditUsers && (
-            <PrimaryButton
-              onClick={() => router.push('/settings/users/new')}
-            >
-              <PlusIcon className="w-4 h-4" />
-              Add User
-            </PrimaryButton>
-          )}
+      {/* Portal action button into the settings title bar */}
+      {canEditUsers && titleActionsEl && createPortal(
+        <PrimaryButton
+          onClick={() => router.push('/settings/users/new')}
+        >
+          <PlusIcon className="w-4 h-4" />
+          Add User
+        </PrimaryButton>,
+        titleActionsEl,
+      )}
+
+      <div className="mb-4">
+        <div className="relative w-52">
+          <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--foreground)]" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search users..."
+            className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
+          />
         </div>
       </div>
 

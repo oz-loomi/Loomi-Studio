@@ -288,34 +288,34 @@ export function AccountsList({
 
   if (!accounts) return <div className="text-[var(--muted-foreground)]">Loading...</div>;
 
+  const titleActionsEl = typeof document !== 'undefined' ? document.getElementById('settings-title-actions') : null;
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-[var(--muted-foreground)]">
-          {sortedEntries.length} sub-account{sortedEntries.length !== 1 ? 's' : ''}{search ? ' found' : ' configured'}
-        </p>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Search sub-accounts..."
-              className="w-52 pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
-            />
-          </div>
-          {canManageAccounts && (
-            <button
-              onClick={() => setCreateMode('choose')}
-              className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-            >
-              <PlusIcon className="w-4 h-4" /> New Sub-Account
-            </button>
-          )}
+      {/* Portal action button into the settings title bar */}
+      {canManageAccounts && titleActionsEl && createPortal(
+        <button
+          onClick={() => setCreateMode('choose')}
+          className="flex items-center gap-1.5 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+        >
+          <PlusIcon className="w-4 h-4" /> New Sub-Account
+        </button>,
+        titleActionsEl,
+      )}
+
+      <div className="mb-4">
+        <div className="relative w-52">
+          <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--foreground)]" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search sub-accounts..."
+            className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--input)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
+          />
         </div>
       </div>
 

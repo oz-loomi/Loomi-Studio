@@ -97,7 +97,7 @@ export function Sidebar() {
     pathname.startsWith('/subaccounts');
 
   return (
-    <aside className="glass-panel fixed left-3 top-3 bottom-3 w-60 rounded-2xl text-[var(--sidebar-foreground)] flex flex-col z-50 overflow-hidden">
+    <aside className="glass-panel fixed left-3 top-3 bottom-3 w-60 rounded-2xl text-[var(--sidebar-foreground)] flex flex-col z-50 overflow-visible">
       {/* Logo + Account Switcher */}
       <div className="p-5 pb-4 border-b border-[var(--sidebar-border)]">
         <div className="mb-3">

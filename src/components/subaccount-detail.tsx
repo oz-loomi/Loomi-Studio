@@ -162,11 +162,11 @@ function buildAuthorizeHref(input: {
 type TabDef = { key: DetailTab; label: string; icon?: React.ComponentType<{ className?: string }> };
 
 const TABS: TabDef[] = [
-  { key: 'company', label: 'Company' },
-  { key: 'branding', label: 'Branding' },
-  { key: 'integration', label: 'Integrations' },
-  { key: 'custom-values', label: 'Custom Values' },
-  { key: 'contacts', label: 'Contacts' },
+  { key: 'company', label: 'Company', icon: BuildingStorefrontIcon },
+  { key: 'branding', label: 'Branding', icon: PaintBrushIcon },
+  { key: 'integration', label: 'Integrations', icon: LinkIcon },
+  { key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon },
+  { key: 'contacts', label: 'Contacts', icon: UsersIcon },
 ];
 
 const SETTINGS_TABS: TabDef[] = [
@@ -1224,31 +1224,33 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
           </div>
         )}
 
-        {/* ── Tabs ── */}
-        <div className="flex gap-1 mb-8 border-b border-[var(--border)]">
+        {/* ── Sidebar nav + content wrapper ── */}
+        <div className="flex gap-6">
+        {/* Vertical nav */}
+        <nav className="flex flex-col gap-1 w-48 shrink-0 sticky top-4 self-start">
           {visibleTabs.map(tab => (
             <button
               key={tab.key}
               onClick={() => handleTabClick(tab.key)}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors relative ${
+              className={`flex items-center gap-2.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-left ${
                 activeTab === tab.key
-                  ? 'text-[var(--foreground)]'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  ? 'bg-[var(--accent)] text-[var(--foreground)]'
+                  : 'text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50 hover:text-[var(--foreground)]'
               }`}
             >
+              {tab.icon && <tab.icon className="w-4 h-4 shrink-0" />}
               <span className="flex items-center gap-1.5">
-                {tab.icon && <tab.icon className="w-4 h-4" />}
                 {tab.label}
                 {tab.key === 'custom-values' && hasEmptyCustomValues && (
                   <ExclamationTriangleIcon className="w-3.5 h-3.5 text-amber-400" />
                 )}
               </span>
-              {activeTab === tab.key && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
-              )}
             </button>
           ))}
-        </div>
+        </nav>
+
+        {/* Tab content */}
+        <div className="flex-1 min-w-0">
 
         {/* ════════════ COMPANY TAB ════════════ */}
         {activeTab === 'company' && (
@@ -2446,6 +2448,8 @@ export function SubAccountDetailPage({ basePath, settingsMode, accountKeyProp }:
         {/* ════════════ APPEARANCE TAB (settings mode only) ════════════ */}
         {settingsMode && activeTab === 'appearance' && <AppearanceTab />}
 
+        </div>{/* end tab content */}
+        </div>{/* end flex sidebar+content */}
       </div>
   );
 

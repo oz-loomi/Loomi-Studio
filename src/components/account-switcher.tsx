@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import {
+  ArrowLeftIcon,
   ChevronUpDownIcon,
   MagnifyingGlassIcon,
   ShieldCheckIcon,
@@ -16,11 +17,135 @@ import { formatAccountCityState, resolveAccountCity, resolveAccountState } from 
 import {
   accountKeyToSlug,
   subaccountPath,
-  pathnameToPage,
+  stripSubaccountPrefix,
 } from '@/lib/account-slugs';
 
 interface AccountSwitcherProps {
   onSwitch?: () => void;
+}
+
+const RECENT_SUBACCOUNT_STORAGE_KEY_PREFIX = 'loomi-recent-subaccounts';
+const MAX_RECENT_SUBACCOUNTS = 3;
+const SHARED_ACCOUNT_ROUTE_ROOTS = new Set([
+  'dashboard',
+  'contacts',
+  'templates',
+  'media',
+  'campaigns',
+  'flows',
+]);
+
+const ADMIN_SETTINGS_TO_SUBACCOUNT_TAB: Record<string, string> = {
+  subaccounts: 'company',
+  subaccount: 'company',
+  users: 'users',
+  integrations: 'integration',
+  integration: 'integration',
+  'custom-values': 'custom-values',
+  appearance: 'appearance',
+};
+
+const SUBACCOUNT_SETTINGS_TO_ADMIN_PATH: Record<string, string> = {
+  company: '/settings/subaccounts',
+  branding: '/settings/subaccounts',
+  users: '/settings/users',
+  integration: '/settings/integrations',
+  integrations: '/settings/integrations',
+  'custom-values': '/settings/custom-values',
+  appearance: '/settings/appearance',
+};
+
+interface RecentSubaccountEntry {
+  key: string;
+  lastViewedAt: number;
+}
+
+function getRecentSubaccountsStorageKey(userEmail: string | null): string | null {
+  const normalizedEmail = userEmail?.trim().toLowerCase();
+  if (!normalizedEmail) return null;
+  return `${RECENT_SUBACCOUNT_STORAGE_KEY_PREFIX}:${normalizedEmail}`;
+}
+
+function readRecentSubaccounts(storageKey: string | null): RecentSubaccountEntry[] {
+  if (typeof window === 'undefined' || !storageKey) return [];
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .flatMap((entry) => {
+        if (!entry || typeof entry.key !== 'string') return [];
+        return [{
+          key: entry.key,
+          lastViewedAt: typeof entry.lastViewedAt === 'number' ? entry.lastViewedAt : 0,
+        }];
+      })
+      .sort((a, b) => b.lastViewedAt - a.lastViewedAt)
+      .slice(0, MAX_RECENT_SUBACCOUNTS);
+  } catch {
+    return [];
+  }
+}
+
+function recordRecentSubaccount(storageKey: string, accountKey: string): RecentSubaccountEntry[] {
+  const nextEntries = [
+    { key: accountKey, lastViewedAt: Date.now() },
+    ...readRecentSubaccounts(storageKey).filter((entry) => entry.key !== accountKey),
+  ].slice(0, MAX_RECENT_SUBACCOUNTS);
+
+  window.localStorage.setItem(storageKey, JSON.stringify(nextEntries));
+  return nextEntries;
+}
+
+function resolveAdminPath(pathname: string): string {
+  const strippedPath = stripSubaccountPrefix(pathname);
+  const segments = strippedPath.split('/').filter(Boolean);
+
+  if (segments.length === 0 || segments[0] === 'dashboard') {
+    return '/dashboard';
+  }
+
+  if (SHARED_ACCOUNT_ROUTE_ROOTS.has(segments[0])) {
+    return `/${segments.join('/')}`;
+  }
+
+  if (segments[0] === 'settings') {
+    return SUBACCOUNT_SETTINGS_TO_ADMIN_PATH[segments[1] || ''] || '/settings/subaccounts';
+  }
+
+  return '/dashboard';
+}
+
+function resolveSubaccountPath(pathname: string, slug: string): string {
+  const strippedPath = stripSubaccountPrefix(pathname);
+  const segments = strippedPath.split('/').filter(Boolean);
+
+  if (segments.length === 0 || segments[0] === 'dashboard') {
+    return subaccountPath(slug, 'dashboard');
+  }
+
+  if (SHARED_ACCOUNT_ROUTE_ROOTS.has(segments[0])) {
+    return `/subaccount/${slug}/${segments.join('/')}`;
+  }
+
+  if (segments[0] === 'settings') {
+    const tab = ADMIN_SETTINGS_TO_SUBACCOUNT_TAB[segments[1] || ''] || 'company';
+    return `/subaccount/${slug}/settings/${tab}`;
+  }
+
+  if (segments[0] === 'users') {
+    return `/subaccount/${slug}/settings/users`;
+  }
+
+  if (segments[0] === 'subaccounts') {
+    return `/subaccount/${slug}/settings/company`;
+  }
+
+  return subaccountPath(slug, 'dashboard');
 }
 
 function parseCityStateFromLocationName(locationName: string | null | undefined): string | null {
@@ -57,12 +182,13 @@ function resolveAccountCityStateLabel(accountData: AccountData): string | null {
 }
 
 export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
-  const { account, setAccount, accounts, accountsLoaded, userRole } = useAccount();
+  const { account, setAccount, accounts, accountsLoaded, userRole, userEmail } = useAccount();
   const { confirmNavigation } = useUnsavedChanges();
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [recentAccountKeys, setRecentAccountKeys] = useState<string[]>([]);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -72,6 +198,7 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
   const isAdmin = account.mode === 'admin';
   const currentKey = account.mode === 'account' ? account.accountKey : null;
   const currentAccount = currentKey ? accounts[currentKey] : null;
+  const recentStorageKey = getRecentSubaccountsStorageKey(userEmail);
 
   // Position dropdown when opening
   useEffect(() => {
@@ -115,21 +242,37 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
     return () => document.removeEventListener('keydown', handler);
   }, [open]);
 
+  useEffect(() => {
+    if (!recentStorageKey) {
+      setRecentAccountKeys([]);
+      return;
+    }
+
+    const syncRecentAccounts = () => {
+      setRecentAccountKeys(readRecentSubaccounts(recentStorageKey).map((entry) => entry.key));
+    };
+
+    syncRecentAccounts();
+    window.addEventListener('storage', syncRecentAccounts);
+    return () => window.removeEventListener('storage', syncRecentAccounts);
+  }, [recentStorageKey]);
+
+  useEffect(() => {
+    if (!currentKey || !recentStorageKey) return;
+    const nextEntries = recordRecentSubaccount(recentStorageKey, currentKey);
+    setRecentAccountKeys(nextEntries.map((entry) => entry.key));
+  }, [currentKey, recentStorageKey]);
+
   const handleSelect = (key: string | '__admin__') => {
     const destinationLabel = key === '__admin__' ? 'Admin Account' : (accounts[key]?.dealer || key);
     confirmNavigation(() => {
-      const currentPage = pathnameToPage(pathname);
-
       if (key === '__admin__') {
         setAccount({ mode: 'admin' });
-        // Navigate to admin route equivalent
-        const adminPath = currentPage === 'dashboard' ? '/dashboard' : `/${currentPage}`;
-        router.push(adminPath);
+        router.push(resolveAdminPath(pathname));
       } else {
         const slug = accountKeyToSlug(key, accounts);
         if (slug) {
-          // Navigate to sub-account route — the layout will sync context
-          router.push(subaccountPath(slug, currentPage));
+          router.push(resolveSubaccountPath(pathname, slug));
         } else {
           // Fallback: just set context (slug not yet loaded)
           setAccount({ mode: 'account', accountKey: key });
@@ -153,8 +296,42 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
       cityStateLabel.includes(q)
     );
   });
+  const recentAccounts = !search
+    ? recentAccountKeys
+      .map((key) => {
+        const accountData = accounts[key];
+        return accountData ? ([key, accountData] as const) : null;
+      })
+      .filter((entry): entry is readonly [string, AccountData] => Boolean(entry))
+    : [];
 
   const getAccountAddress = (accountData: AccountData) => resolveAccountCityStateLabel(accountData);
+  const renderAccountOption = (key: string, accountData: AccountData, itemKey: string = key) => {
+    const selected = currentKey === key;
+
+    return (
+      <button
+        key={itemKey}
+        onClick={() => handleSelect(key)}
+        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors ${
+          selected ? 'bg-[var(--primary)]/10' : 'hover:bg-[var(--muted)]'
+        }`}
+      >
+        <AccountSwitcherAvatar account={accountData} accountKey={key} />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-[var(--foreground)] truncate">
+            {accountData.dealer || key}
+          </p>
+          {getAccountAddress(accountData) && (
+            <p className="text-[10px] text-[var(--muted-foreground)] truncate leading-tight">
+              {getAccountAddress(accountData)}
+            </p>
+          )}
+        </div>
+        {selected && <CheckIcon className="w-3.5 h-3.5 text-[var(--primary)] flex-shrink-0" />}
+      </button>
+    );
+  };
 
   // Client-role users see a static display with no dropdown.
   if (userRole === 'client') {
@@ -232,23 +409,24 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
           </div>
 
           {/* Admin option */}
-          {canSwitchToAdmin && !search && (
-            <div className="p-1 border-b border-[var(--border)]">
+          {canSwitchToAdmin && !isAdmin && !search && (
+            <div className="px-3 py-2 border-b border-[var(--border)]">
               <button
                 onClick={() => handleSelect('__admin__')}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors ${
-                  isAdmin ? 'bg-[var(--primary)]/10' : 'hover:bg-[var(--muted)]'
-                }`}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--primary)] hover:opacity-80 transition-opacity"
               >
-                <div className="w-7 h-7 rounded-md bg-[var(--primary)]/15 flex items-center justify-center flex-shrink-0">
-                  <ShieldCheckIcon className="w-3.5 h-3.5 text-[var(--primary)]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-[var(--foreground)]">Admin Account</p>
-                  <p className="text-[10px] text-[var(--muted-foreground)] leading-tight">Manage all sub-accounts & templates</p>
-                </div>
-                {isAdmin && <CheckIcon className="w-3.5 h-3.5 text-[var(--primary)] flex-shrink-0" />}
+                <ArrowLeftIcon className="w-3.5 h-3.5" />
+                Back to Admin Account
               </button>
+            </div>
+          )}
+
+          {!search && recentAccounts.length > 0 && (
+            <div className="p-1 border-b border-[var(--border)]">
+              <p className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                Recently viewed
+              </p>
+              {recentAccounts.map(([key, accountData]) => renderAccountOption(key, accountData, `recent-${key}`))}
             </div>
           )}
 
@@ -261,31 +439,7 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
                 {search ? 'No sub-accounts match your search' : 'No sub-accounts available'}
               </p>
             ) : (
-              filteredAccounts.map(([key, accountData]) => {
-                const selected = currentKey === key;
-                return (
-                  <button
-                    key={key}
-                    onClick={() => handleSelect(key)}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors ${
-                      selected ? 'bg-[var(--primary)]/10' : 'hover:bg-[var(--muted)]'
-                    }`}
-                  >
-                    <AccountSwitcherAvatar account={accountData} accountKey={key} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-[var(--foreground)] truncate">
-                        {accountData.dealer || key}
-                      </p>
-                      {getAccountAddress(accountData) && (
-                        <p className="text-[10px] text-[var(--muted-foreground)] truncate leading-tight">
-                          {getAccountAddress(accountData)}
-                        </p>
-                      )}
-                    </div>
-                    {selected && <CheckIcon className="w-3.5 h-3.5 text-[var(--primary)] flex-shrink-0" />}
-                  </button>
-                );
-              })
+              filteredAccounts.map(([key, accountData]) => renderAccountOption(key, accountData))
             )}
           </div>
         </div>,
