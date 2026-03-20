@@ -247,6 +247,15 @@ async function fetchFromLocationEndpoint(
     const payload = asRecord(await res.json()) ?? {};
     const rows = extractTemplateRows(payload);
 
+    // Debug: log raw row types to diagnose folder detection
+    console.log(`[ghl-templates] Location endpoint page ${page}: ${rows.length} rows`, rows.map(r => ({
+      id: r.id || r._id,
+      name: r.name,
+      type: r.type,
+      templateType: r.templateType,
+      isFolder: isGhlFolder(r),
+    })));
+
     const countBefore = templatesById.size;
     for (const row of rows) {
       if (isGhlFolder(row)) {

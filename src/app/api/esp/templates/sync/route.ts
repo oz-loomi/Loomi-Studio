@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
           credentials.locationId,
           { forceRefresh: true },
         );
+        console.log(`[sync] GHL folders found for ${accountKey}: ${remoteFolders.length}`, remoteFolders.map(f => ({ id: f.id, name: f.name })));
 
         if (remoteFolders.length > 0) {
           const store = readEspTemplateFolderStore();
@@ -124,14 +125,18 @@ export async function POST(req: NextRequest) {
 
     // ── Clean up folders that were previously synced as templates ──
     const folderRemoteIds = Array.from(remoteFolderIdToLocalId.keys());
+    console.log(`[sync] Folder remote IDs to clean up for ${accountKey}:`, folderRemoteIds);
+    let foldersDeleted = 0;
     if (folderRemoteIds.length > 0) {
-      await prisma.espTemplate.deleteMany({
+      const deleteResult = await prisma.espTemplate.deleteMany({
         where: {
           accountKey,
           provider: adapter.provider,
           remoteId: { in: folderRemoteIds },
         },
       });
+      foldersDeleted = deleteResult.count;
+      console.log(`[sync] Deleted ${foldersDeleted} folder-as-template records for ${accountKey}`);
     }
 
     // ── Sync templates ──
@@ -306,6 +311,8 @@ export async function POST(req: NextRequest) {
         updated,
         unchanged,
         foldersSynced,
+        foldersDeleted,
+        folderRemoteIds,
       },
     });
   } catch (err) {
