@@ -216,13 +216,12 @@ interface LocationEndpointResult {
 async function fetchFromLocationEndpoint(
   token: string,
   locationId: string,
-  options?: { parentId?: string; type?: string },
+  options?: { parentId?: string },
 ): Promise<LocationEndpointResult> {
   const templatesById = new Map<string, EspEmailTemplate>();
   const foldersById = new Map<string, GhlTemplateFolder>();
 
-  const baseParams = new URLSearchParams({ limit: String(TEMPLATE_PAGE_SIZE) });
-  if (options?.type) baseParams.set('type', options.type);
+  const baseParams = new URLSearchParams({ type: 'email', limit: String(TEMPLATE_PAGE_SIZE) });
   if (options?.parentId) baseParams.set('parentId', options.parentId);
 
   let nextUrl: string | null =
@@ -329,6 +328,22 @@ async function fetchTemplatesFromBuilderEndpoint(
     if (nextTotal !== null) total = nextTotal;
 
     if (rows.length === 0) break;
+
+    // Debug: log ALL raw fields from builder endpoint to identify folder characteristics
+    console.log(`[ghl-builder] Page ${page}: ${rows.length} rows`, JSON.stringify(
+      rows.map(r => {
+        const keys = Object.keys(r);
+        const summary: Record<string, unknown> = {};
+        for (const k of keys) {
+          const v = r[k];
+          // Truncate long values like html
+          summary[k] = typeof v === 'string' && v.length > 100 ? `${v.slice(0, 100)}...` : v;
+        }
+        return summary;
+      }),
+      null,
+      2,
+    ));
 
     for (const row of rows) {
       if (isGhlFolder(row)) continue;
