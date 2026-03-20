@@ -216,12 +216,13 @@ interface LocationEndpointResult {
 async function fetchFromLocationEndpoint(
   token: string,
   locationId: string,
-  options?: { parentId?: string },
+  options?: { parentId?: string; type?: string },
 ): Promise<LocationEndpointResult> {
   const templatesById = new Map<string, EspEmailTemplate>();
   const foldersById = new Map<string, GhlTemplateFolder>();
 
-  const baseParams = new URLSearchParams({ type: 'email', limit: String(TEMPLATE_PAGE_SIZE) });
+  const baseParams = new URLSearchParams({ limit: String(TEMPLATE_PAGE_SIZE) });
+  if (options?.type) baseParams.set('type', options.type);
   if (options?.parentId) baseParams.set('parentId', options.parentId);
 
   let nextUrl: string | null =
