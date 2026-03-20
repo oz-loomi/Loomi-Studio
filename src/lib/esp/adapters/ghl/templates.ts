@@ -286,14 +286,6 @@ async function fetchFromLocationEndpoint(
   };
 }
 
-async function fetchTemplatesFromLocationEndpoint(
-  token: string,
-  locationId: string,
-): Promise<EspEmailTemplate[]> {
-  const result = await fetchFromLocationEndpoint(token, locationId);
-  return result.templates;
-}
-
 async function fetchTemplatesFromBuilderEndpoint(
   token: string,
   locationId: string,
@@ -356,13 +348,13 @@ export async function fetchTemplates(
     if (cached) return cached;
   }
 
-  let locationTemplates: EspEmailTemplate[] = [];
+  let locationResult: LocationEndpointResult | null = null;
   let builderTemplates: EspEmailTemplate[] = [];
   let locationError: Error | null = null;
   let builderError: Error | null = null;
 
   try {
-    locationTemplates = await fetchTemplatesFromLocationEndpoint(token, locationId);
+    locationResult = await fetchFromLocationEndpoint(token, locationId);
   } catch (err) {
     locationError = err instanceof Error ? err : new Error(String(err));
   }
@@ -373,9 +365,18 @@ export async function fetchTemplates(
     builderError = err instanceof Error ? err : new Error(String(err));
   }
 
+  // Collect folder IDs from the location endpoint so we can exclude them
+  // from builder results (the builder endpoint returns folders as templates
+  // without a distinguishing type field).
+  const folderIds = new Set(
+    (locationResult?.folders ?? []).map((f) => f.id).filter(Boolean),
+  );
+
   const templatesById = new Map<string, EspEmailTemplate>();
-  for (const template of [...locationTemplates, ...builderTemplates]) {
+  const allTemplates = [...(locationResult?.templates ?? []), ...builderTemplates];
+  for (const template of allTemplates) {
     if (!template.id) continue;
+    if (folderIds.has(template.id)) continue;
     templatesById.set(template.id, template);
   }
   const templates = Array.from(templatesById.values());

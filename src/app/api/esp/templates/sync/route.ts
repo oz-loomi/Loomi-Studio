@@ -122,6 +122,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Clean up folders that were previously synced as templates ──
+    const folderRemoteIds = Array.from(remoteFolderIdToLocalId.keys());
+    if (folderRemoteIds.length > 0) {
+      await prisma.espTemplate.deleteMany({
+        where: {
+          accountKey,
+          provider: adapter.provider,
+          remoteId: { in: folderRemoteIds },
+        },
+      });
+    }
+
     // ── Sync templates ──
 
     // Back-compat: templates published via `publishedTo` may not have legacy `remoteId` populated.
