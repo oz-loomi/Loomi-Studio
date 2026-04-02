@@ -95,9 +95,9 @@
       const endPos = this.gradientEndPosition === '' ? '100' : this.gradientEndPosition;
       const startStop = this.gradientStart + ' ' + startPos + '%';
       const endStop = this.gradientEnd + ' ' + endPos + '%';
-      if (this.gradientType === 'radial') return ' background: radial-gradient(circle, ' + startStop + ', ' + endStop + ');';
+      if (this.gradientType === 'radial') return ' background-image: radial-gradient(circle, ' + startStop + ', ' + endStop + ');';
       const axis = this.gradientAngle !== '' ? (this.gradientAngle + 'deg') : this.gradientDirection;
-      return ' background: linear-gradient(' + axis + ', ' + startStop + ', ' + endStop + ');';
+      return ' background-image: linear-gradient(' + axis + ', ' + startStop + ', ' + endStop + ');';
     },
     // ── Mobile overrides (responsive) ──
     mRadius: props['m:radius'] || '',

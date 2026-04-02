@@ -57,6 +57,7 @@
     hasFeature4: !!(props.feature4 || props['feature4-title']),
     get hasRow2() { return this.hasFeature3 || this.hasFeature4; },
     // Colors
+    bgColor: props['bg-color'] || '',
     cardBgColor: props['card-bg-color'] || '#ebebeb',
     cardRadius: props['card-radius'] || '0',
     cardBorder: props['card-border'] || '',
@@ -106,9 +107,9 @@
       const endPos = this.gradientEndPosition === '' ? '100' : this.gradientEndPosition;
       const startStop = this.gradientStart + ' ' + startPos + '%';
       const endStop = this.gradientEnd + ' ' + endPos + '%';
-      if (this.gradientType === 'radial') return ' background: radial-gradient(circle, ' + startStop + ', ' + endStop + ');';
+      if (this.gradientType === 'radial') return ' background-image: radial-gradient(circle, ' + startStop + ', ' + endStop + ');';
       const axis = this.gradientAngle !== '' ? (this.gradientAngle + 'deg') : this.gradientDirection;
-      return ' background: linear-gradient(' + axis + ', ' + startStop + ', ' + endStop + ');';
+      return ' background-image: linear-gradient(' + axis + ', ' + startStop + ', ' + endStop + ');';
     },
     // ── Mobile overrides (responsive) ──
     mCardRadius: props['m:card-radius'] || '',
@@ -132,7 +133,7 @@
   </style>
 </if>
 <tr class="{{ scopeClass }}">
-  <td class="loomi-features-td" style="text-align: {{ align }};{{ containerPadding ? ' padding: ' + containerPadding + ';' : '' }}{{ borderCss }}{{ gradientCss }}">
+  <td class="loomi-features-td" style="text-align: {{ align }};{{ containerPadding ? ' padding: ' + containerPadding + ';' : '' }}{{ bgColor ? ' background-color: ' + bgColor + ';' : '' }}{{ borderCss }}{{ gradientCss }}">
     <p style="font-family: {{ font }}; font-size: {{ titleSize }}; font-weight: {{ titleWeight }}; letter-spacing: {{ titleSpacing }}; text-transform: {{ titleTransform }}; color: {{ titleColor }}; margin: {{ titleMargin }};">
       {{ sectionTitle }}
     </p>
@@ -151,7 +152,7 @@
                 </p>
                 <if condition="feature1Desc">
                   <p style="font-family: {{ font }}; font-size: {{ featureDescSize }}; font-weight: {{ featureDescWeight }}; color: {{ variant === 'image' ? imageDescColor : textColor }}; margin: 0; line-height: {{ featureDescLineHeight }};{{ variant === 'image' ? ' opacity: ' + featureDescOpacity + ';' : '' }}">
-                    {{ feature1Desc }}
+                    {{{ feature1Desc }}}
                   </p>
                 </if>
               </td>
@@ -170,7 +171,7 @@
                 </p>
                 <if condition="feature2Desc">
                   <p style="font-family: {{ font }}; font-size: {{ featureDescSize }}; font-weight: {{ featureDescWeight }}; color: {{ variant === 'image' ? imageDescColor : textColor }}; margin: 0; line-height: {{ featureDescLineHeight }};{{ variant === 'image' ? ' opacity: ' + featureDescOpacity + ';' : '' }}">
-                    {{ feature2Desc }}
+                    {{{ feature2Desc }}}
                   </p>
                 </if>
               </td>
@@ -194,7 +195,7 @@
                     </p>
                     <if condition="feature3Desc">
                       <p style="font-family: {{ font }}; font-size: {{ featureDescSize }}; font-weight: {{ featureDescWeight }}; color: {{ variant === 'image' ? imageDescColor : textColor }}; margin: 0; line-height: {{ featureDescLineHeight }};{{ variant === 'image' ? ' opacity: ' + featureDescOpacity + ';' : '' }}">
-                        {{ feature3Desc }}
+                        {{{ feature3Desc }}}
                       </p>
                     </if>
                   </td>
@@ -215,7 +216,7 @@
                     </p>
                     <if condition="feature4Desc">
                       <p style="font-family: {{ font }}; font-size: {{ featureDescSize }}; font-weight: {{ featureDescWeight }}; color: {{ variant === 'image' ? imageDescColor : textColor }}; margin: 0; line-height: {{ featureDescLineHeight }};{{ variant === 'image' ? ' opacity: ' + featureDescOpacity + ';' : '' }}">
-                        {{ feature4Desc }}
+                        {{{ feature4Desc }}}
                       </p>
                     </if>
                   </td>

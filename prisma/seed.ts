@@ -41,6 +41,28 @@ async function main() {
 
   console.log('Seeded developer user:', user.email);
 
+    const chloeUser = await prisma.user.upsert({
+    where: { email: 'chloe@ozmktg.com' },
+    update: {
+      name: 'Chloe',
+      password: hashedPassword,
+      role: 'developer',
+      accountKeys: '[]',
+    },
+    create: {
+      name: 'Chloe',
+      email: 'chloe@ozmktg.com',
+      password: hashedPassword,
+      role: 'developer',
+      accountKeys: '[]',
+    },
+    select: {
+      email: true,
+    },
+  });
+
+  console.log('Seeded developer user:', chloeUser.email);
+
   // ── Seed test accounts ──
   const accounts = [
     {

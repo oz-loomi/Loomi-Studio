@@ -48,7 +48,7 @@
       } else if (this.gradient) {
         layers.push(this.gradient);
       }
-      if (layers.length > 0) return 'background: ' + layers.join(', ') + ';';
+      if (layers.length > 0) return 'background-image: ' + layers.join(', ') + ';';
       return '';
     },
     // Layout
@@ -287,7 +287,7 @@
             </if>
             <if condition="subheadline">
               <p class="loomi-subheadline" style="font-family: {{ font }}; font-size: {{ subheadlineSize }}; font-weight: {{ subheadlineWeight }}; line-height: {{ subheadlineLineHeight }}; color: {{ subheadlineColor }}; margin: {{ subheadlineMargin }};">
-                {{ subheadline }}
+                {{{ subheadline }}}
               </p>
             </if>
             <if condition="primaryButtonText">

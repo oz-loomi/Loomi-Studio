@@ -1663,7 +1663,19 @@ function RichTextField({
       const nextLineHeight = computed.lineHeight && computed.lineHeight !== "normal"
         ? computed.lineHeight
         : "normal";
-      const nextColor = cssColorToHex(computed.color) || "#111111";
+      // Walk up from the anchor to find the nearest explicitly-set inline color.
+      // Using getComputedStyle here picks up the dark-mode UI theme color (e.g. --foreground ≈ #fafafa)
+      // even when no color is set on the content, which causes the picker to show the wrong value.
+      const findInlineColor = (): string | null => {
+        let probe: HTMLElement | null = anchor;
+        while (probe && probe !== root) {
+          const inlineColor = probe.style?.getPropertyValue("color");
+          if (inlineColor) return cssColorToHex(inlineColor);
+          probe = probe.parentElement;
+        }
+        return null;
+      };
+      const nextColor = findInlineColor() || "#111111";
       const findInlineFontFamily = () => {
         let probe: HTMLElement | null = anchor;
         while (probe && probe !== root) {
@@ -2156,9 +2168,46 @@ function RichTextField({
           if (!target.getAttribute("style")) target.removeAttribute("style");
         });
       }
+    } else if (styleKey === "line-height") {
+      // line-height must be set on block elements, not spans — spans have no effect.
+      const lhSel = window.getSelection();
+      if (!lhSel || lhSel.rangeCount === 0) return;
+      const lhRange = lhSel.getRangeAt(0);
+      if (!el.contains(lhRange.commonAncestorContainer)) return;
+      const allBlocks = Array.from(el.querySelectorAll("p, li, div")) as HTMLElement[];
+      if (lhRange.collapsed) {
+        // No selection — apply to all block elements
+        const targets = allBlocks.length > 0 ? allBlocks : [el];
+        targets.forEach((t) => t.style.setProperty("line-height", styleValue));
+      } else {
+        // Apply to every block that intersects the selection
+        const targets = allBlocks.filter((b) => lhRange.intersectsNode(b));
+        (targets.length > 0 ? targets : [el]).forEach((t) => t.style.setProperty("line-height", styleValue));
+      }
     } else if (styleKey === "color") {
-      document.execCommand("styleWithCSS", false, "true");
-      document.execCommand("foreColor", false, styleValue);
+      const colorSel = window.getSelection();
+      if (!colorSel || colorSel.rangeCount === 0) return;
+      const colorRange = colorSel.getRangeAt(0);
+      if (!el.contains(colorRange.commonAncestorContainer)) return;
+      if (colorRange.collapsed) {
+        // No selection — apply color to all content elements (global change).
+        // First wrap any bare root text nodes so they receive the style.
+        Array.from(el.childNodes).forEach((node) => {
+          if (node.nodeType !== Node.TEXT_NODE) return;
+          const text = node.textContent || "";
+          if (!text.trim()) return;
+          const span = document.createElement("span");
+          span.style.setProperty("color", styleValue);
+          span.textContent = text;
+          el.replaceChild(span, node);
+        });
+        const allColorTargets = Array.from(el.querySelectorAll("p, li, div, span, a")) as HTMLElement[];
+        const colorTargets = allColorTargets.length > 0 ? allColorTargets : [el];
+        colorTargets.forEach((target) => target.style.setProperty("color", styleValue));
+      } else {
+        document.execCommand("styleWithCSS", false, "true");
+        document.execCommand("foreColor", false, styleValue);
+      }
     } else {
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0) return;
@@ -3233,7 +3282,13 @@ function PropField({
       }
       if (triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect();
-        setDropdownPos({ position: "fixed", top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 240), zIndex: 9999 });
+        const dropdownHeight = 320; // approximate picker height
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const flipped = spaceBelow < dropdownHeight;
+        const pos: React.CSSProperties = flipped
+          ? { position: "fixed", bottom: window.innerHeight - rect.top + 4, left: rect.left, width: Math.max(rect.width, 240), zIndex: 9999 }
+          : { position: "fixed", top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 240), zIndex: 9999 };
+        setDropdownPos(pos);
       }
       setColorOpen(true);
     };
@@ -4375,6 +4430,12 @@ function HeroBackgroundEditor({
     if (!typeProp) return;
     if (mode === "classic") {
       onChange(typeProp.key, "none");
+      // Clear gradient colors so they don't persist invisibly when gradient is disabled
+      if (startProp) onChange(startProp.key, "");
+      if (endProp) onChange(endProp.key, "");
+      if (startPosProp) onChange(startPosProp.key, "");
+      if (endPosProp) onChange(endPosProp.key, "");
+      if (angleProp) onChange(angleProp.key, "");
       return;
     }
     const nextType = gradType === "none" ? "linear" : gradType;
@@ -4688,6 +4749,21 @@ function GradientEditor({
 
   const setType = (type: "none" | "linear" | "radial") => {
     onChange(typeProp.key, type);
+    if (type === "none") {
+      // Clear gradient colors so they don't persist invisibly when gradient is disabled
+      if (startProp) onChange(startProp.key, "");
+      if (endProp) onChange(endProp.key, "");
+      if (startPosProp) onChange(startPosProp.key, "");
+      if (endPosProp) onChange(endPosProp.key, "");
+      if (angleProp) onChange(angleProp.key, "");
+    } else {
+      // Initialize colors/positions to defaults if not already set
+      if (startProp && !values[startProp.key]) onChange(startProp.key, "#000000");
+      if (endProp && !values[endProp.key]) onChange(endProp.key, "#ffffff");
+      if (startPosProp && !values[startPosProp.key]) onChange(startPosProp.key, "0");
+      if (endPosProp && !values[endPosProp.key]) onChange(endPosProp.key, "100");
+      if (angleProp && !values[angleProp.key]) onChange(angleProp.key, "180");
+    }
   };
 
   return (
@@ -6611,6 +6687,10 @@ export default function TemplateEditorPage() {
   const [expandedComponents, setExpandedComponents] = useState<Set<number>>(
     new Set(),
   );
+  // Incremented on every structural mutation (add/delete/reorder/duplicate) to force
+  // re-mount of component panels, clearing stale color-picker drag state that would
+  // otherwise bleed across components when they swap positions with key={index}.
+  const [compListKey, setCompListKey] = useState(0);
   const [showComponentPicker, setShowComponentPicker] = useState(false);
   const [previewContacts, setPreviewContacts] = useState<PreviewContact[]>([]);
   const [previewContactsLoading, setPreviewContactsLoading] = useState(false);
@@ -6685,6 +6765,9 @@ export default function TemplateEditorPage() {
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewAbortRef = useRef<AbortController | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // True when the iframe HTML is out of sync with parsed state (structural change pending recompile).
+  // Live style injection must be skipped during this window to avoid targeting the wrong component.
+  const iframeStaleRef = useRef(false);
   const codeRef = useRef(code);
   const previewCacheRef = useRef(new Map<string, string>());
   const splitPaneRef = useRef<HTMLDivElement>(null);
@@ -6920,6 +7003,7 @@ export default function TemplateEditorPage() {
       const cached = previewCacheRef.current.get(html);
       if (cached) {
         previewKeyRef.current += 1;
+        iframeStaleRef.current = false;
         setPreviewHtml(injectLoomiAttributes(cached));
         setPreviewLoading(false);
         return;
@@ -6948,6 +7032,7 @@ export default function TemplateEditorPage() {
           }
           previewCacheRef.current.set(html, data.html);
           previewKeyRef.current += 1;
+          iframeStaleRef.current = false;
           setPreviewHtml(injectLoomiAttributes(data.html));
         } else if (data.error) setPreviewError(data.error);
       } catch (err: any) {
@@ -7055,6 +7140,31 @@ export default function TemplateEditorPage() {
 
   // Load template + ESP variables
   useEffect(() => {
+    // Strip gradient color/position props from components where gradient is disabled.
+    // Prevents stale gradient props (saved from previous sessions) from unexpectedly
+    // activating when a user re-enables gradient-type on a component.
+    const sanitizeGradientProps = (template: ParsedTemplate): ParsedTemplate => {
+      const gradientColorKeys = ['gradient-start', 'gradient-end', 'gradient-start-position', 'gradient-end-position', 'gradient-angle'];
+      const hasChanges = template.components.some((comp) => {
+        const type = comp.props['gradient-type'] || 'none';
+        if (type !== 'none' && type !== '') return false;
+        return gradientColorKeys.some((k) => comp.props[k]);
+      });
+      if (!hasChanges) return template;
+      return {
+        ...template,
+        components: template.components.map((comp) => {
+          const type = comp.props['gradient-type'] || 'none';
+          if (type !== 'none' && type !== '') return comp;
+          const hasStale = gradientColorKeys.some((k) => comp.props[k]);
+          if (!hasStale) return comp;
+          const newProps = { ...comp.props };
+          for (const k of gradientColorKeys) delete newProps[k];
+          return { ...comp, props: newProps };
+        }),
+      };
+    };
+
     const applyResolvedFontDefaults = (template: ParsedTemplate): ParsedTemplate => {
       if (!template.components.length) return template;
       const firstExplicitFont = template.components.find(
@@ -7083,6 +7193,10 @@ export default function TemplateEditorPage() {
         }),
       };
     };
+
+    // Combined: sanitize stale gradient props then apply font defaults
+    const prepareTemplate = (template: ParsedTemplate): ParsedTemplate =>
+      applyResolvedFontDefaults(sanitizeGradientProps(template));
 
     // ── ESP template: load by ID ──
     if (espTemplateId) {
@@ -7122,7 +7236,7 @@ export default function TemplateEditorPage() {
           const visualSource = hasVisualTemplateScaffold(raw);
           const parsedRaw = visualSource ? parseTemplate(raw) : null;
           const parsedWithFontDefaults = parsedRaw
-            ? applyResolvedFontDefaults(parsedRaw)
+            ? prepareTemplate(parsedRaw)
             : null;
           const visualRaw = parsedWithFontDefaults
             ? serializeTemplateClient(parsedWithFontDefaults)
@@ -7170,7 +7284,7 @@ export default function TemplateEditorPage() {
               const visualSource = hasVisualTemplateScaffold(rawData.raw);
               if (visualSource) {
                 const p = parseTemplate(rawData.raw);
-                const withFont = applyResolvedFontDefaults(p);
+                const withFont = prepareTemplate(p);
                 const serialized = serializeTemplateClient(withFont);
                 setCode(serialized);
                 setOriginalCode(rawData.raw);
@@ -7197,7 +7311,7 @@ export default function TemplateEditorPage() {
         const blankIsVisual = hasVisualTemplateScaffold(blank);
         if (blankIsVisual) {
           const p = parseTemplate(blank);
-          const withFont = applyResolvedFontDefaults(p);
+          const withFont = prepareTemplate(p);
           const serialized = serializeTemplateClient(withFont);
           setCode(serialized);
           setOriginalCode(blank);
@@ -7243,7 +7357,7 @@ export default function TemplateEditorPage() {
           return;
         }
 
-        const parsedWithFontDefaults = applyResolvedFontDefaults(
+        const parsedWithFontDefaults = prepareTemplate(
           parsedData.frontmatter ? parsedData : parseTemplate(raw),
         );
         setParsed(parsedWithFontDefaults);
@@ -8267,7 +8381,10 @@ export default function TemplateEditorPage() {
     const newComponent = { type: componentType, props: newProps };
     const newComponents = [...parsed.components, newComponent];
     const newParsed = { ...parsed, components: newComponents };
+    iframeStaleRef.current = true;
+    parsedRef.current = newParsed;
     setParsed(newParsed);
+    setCompListKey((k) => k + 1);
     setExpandedComponents(
       (prev) => new Set([...prev, newComponents.length - 1]),
     );
@@ -8279,7 +8396,10 @@ export default function TemplateEditorPage() {
     if (!parsed) return;
     const newComponents = parsed.components.filter((_, i) => i !== index);
     const newParsed = { ...parsed, components: newComponents };
+    iframeStaleRef.current = true;
+    parsedRef.current = newParsed;
     setParsed(newParsed);
+    setCompListKey((k) => k + 1);
     const remapDelete = (oldSet: Set<number>) => {
       const next = new Set<number>();
       for (const i of oldSet) {
@@ -8300,7 +8420,10 @@ export default function TemplateEditorPage() {
     const newComponents = [...parsed.components];
     newComponents.splice(index + 1, 0, clone);
     const newParsed = { ...parsed, components: newComponents };
+    iframeStaleRef.current = true;
+    parsedRef.current = newParsed;
     setParsed(newParsed);
+    setCompListKey((k) => k + 1);
     const remapInsert = (oldSet: Set<number>) => {
       const next = new Set<number>();
       for (const i of oldSet) {
@@ -8320,7 +8443,10 @@ export default function TemplateEditorPage() {
     const [moved] = newComponents.splice(from, 1);
     newComponents.splice(to, 0, moved);
     const newParsed = { ...parsed, components: newComponents };
+    iframeStaleRef.current = true;
+    parsedRef.current = newParsed;
     setParsed(newParsed);
+    setCompListKey((k) => k + 1);
     const remapSet = (oldSet: Set<number>) => {
       const next = new Set<number>();
       for (const i of oldSet) {
@@ -9954,6 +10080,7 @@ export default function TemplateEditorPage() {
                               else updateBaseProp(fKey, v);
                             };
                             const handleLiveStyle = (v: string) => {
+                              if (iframeStaleRef.current) return;
                               if (f.target === "baseProps") {
                                 const cssProp = PROP_CSS_MAP[fKey];
                                 if (cssProp)
@@ -10191,7 +10318,7 @@ export default function TemplateEditorPage() {
 
                       return (
                         <div
-                          key={index}
+                          key={`${compListKey}_${index}`}
                           data-sidebar-component={index}
                           draggable
                           onMouseDownCapture={(e) => {
@@ -10352,6 +10479,7 @@ export default function TemplateEditorPage() {
                                       updateComponentProp(index, key, val)
                                     }
                                     onLiveStyle={(key, val) => {
+                                      if (iframeStaleRef.current) return;
                                       if (key === "icon-color") {
                                         injectFooterIconColor(
                                           iframeRef.current,
