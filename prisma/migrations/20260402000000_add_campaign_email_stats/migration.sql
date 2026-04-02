@@ -19,7 +19,7 @@ CREATE TABLE "CampaignEmailStats" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "CampaignEmailStats_campaignId_provider_accountId_key" ON "CampaignEmailStats"("campaignId", "provider", "accountId");
+CREATE UNIQUE INDEX "CampaignEmailStats_provider_accountId_campaignId_key" ON "CampaignEmailStats"("provider", "accountId", "campaignId");
 
 -- CreateIndex
 CREATE INDEX "CampaignEmailStats_provider_accountId_idx" ON "CampaignEmailStats"("provider", "accountId");

@@ -591,6 +591,6 @@ model CampaignEmailStats {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  @@unique([campaignId, provider, accountId])
+  @@unique([provider, accountId, campaignId])
   @@index([provider, accountId])
 }
