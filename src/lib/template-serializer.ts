@@ -21,8 +21,9 @@ export function serializeTemplate(template: ParsedTemplate): string {
   lines.push(`<x-base ${basePropStr}>`);
 
   // 3. Components (inject component-index for scoped responsive CSS)
-  for (let i = 0; i < template.components.length; i++) {
-    const comp = template.components[i];
+  const components = Array.isArray(template.components) ? template.components : [];
+  for (let i = 0; i < components.length; i++) {
+    const comp = components[i];
     const compWithIndex: ParsedComponent = {
       ...comp,
       props: { ...comp.props, 'component-index': String(i) },

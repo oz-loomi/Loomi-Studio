@@ -14,6 +14,9 @@
     return fallback;
   };
 
+  // Section-level bg-color (computed early so buildSide can use it as fallback)
+  const sectionBgColor = getSectionProp('bg-color');
+
   // Build all props for one side of the split
   const buildSide = (side) => {
     const get = (key, fallback = '') => {
@@ -170,7 +173,7 @@
         return url;
       },
       // Background
-      textBgColor: get('text-bg-color'),
+      textBgColor: get('text-bg-color') || sectionBgColor,
       minHeight: get('min-height'),
       // Layout
       textAlign: get('text-align', 'left'),
@@ -251,7 +254,7 @@
         const colSel = s + '.' + side.sideClass;
         const sc = colSel + ' ';
         // Keep cover mode behavior on mobile; only reset to natural image in auto mode.
-        if (side.imageFit === 'cover') {
+        if (side.imageFit === 'cover' || side.hasOverlay) {
           r.push(
             colSel +
               ' { background-size: cover !important; background-position: ' +
@@ -318,21 +321,21 @@
           class="loomi-split-col loomi-split-left"
           width="50%"
           valign="{{ left.contentValign }}"
-          background="{{ left.imageFit === 'cover' && left.image ? left.image : '' }}"
-          style="padding: 0;{{ left.minHeight ? ' min-height: ' + left.minHeight + ';' : '' }}{{ left.imageFit === 'cover' && left.image ? ' background-size: cover; background-position: ' + left.imagePosition + '; background-repeat: no-repeat;' : '' }}"
+          background="{{ (left.imageFit === 'cover' || left.hasOverlay) && left.image ? left.image : '' }}"
+          style="padding: 0;{{ left.minHeight ? ' min-height: ' + left.minHeight + ';' : '' }}{{ (left.imageFit === 'cover' || left.hasOverlay) && left.image ? ' background-image: ' + (left.hasOverlay ? 'linear-gradient(' + left.overlayRgba + ', ' + left.overlayRgba + '), ' : '') + 'url(\'' + left.image + '\'); background-size: cover; background-position: ' + left.imagePosition + '; background-repeat: no-repeat;' : (left.textBgColor ? ' background-color: ' + left.textBgColor + ';' : '') }}"
         >
           <if condition="left.image">
             <img
               class="loomi-split-img"
               src="{{ left.image }}"
-              style="display: block; width: 100%;{{ left.imageFit === 'cover' ? ' height: 0; overflow: hidden;' : ' height: auto;' }} border: 0;"
+              style="display: block; width: 100%;{{ left.imageFit === 'cover' || left.hasOverlay ? ' height: 0; overflow: hidden;' : ' height: auto;' }} border: 0;"
               alt="{{ left.imageAlt }}"
             />
           </if>
           <if condition="left.hasContent">
-            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"{{ left.hasOverlay ? ' style="background-color: ' + left.overlayRgba + ';"' : '' }}>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
               <tr>
-                <td class="loomi-split-text-inner" style="padding: {{ left.contentPadding }}; text-align: {{ left.textAlign }};{{ !left.hasOverlay && left.textBgColor ? ' background-color: ' + left.textBgColor + ';' : '' }}">
+                <td class="loomi-split-text-inner" style="padding: {{ left.contentPadding }}; text-align: {{ left.textAlign }};{{ (left.imageFit === 'cover' || left.hasOverlay) && left.image && left.textBgColor ? ' background-color: ' + left.textBgColor + ';' : '' }}">
                   <if condition="left.eyebrow">
                     <p class="loomi-split-eyebrow" style="font-family: {{ left.font }}; font-size: {{ left.eyebrowSize }}; font-weight: {{ left.eyebrowWeight }}; letter-spacing: {{ left.eyebrowSpacing }}; text-transform: {{ left.eyebrowTransform }}; color: {{ left.eyebrowColor }}; margin: {{ left.eyebrowMargin }};">
                       {{ left.eyebrow }}
@@ -388,21 +391,21 @@
           class="loomi-split-col loomi-split-right"
           width="50%"
           valign="{{ right.contentValign }}"
-          background="{{ right.imageFit === 'cover' && right.image ? right.image : '' }}"
-          style="padding: 0;{{ right.minHeight ? ' min-height: ' + right.minHeight + ';' : '' }}{{ right.imageFit === 'cover' && right.image ? ' background-size: cover; background-position: ' + right.imagePosition + '; background-repeat: no-repeat;' : '' }}"
+          background="{{ (right.imageFit === 'cover' || right.hasOverlay) && right.image ? right.image : '' }}"
+          style="padding: 0;{{ right.minHeight ? ' min-height: ' + right.minHeight + ';' : '' }}{{ (right.imageFit === 'cover' || right.hasOverlay) && right.image ? ' background-image: ' + (right.hasOverlay ? 'linear-gradient(' + right.overlayRgba + ', ' + right.overlayRgba + '), ' : '') + 'url(\'' + right.image + '\'); background-size: cover; background-position: ' + right.imagePosition + '; background-repeat: no-repeat;' : (right.textBgColor ? ' background-color: ' + right.textBgColor + ';' : '') }}"
         >
           <if condition="right.image">
             <img
               class="loomi-split-img"
               src="{{ right.image }}"
-              style="display: block; width: 100%;{{ right.imageFit === 'cover' ? ' height: 0; overflow: hidden;' : ' height: auto;' }} border: 0;"
+              style="display: block; width: 100%;{{ right.imageFit === 'cover' || right.hasOverlay ? ' height: 0; overflow: hidden;' : ' height: auto;' }} border: 0;"
               alt="{{ right.imageAlt }}"
             />
           </if>
           <if condition="right.hasContent">
-            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"{{ right.hasOverlay ? ' style="background-color: ' + right.overlayRgba + ';"' : '' }}>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
               <tr>
-                <td class="loomi-split-text-inner" style="padding: {{ right.contentPadding }}; text-align: {{ right.textAlign }};{{ !right.hasOverlay && right.textBgColor ? ' background-color: ' + right.textBgColor + ';' : '' }}">
+                <td class="loomi-split-text-inner" style="padding: {{ right.contentPadding }}; text-align: {{ right.textAlign }};{{ (right.imageFit === 'cover' || right.hasOverlay) && right.image && right.textBgColor ? ' background-color: ' + right.textBgColor + ';' : '' }}">
                   <if condition="right.eyebrow">
                     <p class="loomi-split-eyebrow" style="font-family: {{ right.font }}; font-size: {{ right.eyebrowSize }}; font-weight: {{ right.eyebrowWeight }}; letter-spacing: {{ right.eyebrowSpacing }}; text-transform: {{ right.eyebrowTransform }}; color: {{ right.eyebrowColor }}; margin: {{ right.eyebrowMargin }};">
                       {{ right.eyebrow }}

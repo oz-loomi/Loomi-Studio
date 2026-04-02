@@ -255,6 +255,7 @@ export function EmailCampaignModal({
 
   useEffect(() => {
     if (sourceType !== 'drag-drop') return;
+    // Initialize drag-drop HTML if not already set
     if (htmlContent.trim()) return;
     setHtmlContent(
       `<div style="font-family:Arial,sans-serif;padding:24px;">
@@ -263,31 +264,32 @@ export function EmailCampaignModal({
   <a href="#" style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;">Primary CTA</a>
 </div>`,
     );
-  }, [sourceType, htmlContent]);
+  }, [sourceType]);
 
   useEffect(() => {
     if (sourceType !== 'html') return;
+    // Initialize HTML mode if not already set
     if (htmlContent.trim()) return;
     setHtmlContent('<html><body><p>Hello {{contact.first_name}},</p><p>Your message goes here.</p></body></html>');
-  }, [sourceType, htmlContent]);
+  }, [sourceType]);
 
   useEffect(() => {
     if (sourceType !== 'template-library') return;
     const selected = templateOptions.find((option) => option.id === selectedTemplateId);
     if (!selected) return;
-    if (!htmlContent.trim()) {
-      if (selected.content) {
-        setHtmlContent(selected.content);
-      } else if (selected.templateSlug) {
-        setHtmlContent(
-          `<div style="font-family:Arial,sans-serif;padding:24px;"><h2>${selected.label}</h2><p>Start editing this campaign template HTML.</p></div>`,
-        );
-      }
+    // Only populate HTML if empty
+    if (!htmlContent.trim() && selected.content) {
+      setHtmlContent(selected.content);
+    } else if (!htmlContent.trim()) {
+      setHtmlContent(
+        `<div style="font-family:Arial,sans-serif;padding:24px;"><h2>${selected.label}</h2><p>Start editing this campaign template HTML.</p></div>`,
+      );
     }
+    // Only populate subject if empty
     if (!subject.trim()) {
       setSubject(selected.label.split(' · ')[0] || 'Loomi Campaign');
     }
-  }, [sourceType, templateOptions, selectedTemplateId, htmlContent, subject]);
+  }, [sourceType, templateOptions, selectedTemplateId]);
 
   if (!open) return null;
 

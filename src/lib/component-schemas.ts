@@ -380,7 +380,7 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       // ── Text ──
       { key: 'section-title', label: 'Section Title', type: 'text', default: 'Why Service With Us', group: 'text' },
       { key: 'title-color', label: 'Title Color', type: 'color', default: '#6b7280', half: true, group: 'text' },
-      { key: 'text-color', label: 'Text Color', type: 'color', default: '#111111', half: true, group: 'text' },
+      { key: 'text-color', label: 'Feature Title Color', type: 'color', default: '#111111', half: true, group: 'text' },
       // ── Background ──
       { key: 'bg-color', label: 'Background', type: 'color', default: '#ffffff', half: true, group: 'background' },
       { key: 'card-bg-color', label: 'Card BG', type: 'color', default: '#f3f4f6', half: true, group: 'background' },
@@ -573,7 +573,6 @@ export const componentSchemas: Record<string, ComponentSchema> = {
       { key: 'headline-size', label: 'Headline Size', type: 'unit', half: true, group: 'text', responsive: true, conditionalOn: 'headline' },
       { key: 'headline-color', label: 'Headline Color', type: 'color', default: '#111111', half: true, group: 'text', conditionalOn: 'headline' },
       { key: 'description-size', label: 'Desc Size', type: 'unit', half: true, group: 'text', responsive: true, conditionalOn: 'description' },
-      { key: 'description-color', label: 'Desc Color', type: 'color', default: '#4b5563', half: true, group: 'text', conditionalOn: 'description' },
       // ── Background ──
       { key: 'image', label: 'Image', type: 'image', required: true, default: 'https://assets.cdn.filesafe.space/RCXFPnyOmtNw1ZHJhq5a/media/287f251c-c346-44ca-8df8-23ce4a545043.webp', group: 'background' },
       { key: 'image-alt', label: 'Image Alt Text', type: 'text', default: 'Service spotlight vehicle', group: 'background' },

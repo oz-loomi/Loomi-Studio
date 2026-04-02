@@ -72,9 +72,9 @@
       const endPos = this.gradientEndPosition === '' ? '100' : this.gradientEndPosition;
       const startStop = this.gradientStart + ' ' + startPos + '%';
       const endStop = this.gradientEnd + ' ' + endPos + '%';
-      if (this.gradientType === 'radial') return ' background: radial-gradient(circle, ' + startStop + ', ' + endStop + ');';
+      if (this.gradientType === 'radial') return ' background-image: radial-gradient(circle, ' + startStop + ', ' + endStop + ');';
       const axis = this.gradientAngle !== '' ? (this.gradientAngle + 'deg') : this.gradientDirection;
-      return ' background: linear-gradient(' + axis + ', ' + startStop + ', ' + endStop + ');';
+      return ' background-image: linear-gradient(' + axis + ', ' + startStop + ', ' + endStop + ');';
     },
     // ── Mobile overrides (responsive) ──
     mAlign: props['m:align'] || '',
@@ -114,7 +114,7 @@
       <tr>
         <td class="loomi-test-td" style="padding: {{ padding }}; text-align: {{ align }}; border-left: {{ accentWidth }} solid {{ accentColor }};">
           <p style="font-family: {{ font }}; font-size: {{ quoteSize }}; font-weight: {{ quoteWeight }}; font-style: {{ quoteStyle }}; line-height: {{ quoteLineHeight }}; color: {{ quoteColor }}; margin: {{ quoteMargin }};">
-            &ldquo;{{ quote }}&rdquo;
+            &ldquo;{{{ quote }}}&rdquo;
           </p>
           <if condition="author">
             <p style="font-family: {{ font }}; font-size: {{ authorSize }}; font-weight: {{ authorWeight }}; color: {{ authorColor }}; margin: {{ authorMargin }};">
