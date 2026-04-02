@@ -570,3 +570,27 @@ model MediaAsset {
   @@index([accountKey, createdAt])
   @@index([accountKey, category])
 }
+
+// ─────────────────────────────────────────────────────
+// Campaign Email Stats (aggregated from ESP webhooks)
+// ─────────────────────────────────────────────────────
+
+model CampaignEmailStats {
+  id                String    @id @default(cuid())
+  campaignId        String
+  provider          String    // e.g. "ghl"
+  accountId         String
+  firstDeliveredAt  DateTime?
+  deliveredCount    Int       @default(0)
+  openedCount       Int       @default(0)
+  clickedCount      Int       @default(0)
+  bouncedCount      Int       @default(0)
+  complainedCount   Int       @default(0)
+  unsubscribedCount Int       @default(0)
+  lastEventAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([campaignId, provider, accountId])
+  @@index([provider, accountId])
+}
