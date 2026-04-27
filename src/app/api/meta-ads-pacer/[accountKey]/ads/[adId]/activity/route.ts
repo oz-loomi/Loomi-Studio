@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { canAccessPacer, decorateActivityEntry } from '@/lib/meta-ads-pacer';
 import { uploadToS3 } from '@/lib/s3';
 
-export const PACER_ACTIVITY_MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
+const PACER_ACTIVITY_MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
 
 function buildAttachmentKey(
   accountKey: string,
