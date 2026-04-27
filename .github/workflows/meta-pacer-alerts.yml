@@ -1,0 +1,55 @@
+name: Meta Ads Pacer Daily Alerts
+
+on:
+  schedule:
+    # 14:00 UTC = 8 AM MDT / 7 AM MST. Adjust if you'd rather lock to 8 AM
+    # year-round (use 15:00 UTC during MST and 14:00 UTC during MDT, or just
+    # pick one and live with the seasonal shift).
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    # Lets you run it manually from the Actions tab.
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger pacer alerts scan
+        env:
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          ENDPOINT: https://studio.loomilm.com/api/internal/meta-pacer-alerts/scan
+        run: |
+          set -euo pipefail
+
+          if [ -z "${INTERNAL_JOB_SECRET}" ]; then
+            echo "::error::INTERNAL_JOB_SECRET secret is not set in this repo"
+            exit 1
+          fi
+
+          status=$(curl --silent --show-error --location \
+            --output /tmp/scan-response.json \
+            --write-out "%{http_code}" \
+            --max-time 240 \
+            -X POST \
+            -H "x-internal-job-secret: ${INTERNAL_JOB_SECRET}" \
+            -H "Content-Type: application/json" \
+            "${ENDPOINT}")
+
+          echo "HTTP ${status}"
+          echo "─── response ───"
+          cat /tmp/scan-response.json || true
+          echo
+          echo "─── /response ───"
+
+          # 200 = clean run; 207 = partial success (some scanners reported errors
+          # but notifications still went out). Treat both as success but surface
+          # errors as warnings so they're visible on the run page.
+          if [ "${status}" = "200" ]; then
+            exit 0
+          fi
+          if [ "${status}" = "207" ]; then
+            echo "::warning::Scan completed with errors — see response above"
+            exit 0
+          fi
+          echo "::error::Scan failed with HTTP ${status}"
+          exit 1
