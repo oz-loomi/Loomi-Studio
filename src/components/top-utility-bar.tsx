@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import {
   ArrowRightStartOnRectangleIcon,
+  BellIcon,
   BugAntIcon,
   ClockIcon,
   MoonIcon,
@@ -20,6 +21,7 @@ import { useTheme } from '@/contexts/theme-context';
 import { UserAvatar } from '@/components/user-avatar';
 import { AI_ASSIST_OPEN_EVENT } from '@/lib/ui-events';
 import { ChangelogPanel } from '@/components/changelog-panel';
+import { NotificationsPanel } from '@/components/notifications-panel';
 
 function UtilityIconButton({
   title,
@@ -73,6 +75,25 @@ export function TopUtilityBar() {
 
   useEffect(() => { checkUnread(); }, [checkUnread]);
 
+  // Notifications
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  const checkUnreadNotifications = useCallback(async () => {
+    try {
+      const res = await fetch('/api/notifications?unreadOnly=1&limit=1');
+      if (!res.ok) return;
+      const data = (await res.json()) as { unreadCount: number };
+      setUnreadNotifications(data.unreadCount ?? 0);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    checkUnreadNotifications();
+    const id = setInterval(checkUnreadNotifications, 60_000);
+    return () => clearInterval(id);
+  }, [checkUnreadNotifications]);
+
   useEffect(() => {
     if (!userMenuOpen) return;
     function handleMouseDown(event: MouseEvent) {
@@ -107,6 +128,27 @@ export function TopUtilityBar() {
         >
           <QuestionMarkCircleIcon className="w-5 h-5" />
         </UtilityIconButton>
+
+        <div className="relative">
+          <UtilityIconButton
+            title={
+              unreadNotifications > 0
+                ? `Notifications (${unreadNotifications} unread)`
+                : 'Notifications'
+            }
+            onClick={() => setShowNotifications(true)}
+          >
+            <BellIcon className="w-5 h-5" />
+          </UtilityIconButton>
+          {unreadNotifications > 0 && (
+            <span
+              className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center text-[9px] font-bold leading-none px-1 rounded-full bg-[var(--primary)] text-white pointer-events-none"
+              aria-hidden
+            >
+              {unreadNotifications > 9 ? '9+' : unreadNotifications}
+            </span>
+          )}
+        </div>
 
         <div className="relative">
           <UtilityIconButton
@@ -210,6 +252,15 @@ export function TopUtilityBar() {
 
       {showChangelog && (
         <ChangelogPanel onClose={() => { setShowChangelog(false); checkUnread(); }} />
+      )}
+      {showNotifications && (
+        <NotificationsPanel
+          onClose={() => {
+            setShowNotifications(false);
+            checkUnreadNotifications();
+          }}
+          onChange={(unread) => setUnreadNotifications(unread)}
+        />
       )}
     </header>
   );

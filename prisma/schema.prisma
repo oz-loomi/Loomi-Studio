@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
   engineType = "binary"
 }
 
@@ -12,52 +12,61 @@ datasource db {
 // ─────────────────────────────────────────────────────
 
 model User {
-  id         String   @id @default(cuid())
-  name       String
-  title      String?
-  email      String   @unique
-  password   String
-  avatarUrl  String?
-  role       String   @default("client") // developer | super_admin | admin | client
-  accountKeys String  @default("[]") // JSON array of assigned account keys
+  id          String    @id @default(cuid())
+  name        String
+  title       String?
+  email       String    @unique
+  password    String
+  avatarUrl   String?
+  role        String    @default("client") // developer | super_admin | admin | client
+  department  String? // "Design" | "Account Management" | "Development" | "Leadership" | "Marketing" | "Sales" | "Operations"
+  accountKeys String    @default("[]") // JSON array of assigned account keys
   lastLoginAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   invites  UserInvite[]
-  accounts Account[]   // accounts where this user is the rep
+  accounts Account[] // accounts where this user is the rep
 
-  templatesCreated  Template[]        @relation("TemplateCreatedBy")
-  templatesUpdated  Template[]        @relation("TemplateUpdatedBy")
-  templateVersions  TemplateVersion[] @relation("TemplateVersionCreatedBy")
-  dashboardLayouts  DashboardLayoutPreference[]
+  templatesCreated Template[]                  @relation("TemplateCreatedBy")
+  templatesUpdated Template[]                  @relation("TemplateUpdatedBy")
+  templateVersions TemplateVersion[]           @relation("TemplateVersionCreatedBy")
+  dashboardLayouts DashboardLayoutPreference[]
+
+  metaPacerOwnerAds            MetaAdsPacerAd[]          @relation("MetaPacerOwner")
+  metaPacerDesignerAds         MetaAdsPacerAd[]          @relation("MetaPacerDesigner")
+  metaPacerAccountRepAds       MetaAdsPacerAd[]          @relation("MetaPacerAccountRep")
+  metaPacerDesignNotesAuthored MetaAdsPacerDesignNote[]  @relation("MetaPacerDesignNoteAuthor")
+  metaPacerActivityAuthored    MetaAdsPacerActivityLog[] @relation("MetaPacerActivityAuthor")
+  notifications                Notification[]
+  notificationPreferences      NotificationPreference[]
 }
 
 model UserInvite {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
-  sentAt    DateTime @default(now())
+  createdAt DateTime  @default(now())
+  sentAt    DateTime  @default(now())
 
   @@index([userId, createdAt])
   @@index([expiresAt])
 }
 
 model DashboardLayoutPreference {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role      String
-  mode      String
-  scopeKey  String
-  orderJson String   @default("[]")
-  hiddenJson String  @default("[]")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       String
+  mode       String
+  scopeKey   String
+  orderJson  String   @default("[]")
+  hiddenJson String   @default("[]")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([userId, role, mode, scopeKey])
   @@index([userId, updatedAt])
@@ -68,113 +77,114 @@ model DashboardLayoutPreference {
 // ─────────────────────────────────────────────────────
 
 model Account {
-  id             String   @id @default(cuid())
-  key            String   @unique // "youngHonda", "smithToyota"
-  slug           String?  @unique // URL-safe kebab-case: "young-honda"
-  dealer         String // "Young Honda"
-  category       String? // "Automotive", "Healthcare", etc.
-  oem            String? // single OEM key
-  oems           String? // JSON array of OEM keys for multi-brand dealers
-  email          String?
-  phone          String?
-  salesPhone     String?
-  servicePhone   String?
-  partsPhone     String?
-  address        String?
-  city           String?
-  state          String?
-  postalCode     String?
-  website        String?
-  timezone       String?
-  logos          String? // JSON: { light, dark, white?, black? }
-  branding       String? // JSON: { colors: { primary, secondary, ... }, fonts: { heading, body } }
-  customValues   String? // JSON: Record<string, { name, value }>
-  espProvider     String // active provider id (must match a registered adapter)
-  accountRepId   String?
-  accountRep     User?    @relation(fields: [accountRepId], references: [id], onDelete: SetNull)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id           String   @id @default(cuid())
+  key          String   @unique // "youngHonda", "smithToyota"
+  slug         String?  @unique // URL-safe kebab-case: "young-honda"
+  dealer       String // "Young Honda"
+  category     String? // "Automotive", "Healthcare", etc.
+  oem          String? // single OEM key
+  oems         String? // JSON array of OEM keys for multi-brand dealers
+  email        String?
+  phone        String?
+  salesPhone   String?
+  servicePhone String?
+  partsPhone   String?
+  address      String?
+  city         String?
+  state        String?
+  postalCode   String?
+  website      String?
+  timezone     String?
+  logos        String? // JSON: { light, dark, white?, black? }
+  branding     String? // JSON: { colors: { primary, secondary, ... }, fonts: { heading, body } }
+  customValues String? // JSON: Record<string, { name, value }>
+  espProvider  String // active provider id (must match a registered adapter)
+  accountRepId String?
+  accountRep   User?    @relation(fields: [accountRepId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  emails        AccountEmail[]
-  espConnections EspConnection[]
-  espOAuthConnections EspOAuthConnection[]
+  emails                  AccountEmail[]
+  espConnections          EspConnection[]
+  espOAuthConnections     EspOAuthConnection[]
   espAccountProviderLinks EspAccountProviderLink[]
-  audiences     Audience[]
-  loomiFlows    LoomiFlow[]
-  espTemplates  EspTemplate[]
-  mediaAssets   MediaAsset[]
+  audiences               Audience[]
+  loomiFlows              LoomiFlow[]
+  espTemplates            EspTemplate[]
+  mediaAssets             MediaAsset[]
+  metaAdsPacerPlan        MetaAdsPacerPlan?
 
   @@index([accountRepId])
 }
 
 model YagRollupConfig {
-  id                 String   @id @default(cuid())
-  singletonKey       String   @unique @default("primary")
-  targetAccountKey   String
-  sourceAccountKeys  String   @default("[]") // JSON array of account keys to roll up into target
-  enabled            Boolean  @default(true)
-  scheduleIntervalHours Int    @default(1)  // incremental sync cadence in UTC hours
-  scheduleMinuteUtc     Int    @default(15) // minute past the hour for incremental sync
-  fullSyncEnabled       Boolean @default(true)
-  fullSyncHourUtc       Int     @default(3)  // UTC hour for daily full reconcile
-  fullSyncMinuteUtc     Int     @default(45) // UTC minute for daily full reconcile
-  scrubInvalidEmails Boolean  @default(true)
-  scrubInvalidPhones Boolean  @default(true)
-  updatedByUserId    String?
-  lastSyncedAt       DateTime?
-  lastSyncStatus     String?
-  lastSyncSummary    String?
-  currentRunStartedAt DateTime? // null = idle, non-null = sync/wipe in progress since this time
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                    String    @id @default(cuid())
+  singletonKey          String    @unique @default("primary")
+  targetAccountKey      String
+  sourceAccountKeys     String    @default("[]") // JSON array of account keys to roll up into target
+  enabled               Boolean   @default(true)
+  scheduleIntervalHours Int       @default(1) // incremental sync cadence in UTC hours
+  scheduleMinuteUtc     Int       @default(15) // minute past the hour for incremental sync
+  fullSyncEnabled       Boolean   @default(true)
+  fullSyncHourUtc       Int       @default(3) // UTC hour for daily full reconcile
+  fullSyncMinuteUtc     Int       @default(45) // UTC minute for daily full reconcile
+  scrubInvalidEmails    Boolean   @default(true)
+  scrubInvalidPhones    Boolean   @default(true)
+  updatedByUserId       String?
+  lastSyncedAt          DateTime?
+  lastSyncStatus        String?
+  lastSyncSummary       String?
+  currentRunStartedAt   DateTime? // null = idle, non-null = sync/wipe in progress since this time
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 }
 
 model YagRollupConfigHistory {
-  id                    String   @id @default(cuid())
-  configSingletonKey    String   @default("primary")
-  targetAccountKey      String
-  sourceAccountKeys     String // JSON array
-  enabled               Boolean
-  scheduleIntervalHours Int
-  scheduleMinuteUtc     Int
-  fullSyncEnabled       Boolean
-  fullSyncHourUtc       Int
-  fullSyncMinuteUtc     Int
-  scrubInvalidEmails    Boolean
-  scrubInvalidPhones    Boolean
-  changedFields         String   @default("[]") // JSON array of changed field keys
-  changedByUserId       String?
-  changedByUserName     String?
-  changedByUserEmail    String?
-  changedByUserRole     String?
+  id                     String   @id @default(cuid())
+  configSingletonKey     String   @default("primary")
+  targetAccountKey       String
+  sourceAccountKeys      String // JSON array
+  enabled                Boolean
+  scheduleIntervalHours  Int
+  scheduleMinuteUtc      Int
+  fullSyncEnabled        Boolean
+  fullSyncHourUtc        Int
+  fullSyncMinuteUtc      Int
+  scrubInvalidEmails     Boolean
+  scrubInvalidPhones     Boolean
+  changedFields          String   @default("[]") // JSON array of changed field keys
+  changedByUserId        String?
+  changedByUserName      String?
+  changedByUserEmail     String?
+  changedByUserRole      String?
   changedByUserAvatarUrl String?
-  createdAt             DateTime @default(now())
+  createdAt              DateTime @default(now())
 
   @@index([configSingletonKey, createdAt])
   @@index([changedByUserId, createdAt])
 }
 
 model YagRollupRunHistory {
-  id                     String   @id @default(cuid())
-  configSingletonKey     String   @default("primary")
-  runType                String // sync | wipe
-  status                 String // ok | failed | disabled
-  dryRun                 Boolean  @default(false)
-  fullSync               Boolean?
-  wipeMode               String? // tagged | all
-  triggerSource          String?
-  targetAccountKey       String?
-  sourceAccountKeys      String? // JSON array
-  totals                 String? // JSON object
-  errors                 String? // JSON object
-  triggeredByUserId      String?
-  triggeredByUserName    String?
-  triggeredByUserEmail   String?
-  triggeredByUserRole    String?
+  id                       String   @id @default(cuid())
+  configSingletonKey       String   @default("primary")
+  runType                  String // sync | wipe
+  status                   String // ok | failed | disabled
+  dryRun                   Boolean  @default(false)
+  fullSync                 Boolean?
+  wipeMode                 String? // tagged | all
+  triggerSource            String?
+  targetAccountKey         String?
+  sourceAccountKeys        String? // JSON array
+  totals                   String? // JSON object
+  errors                   String? // JSON object
+  triggeredByUserId        String?
+  triggeredByUserName      String?
+  triggeredByUserEmail     String?
+  triggeredByUserRole      String?
   triggeredByUserAvatarUrl String?
-  startedAt              DateTime
-  finishedAt             DateTime
-  createdAt              DateTime @default(now())
+  startedAt                DateTime
+  finishedAt               DateTime
+  createdAt                DateTime @default(now())
 
   @@index([configSingletonKey, createdAt])
   @@index([runType, createdAt])
@@ -267,8 +277,8 @@ model Template {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  createdByUser User? @relation("TemplateCreatedBy", fields: [createdByUserId], references: [id])
-  updatedByUser User? @relation("TemplateUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdByUser User?                   @relation("TemplateCreatedBy", fields: [createdByUserId], references: [id])
+  updatedByUser User?                   @relation("TemplateUpdatedBy", fields: [updatedByUserId], references: [id])
   versions      TemplateVersion[]
   tags          TemplateTagAssignment[]
   emails        AccountEmail[]
@@ -351,19 +361,19 @@ model EmailFolder {
 // ─────────────────────────────────────────────────────
 
 model Audience {
-  id              String   @id @default(cuid())
-  name            String
-  description     String?
-  accountKey      String?
-  account         Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
-  createdByUserId String?
-  filters         String   // JSON: FilterDefinition
-  icon            String?
-  color           String?
-  sortOrder       Int      @default(0)
+  id               String   @id @default(cuid())
+  name             String
+  description      String?
+  accountKey       String?
+  account          Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  createdByUserId  String?
+  filters          String // JSON: FilterDefinition
+  icon             String?
+  color            String?
+  sortOrder        Int      @default(0)
   providerMetadata String? // JSON map for provider-specific audience refs
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@unique([name, accountKey])
   @@index([accountKey])
@@ -374,19 +384,19 @@ model Audience {
 // ─────────────────────────────────────────────────────
 
 model LoomiFlow {
-  id              String   @id @default(cuid())
-  name            String
-  description     String?
-  status          String   @default("inactive") // active | inactive
-  accountKey      String?
-  account         Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
-  createdByUserId String?
+  id               String    @id @default(cuid())
+  name             String
+  description      String?
+  status           String    @default("inactive") // active | inactive
+  accountKey       String?
+  account          Account?  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  createdByUserId  String?
   sourceAudienceId String?
-  sourceFilter    String?
-  metadata        String?
-  publishedAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  sourceFilter     String?
+  metadata         String?
+  publishedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([accountKey])
   @@index([status])
@@ -398,25 +408,25 @@ model LoomiFlow {
 // ─────────────────────────────────────────────────────
 
 model SmsCampaign {
-  id              String   @id @default(cuid())
-  name            String?
-  message         String
-  status          String   @default("queued") // queued | scheduled | processing | completed | partial | failed | canceled
-  scheduledFor    DateTime?
-  startedAt       DateTime?
-  completedAt     DateTime?
-  createdByUserId String?
-  createdByRole   String?
+  id               String    @id @default(cuid())
+  name             String?
+  message          String
+  status           String    @default("queued") // queued | scheduled | processing | completed | partial | failed | canceled
+  scheduledFor     DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdByUserId  String?
+  createdByRole    String?
   sourceAudienceId String?
-  sourceFilter    String?
-  accountKeys     String   @default("[]") // JSON array of account keys
-  totalRecipients Int      @default(0)
-  sentCount       Int      @default(0)
-  failedCount     Int      @default(0)
-  metadata        String?
-  error           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  sourceFilter     String?
+  accountKeys      String    @default("[]") // JSON array of account keys
+  totalRecipients  Int       @default(0)
+  sentCount        Int       @default(0)
+  failedCount      Int       @default(0)
+  metadata         String?
+  error            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   recipients SmsCampaignRecipient[]
 
@@ -450,14 +460,14 @@ model SmsCampaignRecipient {
 // ─────────────────────────────────────────────────────
 
 model EmailCampaign {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   name             String?
   subject          String
   previewText      String?
   htmlContent      String
   textContent      String?
-  sourceType       String   @default("template-library") // template-library | drag-drop | html
-  status           String   @default("queued") // queued | scheduled | processing | completed | partial | failed | canceled
+  sourceType       String    @default("template-library") // template-library | drag-drop | html
+  status           String    @default("queued") // queued | scheduled | processing | completed | partial | failed | canceled
   scheduledFor     DateTime?
   startedAt        DateTime?
   completedAt      DateTime?
@@ -465,14 +475,14 @@ model EmailCampaign {
   createdByRole    String?
   sourceAudienceId String?
   sourceFilter     String?
-  accountKeys      String   @default("[]") // JSON array of account keys
-  totalRecipients  Int      @default(0)
-  sentCount        Int      @default(0)
-  failedCount      Int      @default(0)
+  accountKeys      String    @default("[]") // JSON array of account keys
+  totalRecipients  Int       @default(0)
+  sentCount        Int       @default(0)
+  failedCount      Int       @default(0)
   metadata         String?
   error            String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   recipients EmailCampaignRecipient[]
 
@@ -508,16 +518,16 @@ model EspTemplate {
   id           String    @id @default(cuid())
   accountKey   String
   account      Account   @relation(fields: [accountKey], references: [key], onDelete: Cascade)
-  provider     String    // primary provider at creation time
-  remoteId     String?   // legacy — use publishedTo for multi-ESP
-  publishedTo  String?   // JSON: {"ghl":"remote-id","klaviyo":"remote-id"}
+  provider     String // primary provider at creation time
+  remoteId     String? // legacy — use publishedTo for multi-ESP
+  publishedTo  String? // JSON: {"ghl":"remote-id","klaviyo":"remote-id"}
   name         String
   subject      String?
   previewText  String?
   html         String    @default("")
-  source       String?   // Maizzle markup for visual/D&D templates (null = HTML-only)
+  source       String? // Maizzle markup for visual/D&D templates (null = HTML-only)
   status       String    @default("draft")
-  editorType   String?   // 'visual' | 'code'
+  editorType   String? // 'visual' | 'code'
   thumbnailUrl String?
   lastSyncedAt DateTime?
   createdAt    DateTime  @default(now())
@@ -535,10 +545,10 @@ model EspTemplate {
 model ChangelogEntry {
   id          String   @id @default(cuid())
   title       String
-  content     String   // Plain text body describing the change
+  content     String // Plain text body describing the change
   type        String   @default("improvement") // feature | improvement | fix
   publishedAt DateTime @default(now())
-  createdBy   String?  // user name or "Claude"
+  createdBy   String? // user name or "Claude"
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -551,22 +561,178 @@ model ChangelogEntry {
 
 model MediaAsset {
   id           String   @id @default(cuid())
-  accountKey   String?  // null = admin-level (Loomi media library)
+  accountKey   String? // null = admin-level (Loomi media library)
   account      Account? @relation(fields: [accountKey], references: [key], onDelete: Cascade)
-  s3Key        String   // "media/_admin/{id}/{filename}" or "media/{accountKey}/{id}/{filename}"
+  s3Key        String // "media/_admin/{id}/{filename}" or "media/{accountKey}/{id}/{filename}"
   filename     String
   mimeType     String
-  size         Int      // bytes
-  width        Int?     // image-only
-  height       Int?     // image-only
-  thumbnailKey String?  // "media/_admin/{id}/thumb.webp"
-  category     String?  // "brand" | "ad-creative" | "oem" | "general"
-  tags         String?  // JSON string[] for future DAM filtering
-  uploadedBy   String?  // User ID
+  size         Int // bytes
+  width        Int? // image-only
+  height       Int? // image-only
+  thumbnailKey String? // "media/_admin/{id}/thumb.webp"
+  category     String? // "brand" | "ad-creative" | "oem" | "general"
+  tags         String? // JSON string[] for future DAM filtering
+  uploadedBy   String? // User ID
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@unique([s3Key])
   @@index([accountKey, createdAt])
   @@index([accountKey, category])
+}
+
+// ─────────────────────────────────────────────────────
+// Meta Ads Pacer
+// ─────────────────────────────────────────────────────
+
+model MetaAdsPacerPlan {
+  id              String   @id @default(cuid())
+  accountKey      String   @unique
+  account         Account  @relation(fields: [accountKey], references: [key], onDelete: Cascade)
+  baseBudgetGoal  String? // legacy account-wide default (replaced by MetaAdsPacerPeriodBudget per-month entries)
+  addedBudgetGoal String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  ads           MetaAdsPacerAd[]
+  periodBudgets MetaAdsPacerPeriodBudget[]
+}
+
+model MetaAdsPacerPeriodBudget {
+  id              String           @id @default(cuid())
+  planId          String
+  plan            MetaAdsPacerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  period          String // YYYY-MM, e.g. "2026-04"
+  baseBudgetGoal  String?
+  addedBudgetGoal String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([planId, period])
+  @@index([planId, period])
+}
+
+model MetaAdsPacerAd {
+  id       String           @id @default(cuid())
+  planId   String
+  plan     MetaAdsPacerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  position Int              @default(0)
+
+  name String @default("New Ad")
+
+  // Assignments
+  ownerUserId      String?
+  owner            User?   @relation("MetaPacerOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  designerUserId   String?
+  designer         User?   @relation("MetaPacerDesigner", fields: [designerUserId], references: [id], onDelete: SetNull)
+  accountRepUserId String?
+  accountRep       User?   @relation("MetaPacerAccountRep", fields: [accountRepUserId], references: [id], onDelete: SetNull)
+
+  // Planning
+  period       String  @default("") // YYYY-MM bucket — primary planning axis
+  month        String? // legacy month-name tag, retained for backwards compat
+  actionNeeded String?
+  recurring    String  @default("No") // Yes | No | Unknown
+  coop         String  @default("No") // Yes | No | Unknown
+  budgetType   String  @default("Daily") // Daily | Lifetime
+  budgetSource String  @default("base") // base | added
+
+  // Dates (ISO yyyy-MM-dd strings to mirror <input type="date">)
+  flightStart     String?
+  flightEnd       String?
+  liveDate        String?
+  creativeDueDate String?
+  dueDate         String? // overall ad due date — auto-calc 2 business days before flightStart
+  dateCompleted   String?
+
+  // Status
+  adStatus         String @default("In Draft")
+  designStatus     String @default("Not Started")
+  internalApproval String @default("Pending Approval")
+  clientApproval   String @default("Pending Approval")
+
+  // Money (string to mirror form input, parsed at calc time)
+  allocation       String?
+  pacerActual      String?
+  pacerDailyBudget String?
+
+  // Other
+  creativeLink String?
+  clientName   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  designNotes MetaAdsPacerDesignNote[]
+  activityLog MetaAdsPacerActivityLog[]
+
+  @@index([planId, period, position])
+  @@index([planId, position])
+  @@index([adStatus])
+  @@index([designerUserId])
+  @@index([ownerUserId])
+}
+
+model MetaAdsPacerDesignNote {
+  id           String         @id @default(cuid())
+  adId         String
+  ad           MetaAdsPacerAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  text         String
+  authorUserId String?
+  author       User?          @relation("MetaPacerDesignNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  createdAt    DateTime       @default(now())
+
+  @@index([adId, createdAt])
+}
+
+model MetaAdsPacerActivityLog {
+  id                 String         @id @default(cuid())
+  adId               String
+  ad                 MetaAdsPacerAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  text               String
+  attachmentKey      String? // S3 key when an attachment was uploaded
+  attachmentFilename String?
+  attachmentMimeType String?
+  attachmentSize     Int?
+  authorUserId       String?
+  author             User?          @relation("MetaPacerActivityAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  createdAt          DateTime       @default(now())
+
+  @@index([adId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────
+// Notifications (in-app + email)
+// ─────────────────────────────────────────────────────
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // ad_due_soon | ad_overdue | approval_pending | status_stuck | pacing_alert | period_over_allocated | ad_assigned | approval_changed
+  severity  String    @default("info") // info | warning | critical
+  title     String
+  body      String?
+  link      String? // optional in-app link (e.g. /tools/meta-ads-pacer?adId=…)
+  metaJson  String? // optional JSON payload for the originating event (adId, accountKey, etc)
+  emailedAt DateTime?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
+
+model NotificationPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, type])
+  @@index([userId])
 }

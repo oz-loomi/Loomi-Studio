@@ -35,6 +35,12 @@ const SHARED_ACCOUNT_ROUTE_ROOTS = new Set([
   'flows',
 ]);
 
+// Routes that work in both admin and account modes via context, NOT URL prefix.
+// Switching accounts should keep these paths unchanged — only the account
+// context updates. Used for admin-only tools that don't have a subaccount-
+// scoped route variant.
+const CONTEXT_SCOPED_ROUTE_ROOTS = new Set(['tools']);
+
 const ADMIN_SETTINGS_TO_SUBACCOUNT_TAB: Record<string, string> = {
   subaccounts: 'company',
   subaccount: 'company',
@@ -109,7 +115,10 @@ function resolveAdminPath(pathname: string): string {
     return '/dashboard';
   }
 
-  if (SHARED_ACCOUNT_ROUTE_ROOTS.has(segments[0])) {
+  if (
+    SHARED_ACCOUNT_ROUTE_ROOTS.has(segments[0]) ||
+    CONTEXT_SCOPED_ROUTE_ROOTS.has(segments[0])
+  ) {
     return `/${segments.join('/')}`;
   }
 
@@ -126,6 +135,12 @@ function resolveSubaccountPath(pathname: string, slug: string): string {
 
   if (segments.length === 0 || segments[0] === 'dashboard') {
     return subaccountPath(slug, 'dashboard');
+  }
+
+  // Context-scoped routes (admin-only tools) keep their path as-is — only
+  // the account context updates so the page re-fetches for the new account.
+  if (CONTEXT_SCOPED_ROUTE_ROOTS.has(segments[0])) {
+    return `/${segments.join('/')}`;
   }
 
   if (SHARED_ACCOUNT_ROUTE_ROOTS.has(segments[0])) {
@@ -271,11 +286,15 @@ export function AccountSwitcher({ onSwitch }: AccountSwitcherProps) {
         router.push(resolveAdminPath(pathname));
       } else {
         const slug = accountKeyToSlug(key, accounts);
-        if (slug) {
-          router.push(resolveSubaccountPath(pathname, slug));
-        } else {
-          // Fallback: just set context (slug not yet loaded)
+        const targetPath = slug ? resolveSubaccountPath(pathname, slug) : null;
+        // Context-scoped routes (e.g. /tools/*) keep the same path on switch
+        // — the layout doesn't pick up the slug from the URL, so we have to
+        // update the account context ourselves.
+        const stayingOnSamePath = targetPath === pathname;
+        if (stayingOnSamePath || !slug) {
           setAccount({ mode: 'account', accountKey: key });
+        } else if (targetPath) {
+          router.push(targetPath);
         }
       }
       setOpen(false);

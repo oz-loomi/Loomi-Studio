@@ -13,7 +13,7 @@ import {
   CheckCircleIcon, AdjustmentsHorizontalIcon, LinkIcon,
   TrashIcon, ExclamationTriangleIcon, ClockIcon, CogIcon,
   EnvelopeIcon, PhoneIcon, PencilSquareIcon,
-  PlayCircleIcon,
+  PlayCircleIcon, BellIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from '@/lib/toast';
 import { CodeEditor } from '@/components/code-editor';
@@ -41,6 +41,7 @@ import {
 import { fetchRequiredScopesByCatalogUrl } from '@/lib/esp/provider-scopes';
 import { UsersTab } from '@/components/settings/users-tab';
 import { AppearanceTab } from '@/components/settings/appearance-tab';
+import { NotificationsTab } from '@/components/settings/notifications-tab';
 
 const CATEGORY_SUGGESTIONS = ['Automotive', 'Powersports', 'Ecommerce', 'Healthcare', 'Real Estate', 'Hospitality', 'Retail', 'General'];
 
@@ -52,6 +53,7 @@ type Tab =
   | 'custom-values'
   | 'knowledge'
   | 'jobs'
+  | 'notifications'
   | 'appearance';
 
 const DEFAULT_JOB_KEY = 'yag-rollup';
@@ -93,6 +95,7 @@ export default function SettingsPage() {
   if (userRole === 'developer' || userRole === 'super_admin') tabs.push({ key: 'custom-values', label: 'Custom Values', icon: AdjustmentsHorizontalIcon });
   if (hasAdminAccess && isAdmin) tabs.push({ key: 'knowledge', label: 'Knowledge Base', icon: SparklesIcon });
   if (hasRollupAccess && isAdmin) tabs.push({ key: 'jobs', label: 'Jobs', icon: JobsScheduleTabIcon });
+  tabs.push({ key: 'notifications', label: 'Notifications', icon: BellIcon });
   tabs.push({ key: 'appearance', label: 'Appearance', icon: SwatchIcon });
 
   const pathSegments = pathname.split('/').filter(Boolean);
@@ -210,6 +213,7 @@ export default function SettingsPage() {
           )}
           {activeTab === 'knowledge' && hasAdminAccess && isAdmin && <KnowledgeBaseTab />}
           {activeTab === 'jobs' && hasRollupAccess && isAdmin && <JobsTab activeJobKey={routeJobKey || DEFAULT_JOB_KEY} />}
+          {activeTab === 'notifications' && <NotificationsTab />}
           {activeTab === 'appearance' && <AppearanceTab />}
         </div>
       </div>

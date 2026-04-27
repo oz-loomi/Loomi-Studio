@@ -31,7 +31,18 @@ function NewUserContent() {
   const [password, setPassword] = useState('');
   const [sendInvite, setSendInvite] = useState(true);
   const [role, setRole] = useState('client');
+  const [department, setDepartment] = useState('');
   const [accountKeys, setAccountKeys] = useState<string[]>([]);
+
+  const DEPARTMENTS = [
+    'Design',
+    'Account Management',
+    'Development',
+    'Leadership',
+    'Marketing',
+    'Sales',
+    'Operations',
+  ];
 
   const handleCreate = async () => {
     if (!sendInvite && !password) {
@@ -45,6 +56,7 @@ function NewUserContent() {
         title,
         email,
         role,
+        department: department || null,
         accountKeys,
         sendInvite,
       };
@@ -123,6 +135,19 @@ function NewUserContent() {
                 className={inputClass}
                 placeholder="e.g. Marketing Manager"
               />
+            </div>
+            <div>
+              <label className={labelClass}>Department</label>
+              <select
+                value={department}
+                onChange={e => setDepartment(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">— No department —</option>
+                {DEPARTMENTS.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className={labelClass}>Email</label>

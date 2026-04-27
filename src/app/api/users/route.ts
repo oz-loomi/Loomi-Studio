@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
     email: string;
     avatarUrl: string | null;
     role: string;
+    department: string | null;
     accountKeys: string;
     lastLoginAt: Date | null;
     createdAt: Date;
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest) {
         email: true,
         avatarUrl: true,
         role: true,
+        department: true,
         accountKeys: true,
         lastLoginAt: true,
         createdAt: true,
@@ -83,6 +85,7 @@ export async function GET(req: NextRequest) {
         email: true,
         avatarUrl: true,
         role: true,
+        department: true,
         accountKeys: true,
         createdAt: true,
       },
@@ -106,9 +109,10 @@ export async function POST(req: NextRequest) {
   const { error, session } = await requireRole(...ELEVATED_ROLES);
   if (error) return error;
 
-  const { name, title, email, password, role, accountKeys, sendInvite } = await req.json();
+  const { name, title, email, password, role, department, accountKeys, sendInvite } = await req.json();
   const normalizedName = typeof name === 'string' ? name.trim() : '';
   const normalizedEmail = typeof email === 'string' ? email.trim() : '';
+  const normalizedDepartment = typeof department === 'string' && department.trim() ? department.trim() : null;
   const shouldSendInvite = sendInvite !== false;
   const normalizedAccountKeys = normalizeAccountKeys(accountKeys);
 
@@ -145,6 +149,7 @@ export async function POST(req: NextRequest) {
       email: normalizedEmail,
       password: hashedPassword,
       role,
+      department: normalizedDepartment,
       accountKeys: JSON.stringify(normalizedAccountKeys),
     },
     select: {
@@ -154,6 +159,7 @@ export async function POST(req: NextRequest) {
       email: true,
       avatarUrl: true,
       role: true,
+      department: true,
       accountKeys: true,
       createdAt: true,
     },
@@ -196,7 +202,7 @@ export async function PUT(req: NextRequest) {
   const { error, session } = await requireRole(...ELEVATED_ROLES);
   if (error) return error;
 
-  const { id, name, title, email, role, accountKeys, password } = await req.json();
+  const { id, name, title, email, role, department, accountKeys, password } = await req.json();
 
   if (!id) {
     return NextResponse.json({ error: 'Missing user id' }, { status: 400 });
@@ -205,6 +211,7 @@ export async function PUT(req: NextRequest) {
   const data: Record<string, unknown> = {};
   if (name !== undefined) data.name = name;
   if (title !== undefined) data.title = typeof title === 'string' && title.trim() ? title.trim() : null;
+  if (department !== undefined) data.department = typeof department === 'string' && department.trim() ? department.trim() : null;
   if (email !== undefined) data.email = email;
   if (role !== undefined) {
     if (!['developer', 'super_admin', 'admin', 'client'].includes(role)) {
@@ -231,6 +238,7 @@ export async function PUT(req: NextRequest) {
       email: true,
       avatarUrl: true,
       role: true,
+      department: true,
       accountKeys: true,
       createdAt: true,
     },

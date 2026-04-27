@@ -30,6 +30,7 @@ export async function GET(
       email: true,
       avatarUrl: true,
       role: true,
+      department: true,
       accountKeys: true,
       createdAt: true,
     },

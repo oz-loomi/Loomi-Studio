@@ -26,9 +26,20 @@ interface User {
   email: string;
   avatarUrl: string | null;
   role: string;
+  department: string | null;
   accountKeys: string[];
   createdAt: string;
 }
+
+const DEPARTMENTS = [
+  'Design',
+  'Account Management',
+  'Development',
+  'Leadership',
+  'Marketing',
+  'Sales',
+  'Operations',
+];
 
 const roleColors: Record<string, string> = {
   developer: 'text-purple-400 bg-purple-500/10',
@@ -70,6 +81,7 @@ function UserDetailContent() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('client');
+  const [department, setDepartment] = useState('');
   const [accountKeys, setAccountKeys] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,12 +98,14 @@ function UserDetailContent() {
         setEmail(data.email);
         setAvatarUrl(data.avatarUrl ?? null);
         setRole(data.role);
+        setDepartment(data.department ?? '');
         setAccountKeys(data.accountKeys || []);
         userSnapshotRef.current = {
           name: data.name,
           title: data.title ?? '',
           email: data.email,
           role: data.role,
+          department: data.department ?? '',
           accountKeys: JSON.stringify(data.accountKeys || []),
         };
       })
@@ -105,13 +119,13 @@ function UserDetailContent() {
     const snap = userSnapshotRef.current;
     if (!snap) return false;
     const current: Record<string, string> = {
-      name, title, email, role,
+      name, title, email, role, department,
       accountKeys: JSON.stringify(accountKeys),
     };
     // Password is additive — any non-empty password counts as a change
     if (password.length > 0) return true;
     return Object.keys(snap).some(k => snap[k] !== current[k]);
-  }, [name, title, email, role, accountKeys, password]);
+  }, [name, title, email, role, department, accountKeys, password]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -122,6 +136,7 @@ function UserDetailContent() {
         title,
         email,
         role,
+        department: department || null,
         accountKeys,
       };
       if (password) body.password = password;
@@ -140,6 +155,7 @@ function UserDetailContent() {
       setTitle(updated.title ?? '');
       setEmail(updated.email);
       setRole(updated.role);
+      setDepartment(updated.department ?? '');
       setAccountKeys(updated.accountKeys || []);
       setPassword('');
       userSnapshotRef.current = {
@@ -147,6 +163,7 @@ function UserDetailContent() {
         title: updated.title ?? '',
         email: updated.email,
         role: updated.role,
+        department: updated.department ?? '',
         accountKeys: JSON.stringify(updated.accountKeys || []),
       };
       if (session?.user.id === userId) {
@@ -404,6 +421,19 @@ function UserDetailContent() {
                 placeholder="e.g. Marketing Manager"
                 className={inputClass}
               />
+            </div>
+            <div>
+              <label className={labelClass}>Department</label>
+              <select
+                value={department}
+                onChange={e => setDepartment(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">— No department —</option>
+                {DEPARTMENTS.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className={labelClass}>Email</label>
