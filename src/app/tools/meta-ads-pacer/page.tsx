@@ -41,6 +41,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useSession } from 'next-auth/react';
 import { AdminOnly } from '@/components/route-guard';
+import { AccountAvatar } from '@/components/account-avatar';
 import { useAccount } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
 import {
@@ -5389,22 +5390,33 @@ function MetaAdsPacerTool() {
         </div>
       </div>
 
-      {/* Scope row — account name + status battery on the left; period + filters on the right */}
+      {/* Scope row — avatar + account name + status battery on the left;
+          period + filters on the right */}
       <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex flex-col gap-1.5 min-w-0">
-          {activeKey ? (
-            <>
+        {activeKey ? (
+          <div className="flex items-center gap-3 min-w-0">
+            <AccountAvatar
+              name={activeAccount?.dealer ?? activeKey}
+              accountKey={activeKey}
+              storefrontImage={activeAccount?.storefrontImage}
+              logos={activeAccount?.logos}
+              size={56}
+              className="rounded-xl border border-[var(--border)] bg-[var(--muted)] flex-shrink-0"
+            />
+            <div className="flex flex-col gap-1.5 min-w-0">
               <span className="text-2xl font-bold text-[var(--foreground)] leading-tight">
                 {activeAccount?.dealer || activeKey || '—'}
               </span>
               {plan && plan.ads.length > 0 && <StatusBattery ads={plan.ads} />}
-            </>
-          ) : (
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5 min-w-0">
             <span className="text-sm text-[var(--muted-foreground)]">
               All accounts overview
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="flex items-center gap-3 flex-wrap">
           <PeriodSelector period={period} onChange={setPeriod} />
