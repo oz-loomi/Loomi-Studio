@@ -3822,7 +3822,7 @@ function AdPlannerPanel({
   return (
     <div>
       {/* Header row: Ad Plan label + Add Plan CTA on the right */}
-      <div className="flex items-center justify-between gap-3 mb-3.5 flex-wrap">
+      <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
         <h2 className="m-0 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
           <ClipboardDocumentListIcon className="w-3 h-3" />
           {`Ad Plan · ${fmtPeriodLong(period)} (${visibleAds.length}${
@@ -4098,7 +4098,7 @@ function PacerRow({
         style={{ background: accentColor }}
       />
 
-      <div className="flex items-start justify-between mb-3.5 flex-wrap gap-2">
+      <div className="flex items-start justify-between mb-6 flex-wrap gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1.5">
             <div
@@ -4413,7 +4413,7 @@ function BudgetPacerPanel({
   if (plan.ads.length === 0) {
     return (
       <div>
-        <div className="flex items-center justify-between gap-4 mb-3.5 flex-wrap">
+        <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
           <h2 className="m-0 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
             <ChartBarIcon className="w-3 h-3" />
             Spend Pacing
@@ -4439,7 +4439,7 @@ function BudgetPacerPanel({
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4 mb-3.5 flex-wrap">
+      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <h2 className="m-0 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
           <ChartBarIcon className="w-3 h-3" />
           {`Spend Pacing (${visibleAds.length}${
@@ -4720,7 +4720,7 @@ function FolderTabs({
     { key: 'pacer', label: 'Budget Pacer', icon: <ChartBarIcon className="w-4 h-4" /> },
   ];
   return (
-    <div className="flex gap-1 border-b border-[var(--border)] mb-6">
+    <div className="flex gap-1 border-b border-[var(--border)] mb-8">
       {tabs.map((t) => {
         const isActive = active === t.key;
         return (
@@ -5344,7 +5344,7 @@ function MetaAdsPacerTool() {
   return (
     <div className="animate-fade-in-up">
       {/* Page header */}
-      <div className="page-sticky-header pad-on-scroll mb-6 flex items-center justify-between gap-4 flex-wrap">
+      <div className="page-sticky-header pad-on-scroll mb-10 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <MegaphoneIcon className="w-7 h-7 text-[var(--primary)]" />
           <div>
@@ -5392,7 +5392,7 @@ function MetaAdsPacerTool() {
 
       {/* Scope row — avatar + account name + status battery on the left;
           period + filters on the right */}
-      <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
+      <div className="mb-10 flex items-start justify-between gap-4 flex-wrap">
         {activeKey ? (
           <div className="flex items-center gap-3 min-w-0">
             <AccountAvatar
@@ -5456,16 +5456,16 @@ function MetaAdsPacerTool() {
       <div
         className={
           activeKey && filterSidebarOpen
-            ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start'
+            ? 'grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start'
             : ''
         }
       >
         <div className="min-w-0">
           {/* Budget header (Total + Base/Added) — only on the Budgeting tab */}
           {activeKey && plan && topTab === 'budgeting' && (
-            <div className="mb-5">
+            <div className="mb-10 space-y-5">
               <TotalAllocationHeader plan={plan} />
-              <div className="flex gap-3.5 flex-wrap">
+              <div className="flex gap-5 flex-wrap">
                 <BudgetPanel
                   title="Base Budget"
                   source="base"
@@ -5515,7 +5515,7 @@ function MetaAdsPacerTool() {
             <div
               className={
                 topTab === 'budgeting'
-                  ? 'glass-section-card rounded-xl px-6 py-6'
+                  ? 'glass-section-card rounded-xl px-7 py-7'
                   : ''
               }
             >
