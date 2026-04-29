@@ -46,7 +46,7 @@ const toolsNavItem: NavItem = {
   children: [
     {
       href: '/tools/meta-ads-pacer',
-      label: 'Meta Ads Pacer',
+      label: 'Meta Ads Planner',
       icon: MegaphoneIcon,
       absolute: true,
     },

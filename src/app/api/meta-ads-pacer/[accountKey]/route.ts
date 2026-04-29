@@ -37,6 +37,8 @@ interface IncomingAd {
   allocation?: string | null;
   pacerActual?: string | null;
   pacerDailyBudget?: string | null;
+  pacerTodayDate?: string | null;
+  pacerEndDate?: string | null;
   creativeLink?: string | null;
   clientName?: string | null;
 }
@@ -156,7 +158,9 @@ export async function PUT(
       const ad = incomingAds[i];
       const data = {
         position: typeof ad.position === 'number' ? ad.position : i,
-        name: typeof ad.name === 'string' && ad.name.trim() ? ad.name : 'New Ad',
+        // Allow empty names so the UI can render a "New Ad" placeholder
+        // instead of a pre-filled value the user has to delete.
+        name: typeof ad.name === 'string' ? ad.name : '',
         period,
         ownerUserId: nullable(ad.ownerUserId),
         designerUserId: nullable(ad.designerUserId),
@@ -179,6 +183,8 @@ export async function PUT(
         allocation: nullable(ad.allocation),
         pacerActual: nullable(ad.pacerActual),
         pacerDailyBudget: nullable(ad.pacerDailyBudget),
+        pacerTodayDate: nullable(ad.pacerTodayDate),
+        pacerEndDate: nullable(ad.pacerEndDate),
         creativeLink: nullable(ad.creativeLink),
         clientName: nullable(ad.clientName),
       };
@@ -204,7 +210,7 @@ export async function PUT(
     if (!ad.id) continue;
     const before = existingById.get(ad.id);
     if (!before) continue;
-    const adName = ad.name && ad.name.trim() ? ad.name : 'New Ad';
+    const adName = ad.name && ad.name.trim() ? ad.name : 'Untitled Ad';
 
     const assignmentChanges: Array<{
       role: 'owner' | 'designer' | 'account rep';

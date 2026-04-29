@@ -14,7 +14,7 @@ export interface NotificationTypeMeta {
   type: NotificationType;
   label: string;
   description: string;
-  category: 'Meta Ads Pacer';
+  category: 'Meta Ads Planner';
   channel: 'digest' | 'immediate';
   defaultEnabled: boolean;
 }
@@ -26,7 +26,7 @@ export const NOTIFICATION_TYPE_REGISTRY: NotificationTypeMeta[] = [
     type: 'ad_due_soon',
     label: 'Ad due soon',
     description: 'Heads up when an ad is approaching its due date (within 2 days).',
-    category: 'Meta Ads Pacer',
+    category: 'Meta Ads Planner',
     channel: 'digest',
     defaultEnabled: true,
   },
@@ -34,7 +34,7 @@ export const NOTIFICATION_TYPE_REGISTRY: NotificationTypeMeta[] = [
     type: 'ad_overdue',
     label: 'Ad overdue',
     description: 'Alert when an ad has passed its due date and is not yet Live.',
-    category: 'Meta Ads Pacer',
+    category: 'Meta Ads Planner',
     channel: 'digest',
     defaultEnabled: true,
   },
@@ -43,7 +43,7 @@ export const NOTIFICATION_TYPE_REGISTRY: NotificationTypeMeta[] = [
     label: 'Approval stuck pending',
     description:
       'Internal or client approval has been pending for more than 3 days without movement.',
-    category: 'Meta Ads Pacer',
+    category: 'Meta Ads Planner',
     channel: 'digest',
     defaultEnabled: true,
   },
@@ -51,7 +51,7 @@ export const NOTIFICATION_TYPE_REGISTRY: NotificationTypeMeta[] = [
     type: 'status_stuck',
     label: 'Ad in Stuck status',
     description: 'An ad has been in `Stuck` status for more than 2 days.',
-    category: 'Meta Ads Pacer',
+    category: 'Meta Ads Planner',
     channel: 'digest',
     defaultEnabled: true,
   },
@@ -60,7 +60,7 @@ export const NOTIFICATION_TYPE_REGISTRY: NotificationTypeMeta[] = [
     label: 'Pacing off-track',
     description:
       'Mid-flight ad is over-pacing (>110%) or under-pacing (<50%) with time to course-correct.',
-    category: 'Meta Ads Pacer',
+    category: 'Meta Ads Planner',
     channel: 'digest',
     defaultEnabled: true,
   },
@@ -68,7 +68,7 @@ export const NOTIFICATION_TYPE_REGISTRY: NotificationTypeMeta[] = [
     type: 'period_over_allocated',
     label: 'Period over-allocated',
     description: 'Total allocation in a period exceeds the budget goal by more than 5%.',
-    category: 'Meta Ads Pacer',
+    category: 'Meta Ads Planner',
     channel: 'digest',
     defaultEnabled: true,
   },
@@ -76,7 +76,7 @@ export const NOTIFICATION_TYPE_REGISTRY: NotificationTypeMeta[] = [
     type: 'ad_assigned',
     label: 'You were assigned to an ad',
     description: 'You became the owner, designer, or account rep on an ad.',
-    category: 'Meta Ads Pacer',
+    category: 'Meta Ads Planner',
     channel: 'immediate',
     defaultEnabled: true,
   },
@@ -84,7 +84,7 @@ export const NOTIFICATION_TYPE_REGISTRY: NotificationTypeMeta[] = [
     type: 'approval_changed',
     label: 'Approval status changed',
     description: 'Account rep or client approval flipped on an ad you own or design.',
-    category: 'Meta Ads Pacer',
+    category: 'Meta Ads Planner',
     channel: 'immediate',
     defaultEnabled: true,
   },

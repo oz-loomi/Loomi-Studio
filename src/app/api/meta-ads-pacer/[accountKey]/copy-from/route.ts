@@ -11,19 +11,47 @@ import {
 interface CopyFromBody {
   from?: string;
   to?: string;
+  /** When present, only copies these ad IDs from the source period. */
+  adIds?: string[];
+}
+
+/**
+ * Shift an ISO date (YYYY-MM-DD) to the equivalent day in `toPeriod` (YYYY-MM).
+ * Days that don't exist in the target month (e.g. Jan 31 → Feb) clamp to the
+ * last day of the target month. Returns null if input is malformed.
+ */
+function shiftDate(iso: string | null, toPeriod: string): string | null {
+  if (!iso) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const [, , dayStr] = iso.split('-');
+  const day = Number(dayStr);
+  if (!day) return null;
+
+  const [ty, tm] = toPeriod.split('-').map(Number);
+  if (!ty || !tm) return null;
+
+  const lastDayOfTarget = new Date(ty, tm, 0).getDate();
+  const clampedDay = Math.min(day, lastDayOfTarget);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${ty}-${pad(tm)}-${pad(clampedDay)}`;
 }
 
 /**
  * Duplicate ads from one period into another.
  *
- * Carries over: name, owner, designer, account rep, action needed,
- * recurring, co-op, budget type, budget source, creative link.
+ * Per-field handling for the copy:
+ *  - Preserved as-is: name, owner, designer, account rep, action needed,
+ *    recurring, co-op, budget type, budget source, creative link, client name,
+ *    design status, design due date.
+ *  - Date-shifted to the equivalent day of the target month: flightStart,
+ *    flightEnd, liveDate, creativeDueDate, dueDate.
+ *  - Reset to defaults: adStatus ("Working on it"), internalApproval,
+ *    clientApproval, dateCompleted, allocation, pacerActual, pacerDailyBudget,
+ *    pacerTodayDate, pacerEndDate.
+ *  - Dropped: design notes, activity log.
  *
- * Resets (per user request — budgets and timing change month over month):
- * allocation, flight dates, live date, due date, status, design status,
- * approvals, date completed.
- *
- * Drops: design notes, activity log, pacer actuals, pacer daily budget.
+ * Optionally accepts `adIds` to restrict the copy to a subset of source ads;
+ * if omitted, copies every ad in the source period.
  */
 export async function POST(
   req: NextRequest,
@@ -40,6 +68,9 @@ export async function POST(
   const body = (await req.json()) as CopyFromBody;
   const from = typeof body.from === 'string' ? body.from : '';
   const to = typeof body.to === 'string' ? body.to : '';
+  const adIds = Array.isArray(body.adIds)
+    ? body.adIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : null;
   if (!isValidPeriod(from) || !isValidPeriod(to)) {
     return NextResponse.json(
       { error: 'Both from and to must be YYYY-MM strings' },
@@ -57,7 +88,11 @@ export async function POST(
 
   await prisma.$transaction(async (tx) => {
     const sourceAds = await tx.metaAdsPacerAd.findMany({
-      where: { planId: plan.id, period: from },
+      where: {
+        planId: plan.id,
+        period: from,
+        ...(adIds && adIds.length > 0 ? { id: { in: adIds } } : {}),
+      },
       orderBy: { position: 'asc' },
     });
     if (sourceAds.length === 0) return;
@@ -74,6 +109,7 @@ export async function POST(
           planId: plan.id,
           position: existing + i,
           period: to,
+          // Preserved
           name: src.name,
           ownerUserId: src.ownerUserId,
           designerUserId: src.designerUserId,
@@ -85,20 +121,23 @@ export async function POST(
           budgetSource: src.budgetSource,
           creativeLink: src.creativeLink,
           clientName: src.clientName,
+          designStatus: src.designStatus,
+          // Date-shifted to the target month
+          flightStart: shiftDate(src.flightStart, to),
+          flightEnd: shiftDate(src.flightEnd, to),
+          liveDate: shiftDate(src.liveDate, to),
+          creativeDueDate: shiftDate(src.creativeDueDate, to),
+          dueDate: shiftDate(src.dueDate, to),
           // Reset
-          allocation: null,
-          flightStart: null,
-          flightEnd: null,
-          liveDate: null,
-          creativeDueDate: null,
-          dueDate: null,
           dateCompleted: null,
-          adStatus: 'In Draft',
-          designStatus: 'Not Started',
+          adStatus: 'Working on it',
           internalApproval: 'Pending Approval',
           clientApproval: 'Pending Approval',
+          allocation: null,
           pacerActual: null,
           pacerDailyBudget: null,
+          pacerTodayDate: null,
+          pacerEndDate: null,
         },
       });
     }

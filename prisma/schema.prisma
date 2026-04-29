@@ -618,7 +618,7 @@ model MetaAdsPacerAd {
   plan     MetaAdsPacerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
   position Int              @default(0)
 
-  name String @default("New Ad")
+  name String @default("")
 
   // Assignments
   ownerUserId      String?
@@ -655,6 +655,11 @@ model MetaAdsPacerAd {
   allocation       String?
   pacerActual      String?
   pacerDailyBudget String?
+
+  // Pacer-only date scoping: lets the user adjust "today" and "end" per ad
+  // without affecting the Ad Planner flight dates.
+  pacerTodayDate String?
+  pacerEndDate   String?
 
   // Other
   creativeLink String?

@@ -33,11 +33,21 @@ import {
   PhotoIcon,
   DocumentIcon,
   DocumentDuplicateIcon,
+  ArrowTopRightOnSquareIcon,
+  Bars3Icon,
+  Squares2X2Icon,
+  PencilSquareIcon,
+  CheckIcon,
 } from '@heroicons/react/24/outline';
 import { useSession } from 'next-auth/react';
 import { AdminOnly } from '@/components/route-guard';
 import { useAccount } from '@/contexts/account-context';
 import { useUnsavedChanges } from '@/contexts/unsaved-changes-context';
+import {
+  DatePicker,
+  toIso as datePickerToIso,
+  type DatePreset,
+} from '@/components/ui/date-picker';
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 const AD_STATUSES = [
@@ -154,6 +164,8 @@ interface PacerAd {
   allocation: string | null;
   pacerActual: string | null;
   pacerDailyBudget: string | null;
+  pacerTodayDate: string | null;
+  pacerEndDate: string | null;
   creativeLink: string | null;
   clientName: string | null;
   designNotes: DesignNote[];
@@ -287,7 +299,7 @@ function makeAd(position: number, period: string): PacerAd {
   return {
     id: newAdId(),
     position,
-    name: 'New Ad',
+    name: '',
     period,
     ownerUserId: null,
     designerUserId: null,
@@ -303,13 +315,15 @@ function makeAd(position: number, period: string): PacerAd {
     creativeDueDate: null,
     dueDate: null,
     dateCompleted: null,
-    adStatus: 'In Draft',
+    adStatus: 'Working on it',
     designStatus: 'Not Started',
     internalApproval: 'Pending Approval',
     clientApproval: 'Pending Approval',
     allocation: null,
     pacerActual: null,
     pacerDailyBudget: null,
+    pacerTodayDate: null,
+    pacerEndDate: null,
     creativeLink: null,
     clientName: null,
     designNotes: [],
@@ -356,11 +370,50 @@ function fmtPeriodShort(period: string): string {
   });
 }
 
+/**
+ * Flight-date presets scoped to the ad's planning period (YYYY-MM).
+ * Lets the user one-click "fill the whole month" instead of clicking through
+ * the calendar — the original feature request that motivated the picker.
+ */
+function flightDatePresets(period: string): DatePreset[] {
+  if (!isValidPeriod(period)) return [];
+  const [y, m] = period.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const firstIso = `${y}-${pad(m)}-01`;
+  const lastIso = `${y}-${pad(m)}-${pad(lastDay)}`;
+  const midIso = `${y}-${pad(m)}-${pad(Math.min(14, lastDay))}`;
+  return [
+    {
+      label: 'Full month',
+      range: () => ({ start: firstIso, end: lastIso }),
+    },
+    {
+      label: 'First half',
+      range: () => ({ start: firstIso, end: midIso }),
+    },
+    {
+      label: 'Second half',
+      range: () => ({
+        start: `${y}-${pad(m)}-${pad(Math.min(15, lastDay))}`,
+        end: lastIso,
+      }),
+    },
+  ];
+}
+
+const TODAY_PRESET: DatePreset = {
+  label: 'Today',
+  single: () => datePickerToIso(new Date()),
+};
+
 // ─── Filter types + helpers ────────────────────────────────────────────────
 interface PlanFilters {
   status: string | null; // adStatus value | null
   source: 'all' | 'base' | 'added';
+  adType: 'all' | 'Daily' | 'Lifetime';
   assigneeUserId: string | null;
+  accountRepUserId: string | null;
   showMine: boolean;
   showOverdue: boolean;
   showNeedsApproval: boolean;
@@ -370,7 +423,9 @@ interface PlanFilters {
 const EMPTY_FILTERS: PlanFilters = {
   status: null,
   source: 'all',
+  adType: 'all',
   assigneeUserId: null,
+  accountRepUserId: null,
   showMine: false,
   showOverdue: false,
   showNeedsApproval: false,
@@ -381,7 +436,9 @@ function filtersAreEmpty(f: PlanFilters): boolean {
   return (
     !f.status &&
     f.source === 'all' &&
+    f.adType === 'all' &&
     !f.assigneeUserId &&
+    !f.accountRepUserId &&
     !f.showMine &&
     !f.showOverdue &&
     !f.showNeedsApproval &&
@@ -407,6 +464,10 @@ function applyFilters(
   return ads.filter((ad) => {
     if (filters.status && ad.adStatus !== filters.status) return false;
     if (filters.source !== 'all' && ad.budgetSource !== filters.source) return false;
+    if (filters.adType !== 'all' && ad.budgetType !== filters.adType) return false;
+    if (filters.accountRepUserId && ad.accountRepUserId !== filters.accountRepUserId) {
+      return false;
+    }
     if (filters.assigneeUserId) {
       const id = filters.assigneeUserId;
       if (
@@ -455,20 +516,37 @@ function DollarInput({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const hasValue = value != null && value !== '';
   return (
     <div className="relative">
       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--muted-foreground)] pointer-events-none">
         $
       </span>
       <input
-        type="number"
-        min="0"
-        step="0.01"
+        type="text"
+        inputMode="decimal"
         value={value ?? ''}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          const v = e.target.value;
+          // Accept only digits + a single decimal point. Reject anything else
+          // so the field stays numeric without using <input type="number">
+          // (which adds the spinner arrows we want gone).
+          if (v === '' || /^\d*\.?\d*$/.test(v)) onChange(v);
+        }}
         placeholder={placeholder ?? '0.00'}
-        className={`${inputClass} pl-6`}
+        className={`${inputClass} pl-6 ${hasValue ? 'pr-8' : ''}`}
       />
+      {hasValue && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          aria-label="Clear amount"
+          title="Clear"
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+        >
+          <XMarkIcon className="w-3.5 h-3.5" />
+        </button>
+      )}
     </div>
   );
 }
@@ -481,45 +559,6 @@ function Field({ label, color, children }: { label: string; color?: string; chil
       </label>
       {children}
     </div>
-  );
-}
-
-function PaceBar({ pct, status }: { pct: number; status: PacingStatus }) {
-  const color =
-    status === 'on-track'
-      ? COLORS.success
-      : status === 'overpacing'
-        ? COLORS.warn
-        : COLORS.error;
-  return (
-    <div className="h-2 rounded-full overflow-hidden bg-[var(--muted)]">
-      <div
-        style={{
-          width: `${Math.min(pct, 100)}%`,
-          background: color,
-          boxShadow: `0 0 8px ${color}80`,
-        }}
-        className="h-full rounded-full transition-[width] duration-500"
-      />
-    </div>
-  );
-}
-
-function PacingBadge({ status }: { status: PacingStatus }) {
-  const map: Record<PacingStatus, [string, string, string]> = {
-    'on-track': ['rgba(34,197,94,0.18)', '#4ade80', 'On Track'],
-    overpacing: ['rgba(245,158,11,0.20)', '#fbbf24', 'Overpacing'],
-    underpacing: ['rgba(239,68,68,0.18)', '#f87171', 'Underpacing'],
-    'no-data': ['var(--muted)', 'var(--muted-foreground)', 'No Data'],
-  };
-  const [bg, color, label] = map[status];
-  return (
-    <span
-      className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
-      style={{ background: bg, color }}
-    >
-      {label}
-    </span>
   );
 }
 
@@ -622,81 +661,41 @@ const STATUS_PRIORITY = [
   'Off',
 ];
 
-/** Period selector — prev/next chevrons, native month input, recent-periods pills. */
+/** Period selector — prev/next chevrons + native month input. */
 function PeriodSelector({
   period,
   onChange,
-  summaries,
 }: {
   period: string;
   onChange: (next: string) => void;
-  summaries: PeriodSummary[];
 }) {
-  // API returns periods newest-first; take the 6 most relevant, then display
-  // them oldest → newest so they read like a timeline.
-  const recent = [...summaries]
-    .slice(0, 6)
-    .sort((a, b) => a.period.localeCompare(b.period));
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <div className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] overflow-hidden">
-        <button
-          type="button"
-          onClick={() => onChange(shiftPeriod(period, -1))}
-          className="px-2 py-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
-          aria-label="Previous month"
-        >
-          <ChevronLeftIcon className="w-4 h-4" />
-        </button>
-        <input
-          type="month"
-          value={period}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v && /^\d{4}-(0[1-9]|1[0-2])$/.test(v)) onChange(v);
-          }}
-          className="bg-transparent text-sm font-semibold text-[var(--foreground)] px-2 py-1.5 focus:outline-none border-x border-[var(--border)] min-w-[140px]"
-        />
-        <button
-          type="button"
-          onClick={() => onChange(shiftPeriod(period, 1))}
-          className="px-2 py-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
-          aria-label="Next month"
-        >
-          <ChevronRightIcon className="w-4 h-4" />
-        </button>
-      </div>
-      {recent.length > 0 && (
-        <div className="flex items-center gap-1 flex-wrap">
-          {recent.map((p) => {
-            const active = p.period === period;
-            return (
-              <button
-                key={p.period}
-                type="button"
-                onClick={() => onChange(p.period)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-full border transition-colors"
-                style={{
-                  borderColor: active ? 'var(--primary)' : 'var(--border)',
-                  background: active ? 'var(--primary)' : 'transparent',
-                  color: active ? 'white' : 'var(--muted-foreground)',
-                }}
-              >
-                {fmtPeriodShort(p.period)}
-                <span
-                  className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full text-[10px] font-semibold"
-                  style={{
-                    background: active ? 'rgba(255,255,255,0.25)' : 'var(--muted)',
-                    color: active ? 'white' : 'var(--muted-foreground)',
-                  }}
-                >
-                  {p.adCount}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+    <div className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+      <button
+        type="button"
+        onClick={() => onChange(shiftPeriod(period, -1))}
+        className="px-2 py-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+        aria-label="Previous month"
+      >
+        <ChevronLeftIcon className="w-4 h-4" />
+      </button>
+      <input
+        type="month"
+        value={period}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v && /^\d{4}-(0[1-9]|1[0-2])$/.test(v)) onChange(v);
+        }}
+        className="bg-transparent text-sm font-semibold text-[var(--foreground)] px-2 py-1.5 focus:outline-none border-x border-[var(--border)] min-w-[140px]"
+      />
+      <button
+        type="button"
+        onClick={() => onChange(shiftPeriod(period, 1))}
+        className="px-2 py-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+        aria-label="Next month"
+      >
+        <ChevronRightIcon className="w-4 h-4" />
+      </button>
     </div>
   );
 }
@@ -718,7 +717,7 @@ function StatusBattery({ ads }: { ads: PacerAd[] }) {
   if (total === 0) {
     return (
       <div className="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
-        <div className="h-2.5 w-32 rounded-full border border-dashed border-[var(--border)]" />
+        <div className="h-2.5 w-64 rounded-full border border-dashed border-[var(--border)]" />
         <span>No ads yet</span>
       </div>
     );
@@ -726,7 +725,7 @@ function StatusBattery({ ads }: { ads: PacerAd[] }) {
 
   return (
     <div className="flex items-center gap-3 min-w-0">
-      <div className="flex flex-col gap-1 min-w-[160px]">
+      <div className="flex flex-col gap-1 min-w-[320px] flex-1">
         <div className="flex h-2.5 w-full rounded-full overflow-hidden bg-[var(--muted)] border border-[var(--border)]">
           {breakdown.map(({ status, count }) => {
             const w = (count / total) * 100;
@@ -741,11 +740,11 @@ function StatusBattery({ ads }: { ads: PacerAd[] }) {
             );
           })}
         </div>
-        <div className="flex items-center gap-2 text-[10px] text-[var(--muted-foreground)] flex-wrap">
+        <div className="flex items-center gap-x-2 gap-y-0.5 text-[10px] text-[var(--muted-foreground)] flex-wrap">
           <span className="font-semibold text-[var(--foreground)]">
             {total} ad{total !== 1 ? 's' : ''}
           </span>
-          {breakdown.slice(0, 3).map(({ status, count }) => {
+          {breakdown.map(({ status, count }) => {
             const color = AD_STATUS_COLORS[status]?.[1] ?? 'var(--muted-foreground)';
             return (
               <span
@@ -760,9 +759,6 @@ function StatusBattery({ ads }: { ads: PacerAd[] }) {
               </span>
             );
           })}
-          {breakdown.length > 3 && (
-            <span>+{breakdown.length - 3} more</span>
-          )}
         </div>
       </div>
     </div>
@@ -918,7 +914,9 @@ function activeFilterCount(f: PlanFilters): number {
   let n = 0;
   if (f.status) n++;
   if (f.source !== 'all') n++;
+  if (f.adType !== 'all') n++;
   if (f.assigneeUserId) n++;
+  if (f.accountRepUserId) n++;
   if (f.showMine) n++;
   if (f.showOverdue) n++;
   if (f.showNeedsApproval) n++;
@@ -1011,10 +1009,16 @@ function FilterStatus({
   );
 }
 
-/** Filter sidebar — slides in from the right, mirrors dashboard pattern. */
+/**
+ * Filter sidebar — inline right-rail (FlowFilterSidebar pattern). Pass
+ * `inline` so the parent grid lays it out alongside content rather than
+ * over it; `className` controls open/closed slide animation.
+ */
 function MetaAdsPacerFilterSidebar({
   open,
   onClose,
+  inline = false,
+  className = '',
   filters,
   onChange,
   users,
@@ -1023,6 +1027,8 @@ function MetaAdsPacerFilterSidebar({
 }: {
   open: boolean;
   onClose: () => void;
+  inline?: boolean;
+  className?: string;
   filters: PlanFilters;
   onChange: (next: PlanFilters) => void;
   users: DirectoryUser[];
@@ -1030,13 +1036,13 @@ function MetaAdsPacerFilterSidebar({
   currentUserId: string | null;
 }) {
   useEffect(() => {
-    if (!open) return;
+    if (inline || !open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [inline, open, onClose]);
 
   const counts = useMemo(() => {
     const mine = currentUserId
@@ -1057,21 +1063,32 @@ function MetaAdsPacerFilterSidebar({
     return { mine, overdue, needsApproval, active };
   }, [ads, currentUserId]);
 
-  if (!open) return null;
-  if (typeof document === 'undefined') return null;
+  // Account-rep candidates = users actually assigned to ads in this plan.
+  const accountRepUsers = useMemo(() => {
+    const repIds = new Set(
+      ads.map((a) => a.accountRepUserId).filter((id): id is string => !!id),
+    );
+    return users.filter((u) => repIds.has(u.id));
+  }, [users, ads]);
+
+  // Always render in inline mode so the grid layout can animate it; in
+  // overlay mode we keep the previous "render only when open" behavior.
+  if (!inline && !open) return null;
+  if (!inline && typeof document === 'undefined') return null;
   const active = activeFilterCount(filters);
   const sidebarInputClass =
     'w-full px-3 py-2 text-sm rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 text-[var(--sidebar-foreground)] focus:outline-none focus:border-[var(--primary)]/60 focus:ring-1 focus:ring-[var(--primary)]/30';
   const sectionLabelClass =
     'text-[11px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted-foreground)]';
 
-  return createPortal(
-    <div className="fixed inset-0 z-[120]">
-      <div
-        className="absolute inset-0 bg-black/55 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <aside className="glass-panel glass-panel-strong fixed right-3 top-3 bottom-3 w-[360px] rounded-2xl flex flex-col overflow-hidden">
+  const panel = (
+    <aside
+      className={
+        inline
+          ? `rounded-2xl text-[var(--sidebar-foreground)] flex flex-col overflow-hidden ${className}`.trim()
+          : 'glass-panel glass-panel-strong fixed right-3 top-3 bottom-3 w-[360px] rounded-2xl flex flex-col overflow-hidden'
+      }
+    >
         <div className="p-5 border-b border-[var(--sidebar-border-soft)] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FunnelIcon className="w-5 h-5 text-black dark:text-[var(--primary)]" />
@@ -1193,6 +1210,76 @@ function MetaAdsPacerFilterSidebar({
             </div>
           </section>
 
+          {/* Ad type */}
+          <section className="space-y-2.5">
+            <p className={sectionLabelClass}>Ad type</p>
+            <div className="flex rounded-lg border border-[var(--sidebar-border-soft)] bg-[var(--sidebar-input)]/60 overflow-hidden">
+              {(['all', 'Daily', 'Lifetime'] as const).map((t) => {
+                const isActive = filters.adType === t;
+                const accent =
+                  t === 'Daily'
+                    ? COLORS.daily
+                    : t === 'Lifetime'
+                      ? COLORS.lifetime
+                      : 'var(--primary)';
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => onChange({ ...filters, adType: t })}
+                    className="flex-1 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors"
+                    style={{
+                      background: isActive ? `${accent}33` : 'transparent',
+                      color: isActive ? accent : 'var(--sidebar-muted-foreground)',
+                      borderRight:
+                        t !== 'Lifetime'
+                          ? '1px solid var(--sidebar-border-soft)'
+                          : 'none',
+                    }}
+                  >
+                    {t === 'all' ? 'All' : t}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Account Rep */}
+          <section className="space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className={sectionLabelClass}>Account Rep</p>
+              {filters.accountRepUserId && (
+                <button
+                  type="button"
+                  onClick={() => onChange({ ...filters, accountRepUserId: null })}
+                  className="text-[10px] font-medium text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] transition-colors"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <select
+              value={filters.accountRepUserId ?? ''}
+              onChange={(e) =>
+                onChange({ ...filters, accountRepUserId: e.target.value || null })
+              }
+              className={sidebarInputClass}
+            >
+              <option value="">Any rep</option>
+              {accountRepUsers.length === 0 ? (
+                <option value="" disabled>
+                  No reps assigned to ads in this period
+                </option>
+              ) : (
+                accountRepUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))
+              )}
+            </select>
+          </section>
+
           {/* Assignee */}
           <section className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
@@ -1237,15 +1324,32 @@ function MetaAdsPacerFilterSidebar({
           >
             Reset all
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-2 text-xs rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors"
-          >
-            Done
-          </button>
+          {inline ? (
+            <span className="text-[10px] text-[var(--sidebar-muted-foreground)] tabular-nums">
+              {active} active
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-2 text-xs rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] transition-colors"
+            >
+              Done
+            </button>
+          )}
         </div>
       </aside>
+  );
+
+  if (inline) return panel;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[120]">
+      <div
+        className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      {panel}
     </div>,
     document.body,
   );
@@ -1338,64 +1442,277 @@ function buildAdCalc(ad: PacerAd): AdCalc {
 
 // ─── Plan Ad Card (rich Monday-mapped editor) ──────────────────────────────
 // ─── Ad Summary Card (compact list view — opens modal on click) ────────────
+/**
+ * Monday-style chat-bubble indicator with a count badge in the bottom-right
+ * corner. Used in both the table and card views to surface updates inline
+ * with the ad name. Clicking it just opens the row (parent's onClick) — the
+ * activity log itself lives inside the editor modal.
+ */
+function UpdatesIndicator({
+  count,
+  hasAttachments,
+}: {
+  count: number;
+  hasAttachments: boolean;
+}) {
+  const hasCount = count > 0;
+  const titleParts: string[] = [];
+  titleParts.push(`${count} update${count === 1 ? '' : 's'}`);
+  if (hasAttachments) titleParts.push('has attachments');
+  return (
+    <span
+      className="relative inline-flex flex-shrink-0 items-center justify-center"
+      title={titleParts.join(' · ')}
+      style={{ width: 28, height: 28 }}
+    >
+      <ChatBubbleLeftRightIcon
+        className="w-6 h-6"
+        style={{
+          color: hasCount ? 'var(--primary)' : 'var(--muted-foreground)',
+          opacity: hasCount ? 1 : 0.55,
+        }}
+      />
+      {hasCount && (
+        <span
+          className="absolute flex items-center justify-center text-[9px] font-bold text-white rounded-full"
+          style={{
+            bottom: -2,
+            right: -4,
+            minWidth: 16,
+            height: 16,
+            padding: '0 4px',
+            background: 'var(--primary)',
+            border: '2px solid var(--background)',
+            lineHeight: 1,
+          }}
+        >
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+      {hasAttachments && (
+        <PaperClipIcon
+          className="absolute w-3 h-3 text-[var(--muted-foreground)]"
+          style={{ top: -2, right: -2 }}
+        />
+      )}
+    </span>
+  );
+}
+
+/**
+ * Drag-and-drop reorder for table rows and cards. Mimics the Monday.com
+ * pattern:
+ *   - whole row is grabbable (not just the handle icon)
+ *   - source row stays at full opacity (no transparent ghost)
+ *   - drop position is shown as a 2px primary-colored insertion line above
+ *     or below the hovered row, depending on cursor Y position
+ *   - browser drag preview is replaced with a clone so it stays solid
+ *
+ * Each consumer spreads `rowProps(id)` onto the draggable element and reads
+ * `draggedId` / `dropTargetId` / `dropEdge` to render visual state.
+ */
+type DropEdge = 'top' | 'bottom';
+
+interface DragReorderApi {
+  draggedId: string | null;
+  dropTargetId: string | null;
+  dropEdge: DropEdge | null;
+  rowProps: (id: string) => {
+    draggable: true;
+    onDragStart: (e: React.DragEvent<HTMLElement>) => void;
+    onDragOver: (e: React.DragEvent<HTMLElement>) => void;
+    onDragEnter: (e: React.DragEvent<HTMLElement>) => void;
+    onDragLeave: (e: React.DragEvent<HTMLElement>) => void;
+    onDrop: (e: React.DragEvent<HTMLElement>) => void;
+    onDragEnd: () => void;
+  };
+}
+
+function useDragReorder(
+  ads: PacerAd[],
+  onReorder: (next: PacerAd[]) => void,
+): DragReorderApi {
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [dropEdge, setDropEdge] = useState<DropEdge | null>(null);
+
+  const reset = () => {
+    setDraggedId(null);
+    setDropTargetId(null);
+    setDropEdge(null);
+  };
+
+  const rowProps = (id: string) => ({
+    draggable: true as const,
+    onDragStart: (e: React.DragEvent<HTMLElement>) => {
+      setDraggedId(id);
+      e.dataTransfer.effectAllowed = 'move';
+      try {
+        e.dataTransfer.setData('text/plain', id);
+      } catch {
+        // setData throws in some sandboxed contexts; safe to ignore.
+      }
+
+      // Replace the browser's translucent ghost with a solid clone of the
+      // row positioned off-screen. This keeps the drag preview opaque,
+      // matching the Monday-style "lifted card" feel.
+      const target = e.currentTarget;
+      try {
+        const rect = target.getBoundingClientRect();
+        const isTr = target.tagName === 'TR';
+        const ghost = target.cloneNode(true) as HTMLElement;
+        let mountTarget: HTMLElement = document.body;
+        if (isTr) {
+          // <tr> doesn't render outside a <table>; wrap it so the clone keeps
+          // its row layout.
+          const wrapper = document.createElement('table');
+          wrapper.style.cssText = `
+            position: absolute; top: -10000px; left: -10000px;
+            width: ${rect.width}px;
+            border-collapse: collapse;
+            background: var(--card, #1a1a1a);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+            border-radius: 8px;
+          `;
+          const tbody = document.createElement('tbody');
+          tbody.appendChild(ghost);
+          wrapper.appendChild(tbody);
+          document.body.appendChild(wrapper);
+          mountTarget = wrapper;
+        } else {
+          ghost.style.cssText += `
+            position: absolute; top: -10000px; left: -10000px;
+            width: ${rect.width}px;
+            background: var(--card, #1a1a1a);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+            opacity: 1;
+          `;
+          document.body.appendChild(ghost);
+          mountTarget = ghost;
+        }
+        e.dataTransfer.setDragImage(
+          mountTarget,
+          e.clientX - rect.left,
+          e.clientY - rect.top,
+        );
+        // Clean up after the browser has snapshotted the element.
+        window.setTimeout(() => mountTarget.remove(), 0);
+      } catch {
+        // setDragImage isn't supported in every browser; falling back to the
+        // default ghost is still functional, just less polished.
+      }
+    },
+    onDragOver: (e: React.DragEvent<HTMLElement>) => {
+      if (!draggedId || draggedId === id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = e.currentTarget.getBoundingClientRect();
+      const midpoint = rect.top + rect.height / 2;
+      const edge: DropEdge = e.clientY < midpoint ? 'top' : 'bottom';
+      if (dropTargetId !== id) setDropTargetId(id);
+      if (dropEdge !== edge) setDropEdge(edge);
+    },
+    onDragEnter: (e: React.DragEvent<HTMLElement>) => {
+      if (!draggedId || draggedId === id) return;
+      e.preventDefault();
+      setDropTargetId(id);
+    },
+    onDragLeave: () => {
+      // Intentionally left blank — onDragEnter on siblings overwrites the
+      // target, and clearing here causes flicker between rows.
+    },
+    onDrop: (e: React.DragEvent<HTMLElement>) => {
+      e.preventDefault();
+      const sourceId = draggedId;
+      const edge = dropEdge;
+      reset();
+      if (!sourceId || sourceId === id) return;
+      const fromIdx = ads.findIndex((a) => a.id === sourceId);
+      const toIdx = ads.findIndex((a) => a.id === id);
+      if (fromIdx === -1 || toIdx === -1) return;
+      const next = [...ads];
+      const [moved] = next.splice(fromIdx, 1);
+      // After splice, indices >= fromIdx shift left by one.
+      const baseTarget = fromIdx < toIdx ? toIdx - 1 : toIdx;
+      const insertAt = edge === 'bottom' ? baseTarget + 1 : baseTarget;
+      next.splice(insertAt, 0, moved);
+      onReorder(next);
+    },
+    onDragEnd: () => {
+      reset();
+    },
+  });
+
+  return { draggedId, dropTargetId, dropEdge, rowProps };
+}
+
 function AdSummaryCard({
   ad,
   index,
-  users,
   onClick,
   onRemove,
   onClone,
+  dragProps,
+  isDragging,
+  isDropTarget,
+  dropEdge,
 }: {
   ad: PacerAd;
   index: number;
-  users: DirectoryUser[];
   onClick: () => void;
   onRemove: (id: string) => void;
   onClone: (id: string) => void;
+  dragProps?: ReturnType<DragReorderApi['rowProps']>;
+  isDragging?: boolean;
+  isDropTarget?: boolean;
+  dropEdge?: DropEdge | null;
 }) {
   const allocation = num(ad.allocation);
   const isLifetime = ad.budgetType === 'Lifetime';
-  const repUser = users.find((u) => u.id === ad.accountRepUserId);
+  const showTopLine = isDropTarget && dropEdge === 'top';
+  const showBottomLine = isDropTarget && dropEdge === 'bottom';
 
   return (
     <div
       onClick={onClick}
-      className="group glass-section-card relative rounded-xl mb-2.5 overflow-hidden cursor-pointer hover:border-[var(--primary)]/40 transition-colors"
+      {...(dragProps ?? {})}
+      className={`group glass-section-card relative rounded-xl mb-2.5 overflow-hidden hover:border-[var(--primary)]/40 transition-colors cursor-grab active:cursor-grabbing ${
+        isDragging ? 'shadow-2xl ring-1 ring-[var(--primary)]/40' : ''
+      }`}
     >
-      {/* Top row: name + key pills */}
+      {showTopLine && (
+        <div
+          className="absolute -top-1 left-0 right-0 h-0.5 rounded-full pointer-events-none z-20"
+          style={{ background: 'var(--primary)' }}
+        />
+      )}
+      {showBottomLine && (
+        <div
+          className="absolute -bottom-1 left-0 right-0 h-0.5 rounded-full pointer-events-none z-20"
+          style={{ background: 'var(--primary)' }}
+        />
+      )}
+      {/* Top row: name + status + due date only */}
       <div className="flex items-center justify-between gap-3 px-4 py-2.5">
         <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+          <span
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--muted-foreground)] cursor-grab active:cursor-grabbing flex-shrink-0"
+            title="Drag to reorder"
+          >
+            <Bars3Icon className="w-4 h-4" />
+          </span>
           <div
             className="w-2 h-2 rounded-sm flex-shrink-0"
             style={{ background: AD_COLORS[index % AD_COLORS.length] }}
           />
-          <span className="text-sm font-bold text-[var(--foreground)] truncate min-w-0 max-w-[260px]">
+          <span className="text-sm font-bold text-[var(--foreground)] truncate min-w-0 max-w-[320px]">
             {ad.name || 'Untitled Ad'}
           </span>
+          <UpdatesIndicator
+            count={ad.activityLog.length}
+            hasAttachments={ad.activityLog.some((e) => e.attachmentKey)}
+          />
           <AdStatusPill status={ad.adStatus} />
-          <span
-            className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-            style={{
-              background: isLifetime
-                ? 'rgba(167,139,250,0.18)'
-                : 'rgba(56,189,248,0.18)',
-              color: isLifetime ? COLORS.lifetime : COLORS.daily,
-            }}
-          >
-            {ad.budgetType}
-          </span>
-          <span
-            className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-            style={{
-              background:
-                ad.budgetSource === 'base'
-                  ? 'rgba(56,189,248,0.18)'
-                  : 'rgba(52,211,153,0.18)',
-              color: ad.budgetSource === 'base' ? COLORS.base : COLORS.added,
-            }}
-          >
-            {ad.budgetSource === 'base' ? 'Base' : 'Added'}
-          </span>
           <DueDateChip ad={ad} />
         </div>
         {/* Hover-only actions */}
@@ -1427,8 +1744,38 @@ function AdSummaryCard({
         </div>
       </div>
 
-      {/* Bottom row: meta info — 5 columns */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 px-4 py-2.5 border-t border-[var(--border)] bg-[var(--muted)]/40">
+      {/* Bottom row: budget tags + meta + approvals */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 px-4 py-2.5 border-t border-[var(--border)] bg-[var(--muted)]/40">
+        <div className="min-w-0">
+          <div className="text-[9px] uppercase tracking-wider text-[var(--muted-foreground)] mb-0.5">
+            Budget
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            <span
+              className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+              style={{
+                background: isLifetime
+                  ? 'rgba(167,139,250,0.18)'
+                  : 'rgba(56,189,248,0.18)',
+                color: isLifetime ? COLORS.lifetime : COLORS.daily,
+              }}
+            >
+              {ad.budgetType}
+            </span>
+            <span
+              className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+              style={{
+                background:
+                  ad.budgetSource === 'base'
+                    ? 'rgba(56,189,248,0.18)'
+                    : 'rgba(52,211,153,0.18)',
+                color: ad.budgetSource === 'base' ? COLORS.base : COLORS.added,
+              }}
+            >
+              {ad.budgetSource === 'base' ? 'Base' : 'Added'}
+            </span>
+          </div>
+        </div>
         <div className="min-w-0">
           <div className="text-[9px] uppercase tracking-wider text-[var(--muted-foreground)] mb-0.5">
             Allocation
@@ -1463,47 +1810,219 @@ function AdSummaryCard({
         </div>
         <div className="min-w-0">
           <div className="text-[9px] uppercase tracking-wider text-[var(--muted-foreground)] mb-0.5">
-            Rep
+            Approvals
           </div>
-          <div className="text-xs text-[var(--foreground)] truncate">
-            {repUser?.name || '—'}
-          </div>
-        </div>
-        <div className="min-w-0">
-          <div className="text-[9px] uppercase tracking-wider text-[var(--muted-foreground)] mb-0.5">
-            Updates
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-[var(--foreground)]">
-            <ChatBubbleLeftRightIcon
-              className="w-3.5 h-3.5"
-              style={{
-                color:
-                  ad.activityLog.length > 0
-                    ? 'var(--primary)'
-                    : 'var(--muted-foreground)',
-              }}
-            />
-            <span
-              className="font-semibold"
-              style={{
-                color:
-                  ad.activityLog.length > 0
-                    ? 'var(--foreground)'
-                    : 'var(--muted-foreground)',
-              }}
-            >
-              {ad.activityLog.length}
-            </span>
-            {ad.activityLog.some((e) => e.attachmentKey) && (
-              <PaperClipIcon
-                className="w-3 h-3 text-[var(--muted-foreground)]"
-                title="Has attachments"
-              />
-            )}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1">
+              <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-4 flex-shrink-0">
+                Rep
+              </span>
+              <ApprovalPill status={ad.internalApproval} />
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-4 flex-shrink-0">
+                Cli
+              </span>
+              <ApprovalPill status={ad.clientApproval} />
+            </div>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Table row variant of AdSummaryCard. Mirrors the same data but in a dense
+ * grid that matches the platform's standard glass-table styling. Uses the
+ * same draggable behavior — drag handle in the leftmost column makes the
+ * affordance obvious for the table layout.
+ */
+function AdSummaryRow({
+  ad,
+  index,
+  onClick,
+  onRemove,
+  onClone,
+  dragProps,
+  isDragging,
+  isDropTarget,
+  dropEdge,
+}: {
+  ad: PacerAd;
+  index: number;
+  onClick: () => void;
+  onRemove: (id: string) => void;
+  onClone: (id: string) => void;
+  dragProps?: ReturnType<DragReorderApi['rowProps']>;
+  isDragging?: boolean;
+  isDropTarget?: boolean;
+  dropEdge?: DropEdge | null;
+}) {
+  const allocation = num(ad.allocation);
+  const isLifetime = ad.budgetType === 'Lifetime';
+  const updatesCount = ad.activityLog.length;
+  const showTopLine = isDropTarget && dropEdge === 'top';
+  const showBottomLine = isDropTarget && dropEdge === 'bottom';
+
+  // Drop indicator for table rows: a 2px primary-colored box-shadow on the
+  // top or bottom edge. Using box-shadow (instead of border) avoids shifting
+  // the row's height during drag.
+  const dropShadow = showTopLine
+    ? 'inset 0 2px 0 0 var(--primary)'
+    : showBottomLine
+      ? 'inset 0 -2px 0 0 var(--primary)'
+      : undefined;
+
+  return (
+    <tr
+      onClick={onClick}
+      {...(dragProps ?? {})}
+      style={{ boxShadow: dropShadow }}
+      className={`group border-b border-[var(--border)] last:border-b-0 transition-colors cursor-grab active:cursor-grabbing hover:bg-[var(--muted)]/50 ${
+        isDragging ? 'bg-[var(--primary)]/10' : ''
+      }`}
+    >
+      {/* Drag handle (visual cue — entire row is grabbable) */}
+      <td className="w-8 px-2 py-2 align-middle">
+        <span
+          className="inline-flex items-center justify-center text-[var(--muted-foreground)]"
+          title="Drag to reorder"
+        >
+          <Bars3Icon className="w-4 h-4" />
+        </span>
+      </td>
+
+      {/* Color + name */}
+      <td className="px-3 py-2 align-middle min-w-[200px]">
+        <div className="flex items-center gap-2 min-w-0">
+          <div
+            className="w-2 h-2 rounded-sm flex-shrink-0"
+            style={{ background: AD_COLORS[index % AD_COLORS.length] }}
+          />
+          <span className="text-sm font-semibold text-[var(--foreground)] truncate">
+            {ad.name || 'Untitled Ad'}
+          </span>
+        </div>
+      </td>
+
+      {/* Updates indicator (own column so icons align across rows; no header) */}
+      <td className="w-10 px-2 py-2 align-middle">
+        <UpdatesIndicator
+          count={updatesCount}
+          hasAttachments={ad.activityLog.some((e) => e.attachmentKey)}
+        />
+      </td>
+
+      {/* Status */}
+      <td className="px-3 py-2 align-middle whitespace-nowrap">
+        <AdStatusPill status={ad.adStatus} />
+      </td>
+
+      {/* Due date chip */}
+      <td className="px-3 py-2 align-middle whitespace-nowrap">
+        <DueDateChip ad={ad} />
+      </td>
+
+      {/* Budget tags */}
+      <td className="px-3 py-2 align-middle whitespace-nowrap">
+        <div className="flex items-center gap-1">
+          <span
+            className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+            style={{
+              background: isLifetime
+                ? 'rgba(167,139,250,0.18)'
+                : 'rgba(56,189,248,0.18)',
+              color: isLifetime ? COLORS.lifetime : COLORS.daily,
+            }}
+          >
+            {ad.budgetType}
+          </span>
+          <span
+            className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+            style={{
+              background:
+                ad.budgetSource === 'base'
+                  ? 'rgba(56,189,248,0.18)'
+                  : 'rgba(52,211,153,0.18)',
+              color: ad.budgetSource === 'base' ? COLORS.base : COLORS.added,
+            }}
+          >
+            {ad.budgetSource === 'base' ? 'Base' : 'Added'}
+          </span>
+        </div>
+      </td>
+
+      {/* Allocation */}
+      <td
+        className="px-3 py-2 align-middle text-xs font-semibold whitespace-nowrap"
+        style={{
+          color: ad.budgetSource === 'base' ? COLORS.base : COLORS.added,
+        }}
+      >
+        {allocation != null ? fmt(allocation) : '—'}
+      </td>
+
+      {/* Flight */}
+      <td className="px-3 py-2 align-middle text-xs text-[var(--foreground)] whitespace-nowrap">
+        {ad.flightStart && ad.flightEnd
+          ? `${fmtDate(ad.flightStart)} – ${fmtDate(ad.flightEnd)}`
+          : '—'}
+      </td>
+
+      {/* Design */}
+      <td className="px-3 py-2 align-middle text-xs text-[var(--foreground)] whitespace-nowrap">
+        {ad.designStatus}
+      </td>
+
+      {/* Approvals */}
+      <td className="px-3 py-2 align-middle whitespace-nowrap">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-1">
+            <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-4 flex-shrink-0">
+              Rep
+            </span>
+            <ApprovalPill status={ad.internalApproval} />
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-4 flex-shrink-0">
+              Cli
+            </span>
+            <ApprovalPill status={ad.clientApproval} />
+          </div>
+        </div>
+      </td>
+
+      {/* Hover-only actions */}
+      <td className="px-3 py-2 align-middle whitespace-nowrap text-right">
+        <span className="inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClone(ad.id);
+            }}
+            className="text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:bg-[var(--muted)] rounded p-1 transition-colors"
+            aria-label="Clone ad"
+            title="Clone ad"
+          >
+            <DocumentDuplicateIcon className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(ad.id);
+            }}
+            className="text-[var(--muted-foreground)] hover:text-red-400 hover:bg-[var(--muted)] rounded p-1 transition-colors"
+            aria-label="Remove ad"
+            title="Remove ad"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </span>
+      </td>
+    </tr>
   );
 }
 
@@ -1547,12 +2066,16 @@ function ActivityAttachmentPreview({ entry }: { entry: ActivityEntry }) {
 function ActivityLogPanel({
   ad,
   users,
+  currentUserId,
   onAdd,
+  onEdit,
   onDelete,
 }: {
   ad: PacerAd;
   users: DirectoryUser[];
+  currentUserId: string | null;
   onAdd: (adId: string, text: string, file: File | null) => Promise<void>;
+  onEdit: (adId: string, entryId: string, text: string) => Promise<void>;
   onDelete: (adId: string, entryId: string) => Promise<void>;
 }) {
   const [text, setText] = useState('');
@@ -1560,6 +2083,11 @@ function ActivityLogPanel({
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Inline edit: tracks which entry id is in edit mode and the working text.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   const userById = useMemo(() => {
     const m = new Map<string, DirectoryUser>();
@@ -1603,61 +2131,161 @@ function ActivityLogPanel({
     }
   };
 
+  const startEdit = (entryId: string, currentText: string) => {
+    setEditingId(entryId);
+    setEditText(currentText);
+    setEditError(null);
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+    setEditError(null);
+  };
+  const saveEdit = async (entryId: string) => {
+    const t = editText.trim();
+    if (!t || editSaving) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await onEdit(ad.id, entryId, t);
+      cancelEdit();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Failed to save edit');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   return (
     <aside className="flex flex-col h-full border-l border-[var(--border)] bg-[var(--muted)]/30 min-h-0">
       <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ChatBubbleLeftRightIcon className="w-4 h-4 text-[var(--primary)]" />
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--foreground)]">
-            Activity Log
+            Updates
           </h3>
         </div>
         <span className="text-[10px] text-[var(--muted-foreground)]">
-          {ad.activityLog.length} entr{ad.activityLog.length === 1 ? 'y' : 'ies'}
+          {ad.activityLog.length}{' '}
+          {ad.activityLog.length === 1 ? 'update' : 'updates'}
         </span>
       </div>
 
       <div className="themed-scrollbar flex-1 overflow-y-auto p-3 space-y-2">
         {ad.activityLog.length === 0 ? (
           <p className="text-[11px] text-[var(--muted-foreground)] text-center py-6">
-            No activity yet. Add a comment, update, or attachment below.
+            No updates yet. Add a comment, update, or attachment below.
           </p>
         ) : (
-          [...ad.activityLog].reverse().map((u) => (
-            <div
-              key={u.id}
-              className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2"
-            >
-              <div className="flex justify-between items-start mb-1 gap-2">
-                <span className="text-[10px] text-[var(--muted-foreground)] truncate">
-                  {new Date(u.createdAt).toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  })}
-                  {u.authorUserId && userById.get(u.authorUserId) && (
-                    <> · {userById.get(u.authorUserId)!.name}</>
+          [...ad.activityLog].reverse().map((u) => {
+            const isMine = !!currentUserId && u.authorUserId === currentUserId;
+            const isEditing = editingId === u.id;
+            return (
+              <div
+                key={u.id}
+                className={`rounded-lg border px-3 py-2 ${
+                  isMine
+                    ? 'border-[var(--primary)]/40 bg-[var(--primary)]/12'
+                    : 'border-[var(--border)] bg-[var(--card)]'
+                }`}
+              >
+                <div className="flex justify-between items-start mb-1 gap-2">
+                  <span
+                    className={`text-[10px] truncate ${
+                      isMine
+                        ? 'text-[var(--primary)] font-semibold'
+                        : 'text-[var(--muted-foreground)]'
+                    }`}
+                  >
+                    {new Date(u.createdAt).toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}
+                    {u.authorUserId && userById.get(u.authorUserId) && (
+                      <>
+                        {' · '}
+                        {isMine ? 'You' : userById.get(u.authorUserId)!.name}
+                      </>
+                    )}
+                  </span>
+                  {!isEditing && (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {isMine && u.text && (
+                        <button
+                          type="button"
+                          onClick={() => startEdit(u.id, u.text)}
+                          className="text-[var(--muted-foreground)] hover:text-[var(--primary)] transition-colors"
+                          aria-label="Edit update"
+                          title="Edit"
+                        >
+                          <PencilSquareIcon className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onDelete(ad.id, u.id)}
+                        className="text-[var(--muted-foreground)] hover:text-red-400 transition-colors"
+                        aria-label="Delete entry"
+                        title="Delete"
+                      >
+                        <TrashIcon className="w-3 h-3" />
+                      </button>
+                    </div>
                   )}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onDelete(ad.id, u.id)}
-                  className="text-[var(--muted-foreground)] hover:text-red-400 transition-colors flex-shrink-0"
-                  aria-label="Delete entry"
-                >
-                  <TrashIcon className="w-3 h-3" />
-                </button>
+                </div>
+                {isEditing ? (
+                  <div className="space-y-1.5">
+                    <textarea
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      rows={3}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                          saveEdit(u.id);
+                        } else if (e.key === 'Escape') {
+                          cancelEdit();
+                        }
+                      }}
+                      className={`${inputClass} resize-none leading-relaxed`}
+                    />
+                    {editError && (
+                      <p className="text-[10px] text-red-400">{editError}</p>
+                    )}
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={cancelEdit}
+                        disabled={editSaving}
+                        className="px-2 py-1 text-[10px] font-medium rounded border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => saveEdit(u.id)}
+                        disabled={editSaving || !editText.trim()}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded border border-[var(--primary)] bg-[var(--primary)]/90 text-white hover:bg-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <CheckIcon className="w-3 h-3" />
+                        {editSaving ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  u.text && (
+                    <p className="m-0 text-xs leading-relaxed text-[var(--foreground)] whitespace-pre-wrap">
+                      {u.text}
+                    </p>
+                  )
+                )}
+                {!isEditing && <ActivityAttachmentPreview entry={u} />}
               </div>
-              {u.text && (
-                <p className="m-0 text-xs leading-relaxed text-[var(--foreground)] whitespace-pre-wrap">
-                  {u.text}
-                </p>
-              )}
-              <ActivityAttachmentPreview entry={u} />
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -1802,7 +2430,7 @@ function PlanAdForm({
               <input
                 value={ad.name}
                 onChange={(e) => onUpdate({ ...ad, name: e.target.value })}
-                placeholder="Ad name…"
+                placeholder="New Ad"
                 className={inputClass}
               />
             </Field>
@@ -1888,42 +2516,38 @@ function PlanAdForm({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-3 max-w-2xl">
             <Field label="Due Date">
               <div className="relative">
-                <input
-                  type="date"
-                  value={ad.dueDate ?? ''}
-                  onChange={(e) =>
-                    onUpdate({ ...ad, dueDate: e.target.value || null })
-                  }
-                  className={inputClass}
+                <DatePicker
+                  value={ad.dueDate}
+                  onChange={(v) => onUpdate({ ...ad, dueDate: v })}
+                  placeholder="Pick a date"
+                  presets={[TODAY_PRESET]}
                 />
                 {ad.dueDate &&
                   ad.flightStart &&
                   ad.dueDate === autoDueDateFromFlightStart(ad.flightStart) && (
                     <span
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold uppercase tracking-wider pointer-events-none"
+                      className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wider"
                       style={{ color: COLORS.daily }}
                     >
-                      ● Auto-set
+                      ● Auto-set from flight start
                     </span>
                   )}
               </div>
             </Field>
             <Field label="Date Completed">
               <div className="relative">
-                <input
-                  type="date"
-                  value={ad.dateCompleted ?? ''}
-                  onChange={(e) =>
-                    onUpdate({ ...ad, dateCompleted: e.target.value || null })
-                  }
-                  className={inputClass}
+                <DatePicker
+                  value={ad.dateCompleted}
+                  onChange={(v) => onUpdate({ ...ad, dateCompleted: v })}
+                  placeholder="Pick a date"
+                  presets={[TODAY_PRESET]}
                 />
                 {ad.dateCompleted && ad.adStatus === 'Live' && (
                   <span
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold uppercase tracking-wider pointer-events-none"
+                    className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wider"
                     style={{ color: COLORS.success }}
                   >
-                    ● Auto-filled
+                    ● Auto-filled when set Live
                   </span>
                 )}
               </div>
@@ -1932,61 +2556,44 @@ function PlanAdForm({
 
           {/* Flight Dates */}
           <Divider icon={<CalendarIcon className="w-3 h-3" />} label="Flight Dates" />
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-3">
-            <Field label="Target Start">
-              <input
-                type="date"
-                value={ad.flightStart ?? ''}
-                onChange={(e) => {
-                  const next = e.target.value || null;
-                  // Auto-recompute the Due Date if it's still the auto value
-                  // (or unset) so manual overrides are preserved.
+          <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr] gap-2.5 mb-3">
+            <Field label="Flight Range (Start – End)">
+              <DatePicker
+                mode="range"
+                value={{ start: ad.flightStart, end: ad.flightEnd }}
+                onChange={(r) => {
+                  const next = r.start;
                   const previousAuto = autoDueDateFromFlightStart(ad.flightStart);
                   const dueDateIsAuto =
                     ad.dueDate == null || ad.dueDate === previousAuto;
                   onUpdate({
                     ...ad,
-                    flightStart: next,
+                    flightStart: r.start,
+                    flightEnd: r.end,
                     dueDate: dueDateIsAuto
                       ? autoDueDateFromFlightStart(next)
                       : ad.dueDate,
                   });
                 }}
-                className={inputClass}
-              />
-            </Field>
-            <Field label="End Date">
-              <input
-                type="date"
-                value={ad.flightEnd ?? ''}
-                onChange={(e) => onUpdate({ ...ad, flightEnd: e.target.value || null })}
-                className={inputClass}
+                placeholder="Click & drag to select flight window"
+                presets={flightDatePresets(ad.period)}
               />
             </Field>
             <Field label="Actual Live Date" color={COLORS.success}>
-              <div className="relative">
-                <input
-                  type="date"
-                  value={ad.liveDate ?? ''}
-                  onChange={(e) =>
-                    onUpdate({ ...ad, liveDate: e.target.value || null })
-                  }
-                  className={inputClass}
-                  style={
-                    ad.liveDate
-                      ? { borderColor: 'rgba(34,197,94,0.4)' }
-                      : undefined
-                  }
-                />
-                {ad.liveDate && ad.flightStart && ad.liveDate > ad.flightStart && (
-                  <span
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold pointer-events-none"
-                    style={{ color: COLORS.warn }}
-                  >
-                    +{calcDays(ad.flightStart, ad.liveDate) - 1}d late
-                  </span>
-                )}
-              </div>
+              <DatePicker
+                value={ad.liveDate}
+                onChange={(v) => onUpdate({ ...ad, liveDate: v })}
+                placeholder="Not yet live"
+                presets={[TODAY_PRESET]}
+              />
+              {ad.liveDate && ad.flightStart && ad.liveDate > ad.flightStart && (
+                <span
+                  className="mt-1 inline-block text-[10px] font-bold"
+                  style={{ color: COLORS.warn }}
+                >
+                  +{calcDays(ad.flightStart, ad.liveDate) - 1}d late
+                </span>
+              )}
             </Field>
             <Field label="Effective Duration">
               <div
@@ -2011,7 +2618,7 @@ function PlanAdForm({
 
           {/* Budget */}
           <Divider icon={<ChartBarIcon className="w-3 h-3" />} label="Budget" />
-          <div className="grid grid-cols-1 md:grid-cols-[auto_auto_1fr] gap-2.5 mb-3 items-end">
+          <div className="flex flex-wrap gap-2.5 mb-3 items-end">
             <Field label="Budget Type">
               <BudgetTypeToggle
                 value={ad.budgetType}
@@ -2024,15 +2631,21 @@ function PlanAdForm({
                 onChange={(v) => onUpdate({ ...ad, budgetSource: v })}
               />
             </Field>
+          </div>
+          <div className="mb-3">
             <Field
               label="Actual Spend Amount"
               color={ad.budgetSource === 'base' ? COLORS.base : COLORS.added}
             >
-              <DollarInput
-                value={ad.allocation}
-                onChange={(v) => onUpdate({ ...ad, allocation: v })}
-                placeholder="0.00"
-              />
+              {/* Sized for ~$999,999.99 — wide enough for 6 digits + cents
+                  without dominating the form like a full-width input. */}
+              <div className="w-[180px]">
+                <DollarInput
+                  value={ad.allocation}
+                  onChange={(v) => onUpdate({ ...ad, allocation: v })}
+                  placeholder="0.00"
+                />
+              </div>
             </Field>
           </div>
 
@@ -2079,13 +2692,11 @@ function PlanAdForm({
               />
             </Field>
             <Field label="Creative Due Date">
-              <input
-                type="date"
-                value={ad.creativeDueDate ?? ''}
-                onChange={(e) =>
-                  onUpdate({ ...ad, creativeDueDate: e.target.value || null })
-                }
-                className={inputClass}
+              <DatePicker
+                value={ad.creativeDueDate}
+                onChange={(v) => onUpdate({ ...ad, creativeDueDate: v })}
+                placeholder="Pick a date"
+                presets={[TODAY_PRESET]}
               />
               {designOverdue && (
                 <div
@@ -2104,14 +2715,28 @@ function PlanAdForm({
           </div>
           <div className="mb-3 max-w-xl">
             <Field label="Creative Link">
-              <input
-                value={ad.creativeLink ?? ''}
-                onChange={(e) =>
-                  onUpdate({ ...ad, creativeLink: e.target.value || null })
-                }
-                placeholder="https://…"
-                className={inputClass}
-              />
+              <div className="relative">
+                <input
+                  value={ad.creativeLink ?? ''}
+                  onChange={(e) =>
+                    onUpdate({ ...ad, creativeLink: e.target.value || null })
+                  }
+                  placeholder="https://…"
+                  className={`${inputClass} ${ad.creativeLink ? 'pr-10' : ''}`}
+                />
+                {ad.creativeLink && (
+                  <a
+                    href={ad.creativeLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Open creative link in new tab"
+                    title="Open in new tab"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[var(--primary)] hover:bg-[var(--muted)] transition-colors"
+                  >
+                    <ArrowTopRightOnSquareIcon className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
             </Field>
           </div>
 
@@ -2202,38 +2827,82 @@ function PlanAdForm({
 }
 
 // ─── Ad Editor Modal — full-screen modal wrapping PlanAdForm ───────────────
+/**
+ * Editor modal with a local draft. Form edits stay in the modal until the
+ * user clicks Save; Cancel/X with no changes closes immediately, with
+ * changes prompts to discard. The parent autosave is paused while this
+ * modal is mounted so debounced PUTs don't fire on transient draft state.
+ *
+ * `mode='create'` means the ad isn't in the plan yet — Save appends it.
+ * `mode='edit'` means it's an existing ad — Save replaces it in place.
+ */
 function AdEditorModal({
-  ad,
+  initialAd,
+  mode,
   users,
-  onChange,
-  onClose,
+  currentUserId,
+  onSave,
+  onCancel,
   onAddActivity,
+  onEditActivity,
   onDeleteActivity,
 }: {
-  ad: PacerAd;
+  initialAd: PacerAd;
+  mode: 'create' | 'edit';
   users: DirectoryUser[];
-  onChange: (ad: PacerAd) => void;
-  onClose: () => void;
+  currentUserId: string | null;
+  onSave: (ad: PacerAd) => void;
+  onCancel: () => void;
   onAddActivity: (adId: string, text: string, file: File | null) => Promise<void>;
+  onEditActivity: (adId: string, entryId: string, text: string) => Promise<void>;
   onDeleteActivity: (adId: string, entryId: string) => Promise<void>;
 }) {
+  const [draft, setDraft] = useState<PacerAd>(initialAd);
+
+  // Reset draft if the parent swaps in a different ad while the modal is
+  // mounted (e.g. opens a different row). Cheap stringify is enough since
+  // PacerAd is plain data with no functions.
+  const initialKey = initialAd.id;
+  useEffect(() => {
+    setDraft(initialAd);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialKey]);
+
+  const isDirty = useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify(initialAd),
+    [draft, initialAd],
+  );
+
+  const tryClose = () => {
+    if (
+      isDirty &&
+      typeof window !== 'undefined' &&
+      !window.confirm('Discard unsaved changes?')
+    ) {
+      return;
+    }
+    onCancel();
+  };
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') tryClose();
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    // tryClose is recreated each render; rebinding is fine and cheap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, initialAd]);
 
   if (typeof document === 'undefined') return null;
 
-  const accentColor = AD_STATUS_COLORS[ad.adStatus]?.[1] ?? 'var(--border)';
+  const accentColor = AD_STATUS_COLORS[draft.adStatus]?.[1] ?? 'var(--border)';
 
   return createPortal(
     <div className="fixed inset-0 z-[120] flex items-stretch justify-center">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={tryClose}
       />
       <div className="glass-modal relative my-6 mx-4 w-full max-w-6xl rounded-2xl flex flex-col overflow-hidden">
         <div
@@ -2246,24 +2915,37 @@ function AdEditorModal({
             <ClipboardDocumentListIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0" />
             <div className="min-w-0">
               <div className="text-sm font-bold text-[var(--foreground)] truncate">
-                {ad.name?.trim() ? ad.name : 'New Ad'}
+                {mode === 'create'
+                  ? 'New Ad'
+                  : draft.name?.trim() || 'Untitled Ad'}
               </div>
               <div className="text-[10px] text-[var(--muted-foreground)]">
-                Edit ad details — autosaved as you type
+                {mode === 'create'
+                  ? 'Cancel discards this ad. Save adds it to the plan.'
+                  : isDirty
+                    ? 'Unsaved changes — Save to commit, Cancel to discard.'
+                    : 'No changes yet.'}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
               type="button"
-              onClick={onClose}
+              onClick={tryClose}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--border)] bg-transparent text-xs font-medium text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave(draft)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white text-xs font-medium hover:bg-[var(--primary)] transition-colors"
             >
               Save
             </button>
             <button
               type="button"
-              onClick={onClose}
+              onClick={tryClose}
               className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
               aria-label="Close"
             >
@@ -2275,14 +2957,27 @@ function AdEditorModal({
         {/* Modal body — form on the left, activity log on the right */}
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[1fr_340px]">
           <div className="themed-scrollbar overflow-y-auto p-5">
-            <PlanAdForm ad={ad} users={users} onUpdate={onChange} />
+            <PlanAdForm ad={draft} users={users} onUpdate={setDraft} />
           </div>
-          <ActivityLogPanel
-            ad={ad}
-            users={users}
-            onAdd={onAddActivity}
-            onDelete={onDeleteActivity}
-          />
+          {mode === 'create' ? (
+            <aside className="flex flex-col h-full border-l border-[var(--border)] bg-[var(--muted)]/30 p-6 text-center justify-center">
+              <ChatBubbleLeftRightIcon className="w-8 h-8 text-[var(--muted-foreground)] mx-auto mb-2" />
+              <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">
+                Activity log unlocks once the ad is saved. Click <b>Save</b> to add
+                this ad to the plan, then re-open it to leave comments or
+                attachments.
+              </p>
+            </aside>
+          ) : (
+            <ActivityLogPanel
+              ad={draft}
+              users={users}
+              currentUserId={currentUserId}
+              onAdd={onAddActivity}
+              onEdit={onEditActivity}
+              onDelete={onDeleteActivity}
+            />
+          )}
         </div>
       </div>
     </div>,
@@ -2405,7 +3100,7 @@ function BudgetPanel({
         />
         {goal != null && (
           <MetricBox
-            label="Remaining (Gross)"
+            label="Remaining Budget"
             value={fmt(Math.abs(remaining ?? 0))}
             sub={remaining != null && remaining < 0 ? 'over budget' : 'unallocated'}
             color={remaining != null && remaining < 0 ? COLORS.error : COLORS.success}
@@ -2430,11 +3125,13 @@ function BudgetPanel({
           <div className="h-2 rounded-full overflow-hidden bg-[var(--muted)] flex mb-2">
             {srcAds.map((a, i) => {
               const alloc = num(a.allocation) ?? 0;
-              const w = goal > 0 ? Math.min((alloc / (goal * MARKUP)) * 100, 100) : 0;
+              const budgetCap = goal * MARKUP;
+              const w = budgetCap > 0 ? Math.min((alloc / budgetCap) * 100, 100) : 0;
+              const pct = budgetCap > 0 ? (alloc / budgetCap) * 100 : 0;
               return w > 0 ? (
                 <div
                   key={a.id}
-                  title={`${a.name}: ${fmt(alloc)}`}
+                  title={`${a.name || 'Untitled Ad'}: ${fmt(alloc)} (${pct.toFixed(1)}% of budget)`}
                   className="h-full transition-[width] duration-500"
                   style={{
                     width: `${w}%`,
@@ -2448,21 +3145,30 @@ function BudgetPanel({
           <div className="flex flex-wrap gap-2">
             {srcAds
               .filter((a) => (num(a.allocation) ?? 0) > 0)
-              .map((a, i) => (
-                <div
-                  key={a.id}
-                  className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]"
-                >
+              .map((a, i) => {
+                const alloc = num(a.allocation) ?? 0;
+                const budgetCap = goal * MARKUP;
+                const pct = budgetCap > 0 ? (alloc / budgetCap) * 100 : 0;
+                return (
                   <div
-                    className="w-1.5 h-1.5 rounded-sm flex-shrink-0"
-                    style={{ background: AD_COLORS[i % AD_COLORS.length] }}
-                  />
-                  <span className="max-w-[110px] overflow-hidden text-ellipsis whitespace-nowrap text-[var(--foreground)]">
-                    {a.name}
-                  </span>
-                  <span>{fmt(num(a.allocation) ?? 0)}</span>
-                </div>
-              ))}
+                    key={a.id}
+                    className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]"
+                    title={`${pct.toFixed(1)}% of budget`}
+                  >
+                    <div
+                      className="w-1.5 h-1.5 rounded-sm flex-shrink-0"
+                      style={{ background: AD_COLORS[i % AD_COLORS.length] }}
+                    />
+                    <span className="max-w-[110px] overflow-hidden text-ellipsis whitespace-nowrap text-[var(--foreground)]">
+                      {a.name || 'Untitled Ad'}
+                    </span>
+                    <span>{fmt(alloc)}</span>
+                    <span className="text-[var(--muted-foreground)]">
+                      ({pct.toFixed(1)}%)
+                    </span>
+                  </div>
+                );
+              })}
           </div>
         </>
       )}
@@ -2541,6 +3247,7 @@ function TotalAllocationHeader({ plan }: { plan: PacerPlan }) {
         {baseW > 0 && (
           <div
             className="h-full transition-[width] duration-500"
+            title={`Base: ${fmt(totalBase)} (${baseW.toFixed(1)}% of total allocation)`}
             style={{
               width: `${baseW}%`,
               background: `linear-gradient(90deg, rgba(56,189,248,0.4), ${COLORS.base})`,
@@ -2551,6 +3258,7 @@ function TotalAllocationHeader({ plan }: { plan: PacerPlan }) {
         {addedW > 0 && (
           <div
             className="h-full transition-[width] duration-500"
+            title={`Added: ${fmt(totalAdded)} (${addedW.toFixed(1)}% of total allocation)`}
             style={{
               width: `${addedW}%`,
               background: `linear-gradient(90deg, rgba(52,211,153,0.4), ${COLORS.added})`,
@@ -2605,7 +3313,7 @@ function EmptyPeriodState({
   period: string;
   periodSummaries: PeriodSummary[];
   onAddAd: () => void;
-  onCopyFrom: (from: string) => void;
+  onCopyFrom: (from: string, adIds?: string[]) => Promise<void> | void;
 }) {
   const sources = periodSummaries.filter((p) => p.period !== period && p.adCount > 0);
   const [selected, setSelected] = useState<string>(sources[0]?.period ?? '');
@@ -2656,7 +3364,346 @@ function EmptyPeriodState({
   );
 }
 
+// ─── Add Plan dropdown + Copy modal ────────────────────────────────────────
+function AddPlanButton({
+  onCreateNew,
+  onOpenCopy,
+  hasOtherPeriods,
+}: {
+  onCreateNew: () => void;
+  onOpenCopy: () => void;
+  hasOtherPeriods: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onMouseDown(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white px-3 py-1.5 text-xs font-medium hover:bg-[var(--primary)] transition-colors"
+      >
+        <PlusIcon className="w-3.5 h-3.5" />
+        Add Plan
+        <ChevronDownIcon className="w-3 h-3" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 w-64 rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-2xl py-1 z-30"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onCreateNew();
+            }}
+            className="w-full flex items-start gap-2 px-3 py-2 text-left hover:bg-[var(--muted)] transition-colors"
+          >
+            <PlusIcon className="w-4 h-4 text-[var(--primary)] flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="text-xs font-semibold text-[var(--foreground)]">
+                Create a new plan
+              </div>
+              <div className="text-[10px] text-[var(--muted-foreground)]">
+                Start with a blank ad
+              </div>
+            </div>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!hasOtherPeriods}
+            onClick={() => {
+              setOpen(false);
+              onOpenCopy();
+            }}
+            className="w-full flex items-start gap-2 px-3 py-2 text-left hover:bg-[var(--muted)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
+            <DocumentDuplicateIcon className="w-4 h-4 text-[var(--primary)] flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="text-xs font-semibold text-[var(--foreground)]">
+                Copy plan from another month
+              </div>
+              <div className="text-[10px] text-[var(--muted-foreground)]">
+                {hasOtherPeriods
+                  ? 'Pick ads to bring into this month'
+                  : 'No other months with ads yet'}
+              </div>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface CopySourceAd {
+  id: string;
+  name: string;
+  budgetType: string;
+  budgetSource: string;
+  flightStart: string | null;
+  flightEnd: string | null;
+}
+
+function CopyPlanModal({
+  accountKey,
+  targetPeriod,
+  periods,
+  onClose,
+  onCopy,
+}: {
+  accountKey: string;
+  targetPeriod: string;
+  periods: PeriodSummary[];
+  onClose: () => void;
+  onCopy: (from: string, adIds: string[]) => Promise<void>;
+}) {
+  const sources = useMemo(
+    () => periods.filter((p) => p.period !== targetPeriod && p.adCount > 0),
+    [periods, targetPeriod],
+  );
+  const [sourcePeriod, setSourcePeriod] = useState<string>(
+    sources[0]?.period ?? '',
+  );
+  const [ads, setAds] = useState<CopySourceAd[] | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [copying, setCopying] = useState(false);
+
+  useEffect(() => {
+    if (!sourcePeriod) {
+      setAds([]);
+      return;
+    }
+    let cancelled = false;
+    setAds(null);
+    setLoadError(null);
+    setSelected(new Set());
+    fetch(`/api/meta-ads-pacer/${accountKey}?period=${sourcePeriod}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<{ ads: CopySourceAd[] }>;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const list = Array.isArray(data?.ads) ? data.ads : [];
+        setAds(list);
+        // Pre-select all so the common "copy everything" path is one click
+        setSelected(new Set(list.map((a) => a.id)));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : 'Failed to load');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountKey, sourcePeriod]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const allSelected = ads != null && ads.length > 0 && selected.size === ads.length;
+
+  const toggleAll = () => {
+    if (!ads) return;
+    setSelected(allSelected ? new Set() : new Set(ads.map((a) => a.id)));
+  };
+  const toggleOne = (id: string) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const handleCopy = async () => {
+    if (selected.size === 0 || !sourcePeriod) return;
+    setCopying(true);
+    try {
+      await onCopy(sourcePeriod, Array.from(selected));
+      onClose();
+    } catch {
+      // error surfaced via parent's save status
+      setCopying(false);
+    }
+  };
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:pt-16 bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="glass-modal w-full max-w-lg rounded-xl p-5"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-base font-bold text-[var(--foreground)]">
+              Copy ads to {fmtPeriodLong(targetPeriod)}
+            </h3>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+              Dates shift to the equivalent day of the target month. Statuses,
+              spend, and approval pickers reset; design info, name, and rep are
+              preserved.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+            aria-label="Close"
+          >
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="mb-3">
+          <label className="block text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-1.5">
+            Copy from
+          </label>
+          <select
+            value={sourcePeriod}
+            onChange={(e) => setSourcePeriod(e.target.value)}
+            className={inputClass}
+          >
+            {sources.map((p) => (
+              <option key={p.period} value={p.period}>
+                {fmtPeriodLong(p.period)} — {p.adCount} ad
+                {p.adCount !== 1 ? 's' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+              Pick ads to copy
+            </span>
+            {ads && ads.length > 0 && (
+              <button
+                type="button"
+                onClick={toggleAll}
+                className="text-[11px] text-[var(--primary)] hover:underline"
+              >
+                {allSelected ? 'Deselect all' : 'Select all'}
+              </button>
+            )}
+          </div>
+          <div className="max-h-72 overflow-y-auto rounded-lg border border-[var(--border)] divide-y divide-[var(--border)]">
+            {loadError ? (
+              <div className="px-3 py-6 text-center text-xs text-red-400">
+                {loadError}
+              </div>
+            ) : ads == null ? (
+              <div className="px-3 py-6 text-center text-xs text-[var(--muted-foreground)]">
+                Loading ads…
+              </div>
+            ) : ads.length === 0 ? (
+              <div className="px-3 py-6 text-center text-xs text-[var(--muted-foreground)]">
+                That month has no ads.
+              </div>
+            ) : (
+              ads.map((ad) => {
+                const checked = selected.has(ad.id);
+                return (
+                  <label
+                    key={ad.id}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-[var(--muted)]/40 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleOne(ad.id)}
+                      className="w-4 h-4 accent-[var(--primary)]"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-[var(--foreground)] truncate">
+                        {ad.name || 'Untitled Ad'}
+                      </div>
+                      <div className="text-[10px] text-[var(--muted-foreground)] flex items-center gap-2">
+                        <span>{ad.budgetType}</span>
+                        <span>·</span>
+                        <span>
+                          {ad.budgetSource === 'base' ? 'Base' : 'Added'}
+                        </span>
+                        {ad.flightStart && ad.flightEnd && (
+                          <>
+                            <span>·</span>
+                            <span>
+                              {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleCopy}
+            disabled={selected.size === 0 || copying}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--primary)] text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[var(--primary)]/90 transition-colors"
+          >
+            {copying
+              ? 'Copying…'
+              : `Copy ${selected.size} ad${selected.size === 1 ? '' : 's'}`}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ─── Ad Planner panel ──────────────────────────────────────────────────────
+type EditorState =
+  | { mode: 'create'; draft: PacerAd }
+  | { mode: 'edit'; adId: string; original: PacerAd };
+
 function AdPlannerPanel({
   plan,
   period,
@@ -2667,7 +3714,9 @@ function AdPlannerPanel({
   periodSummaries,
   onChange,
   onCopyFrom,
+  onModalOpenChange,
   onAddActivity,
+  onEditActivity,
   onDeleteActivity,
 }: {
   plan: PacerPlan;
@@ -2678,22 +3727,49 @@ function AdPlannerPanel({
   currentUserId: string | null;
   periodSummaries: PeriodSummary[];
   onChange: (p: PacerPlan) => void;
-  onCopyFrom: (from: string) => void;
+  onCopyFrom: (from: string, adIds?: string[]) => Promise<void> | void;
+  onModalOpenChange?: (open: boolean) => void;
   onAddActivity: (adId: string, text: string, file: File | null) => Promise<void>;
+  onEditActivity: (adId: string, entryId: string, text: string) => Promise<void>;
   onDeleteActivity: (adId: string, entryId: string) => Promise<void>;
 }) {
-  const [editingAdId, setEditingAdId] = useState<string | null>(null);
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [showCopyModal, setShowCopyModal] = useState(false);
 
-  const updateAd = (u: PacerAd) =>
-    onChange({ ...plan, ads: plan.ads.map((a) => (a.id === u.id ? u : a)) });
+  // View mode (table vs card). Default to table; persist per-browser so the
+  // user's choice sticks across visits.
+  const [viewMode, setViewMode] = useState<'table' | 'card'>(() => {
+    if (typeof window === 'undefined') return 'table';
+    const saved = window.localStorage.getItem('mapacer:viewMode');
+    return saved === 'card' ? 'card' : 'table';
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('mapacer:viewMode', viewMode);
+  }, [viewMode]);
+
+  const handleReorder = (nextAds: PacerAd[]) => {
+    onChange({ ...plan, ads: nextAds });
+  };
+  const drag = useDragReorder(plan.ads, handleReorder);
+
+  // Notify parent so it can pause autosave while a modal owns the in-flight edits.
+  useEffect(() => {
+    onModalOpenChange?.(editor !== null);
+  }, [editor, onModalOpenChange]);
+
   const removeAd = (id: string) => {
     onChange({ ...plan, ads: plan.ads.filter((a) => a.id !== id) });
-    if (editingAdId === id) setEditingAdId(null);
+    if (editor?.mode === 'edit' && editor.adId === id) setEditor(null);
   };
-  const addAd = () => {
+  const openCreate = () => {
     const fresh = makeAd(plan.ads.length, period);
-    onChange({ ...plan, ads: [...plan.ads, fresh] });
-    setEditingAdId(fresh.id);
+    setEditor({ mode: 'create', draft: fresh });
+  };
+  const openEdit = (id: string) => {
+    const original = plan.ads.find((a) => a.id === id);
+    if (!original) return;
+    setEditor({ mode: 'edit', adId: id, original });
   };
   const cloneAd = (id: string) => {
     const src = plan.ads.find((a) => a.id === id);
@@ -2711,14 +3787,33 @@ function AdPlannerPanel({
     onChange({ ...plan, ads: [...plan.ads, cloned] });
   };
 
+  const handleSave = (draft: PacerAd) => {
+    if (!editor) return;
+    if (editor.mode === 'create') {
+      onChange({ ...plan, ads: [...plan.ads, draft] });
+    } else {
+      onChange({
+        ...plan,
+        ads: plan.ads.map((a) => (a.id === editor.adId ? draft : a)),
+      });
+    }
+    setEditor(null);
+  };
+
   const visibleAds = useMemo(
     () => applyFilters(plan.ads, filters, currentUserId),
     [plan.ads, filters, currentUserId],
   );
 
-  const editingAd = editingAdId
-    ? plan.ads.find((a) => a.id === editingAdId) ?? null
-    : null;
+  const editorInitialAd: PacerAd | null =
+    editor?.mode === 'create' ? editor.draft : editor?.original ?? null;
+
+  const otherPeriodsWithAds = useMemo(
+    () =>
+      periodSummaries.filter((p) => p.period !== period && p.adCount > 0).length >
+      0,
+    [periodSummaries, period],
+  );
 
   return (
     <div>
@@ -2730,14 +3825,43 @@ function AdPlannerPanel({
             visibleAds.length !== plan.ads.length ? ` of ${plan.ads.length}` : ''
           } ad${plan.ads.length !== 1 ? 's' : ''})`}
         </h2>
-        <button
-          type="button"
-          onClick={addAd}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)] bg-[var(--primary)]/90 text-white px-3 py-1.5 text-xs font-medium hover:bg-[var(--primary)] transition-colors"
-        >
-          <PlusIcon className="w-3.5 h-3.5" />
-          Add Plan
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-0.5">
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              aria-pressed={viewMode === 'table'}
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                viewMode === 'table'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+              title="Table view"
+            >
+              <Bars3Icon className="w-3.5 h-3.5" />
+              Table
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('card')}
+              aria-pressed={viewMode === 'card'}
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                viewMode === 'card'
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+              }`}
+              title="Card view"
+            >
+              <Squares2X2Icon className="w-3.5 h-3.5" />
+              Cards
+            </button>
+          </div>
+          <AddPlanButton
+            onCreateNew={openCreate}
+            onOpenCopy={() => setShowCopyModal(true)}
+            hasOtherPeriods={otherPeriodsWithAds}
+          />
+        </div>
       </div>
 
       {plan.ads.length > 0 && (
@@ -2753,12 +3877,71 @@ function AdPlannerPanel({
         <EmptyPeriodState
           period={period}
           periodSummaries={periodSummaries}
-          onAddAd={addAd}
+          onAddAd={openCreate}
           onCopyFrom={onCopyFrom}
         />
       ) : visibleAds.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] py-10 px-6 text-center text-sm text-[var(--muted-foreground)] mb-3">
           No ads match the current filters.
+        </div>
+      ) : viewMode === 'table' ? (
+        <div className="glass-table">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1000px]">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-[var(--muted)] border-b border-[var(--border)]">
+                  <th className="w-8 px-2 py-2"></th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                    Ad
+                  </th>
+                  {/* Updates icon column — no header, just kept aligned */}
+                  <th className="w-10 px-2 py-2"></th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                    Due
+                  </th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                    Budget
+                  </th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                    Allocation
+                  </th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                    Flight
+                  </th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                    Design
+                  </th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wider">
+                    Approvals
+                  </th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleAds.map((ad) => (
+                  <AdSummaryRow
+                    key={ad.id}
+                    ad={ad}
+                    index={plan.ads.findIndex((a) => a.id === ad.id)}
+                    onClick={() => openEdit(ad.id)}
+                    onRemove={removeAd}
+                    onClone={cloneAd}
+                    dragProps={drag.rowProps(ad.id)}
+                    isDragging={drag.draggedId === ad.id}
+                    isDropTarget={
+                      drag.dropTargetId === ad.id && drag.draggedId !== ad.id
+                    }
+                    dropEdge={
+                      drag.dropTargetId === ad.id ? drag.dropEdge : null
+                    }
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         visibleAds.map((ad) => (
@@ -2766,22 +3949,42 @@ function AdPlannerPanel({
             key={ad.id}
             ad={ad}
             index={plan.ads.findIndex((a) => a.id === ad.id)}
-            users={users}
-            onClick={() => setEditingAdId(ad.id)}
+            onClick={() => openEdit(ad.id)}
             onRemove={removeAd}
             onClone={cloneAd}
+            dragProps={drag.rowProps(ad.id)}
+            isDragging={drag.draggedId === ad.id}
+            isDropTarget={
+              drag.dropTargetId === ad.id && drag.draggedId !== ad.id
+            }
+            dropEdge={drag.dropTargetId === ad.id ? drag.dropEdge : null}
           />
         ))
       )}
 
-      {editingAd && (
+      {editor && editorInitialAd && (
         <AdEditorModal
-          ad={editingAd}
+          initialAd={editorInitialAd}
+          mode={editor.mode}
           users={users}
-          onChange={updateAd}
-          onClose={() => setEditingAdId(null)}
+          currentUserId={currentUserId}
+          onSave={handleSave}
+          onCancel={() => setEditor(null)}
           onAddActivity={onAddActivity}
+          onEditActivity={onEditActivity}
           onDeleteActivity={onDeleteActivity}
+        />
+      )}
+
+      {showCopyModal && (
+        <CopyPlanModal
+          accountKey={plan.accountKey}
+          targetPeriod={period}
+          periods={periodSummaries}
+          onClose={() => setShowCopyModal(false)}
+          onCopy={(from, adIds) =>
+            Promise.resolve(onCopyFrom(from, adIds))
+          }
         />
       )}
     </div>
@@ -2789,27 +3992,100 @@ function AdPlannerPanel({
 }
 
 // ─── Pacer row ─────────────────────────────────────────────────────────────
+/**
+ * Compute the spend-pacing math for a single ad given a "today" cursor and an
+ * "end" date — both per-ad, both editable in the Pacer tab. Mirrors the
+ * standalone Facebook Ads Pacer calculator but works against the ad's own
+ * allocation (treated as the budget goal).
+ */
+interface PacerCalc {
+  daysLeft: number;
+  remaining: number;
+  recDaily: number;
+  projected: number;
+  budget: number;
+  spent: number;
+  dailyBudget: number;
+  hasDates: boolean;
+  endsBeforeToday: boolean;
+}
+
+function buildPacerCalc(
+  ad: PacerAd,
+  todayIso: string | null,
+  endIso: string | null,
+): PacerCalc {
+  const isLifetime = ad.budgetType === 'Lifetime';
+  const budget = num(ad.allocation) ?? 0;
+  const spent = num(ad.pacerActual) ?? 0;
+  // For lifetime ads the "daily budget" column is blank — use 0 so projected
+  // collapses to whatever's been spent rather than extrapolating.
+  const dailyBudget = isLifetime ? 0 : num(ad.pacerDailyBudget) ?? 0;
+  const today = todayIso ? new Date(todayIso + 'T00:00:00') : null;
+  const end = endIso ? new Date(endIso + 'T00:00:00') : null;
+  const hasDates = !!(today && end);
+  const endsBeforeToday = !!(today && end && end.getTime() < today.getTime());
+  const daysLeft = hasDates && !endsBeforeToday
+    ? Math.round((end!.getTime() - today!.getTime()) / 86400000) + 1
+    : 0;
+  const remaining = Math.max(0, budget - spent);
+  const recDaily = daysLeft > 0 ? remaining / daysLeft : 0;
+  const projected = spent + dailyBudget * Math.max(daysLeft, 0);
+  return {
+    daysLeft,
+    remaining,
+    recDaily,
+    projected,
+    budget,
+    spent,
+    dailyBudget,
+    hasDates,
+    endsBeforeToday,
+  };
+}
+
 function PacerRow({
   ad,
   index,
   onActualChange,
   onDailyBudgetChange,
+  onTodayChange,
+  onEndChange,
 }: {
   ad: PacerAd;
   index: number;
   onActualChange: (v: string | null) => void;
   onDailyBudgetChange: (v: string | null) => void;
+  onTodayChange: (v: string | null) => void;
+  onEndChange: (v: string | null) => void;
 }) {
-  const calc = useMemo(() => buildAdCalc(ad), [ad]);
+  const isLifetime = ad.budgetType === 'Lifetime';
+  const typeColor = isLifetime ? COLORS.lifetime : COLORS.daily;
+
+  // Effective "today" defaults to actual today; effective "end" defaults to the
+  // ad's flight end. Both are user-editable per ad and persisted once changed.
+  const defaultToday = useMemo(() => datePickerToIso(new Date()), []);
+  const effectiveToday = ad.pacerTodayDate ?? defaultToday;
+  const effectiveEnd = ad.pacerEndDate ?? ad.flightEnd;
+  const calc = buildPacerCalc(ad, effectiveToday, effectiveEnd);
+
+  // Color the recommended-vs-current daily comparison
+  const dailyDelta = calc.recDaily - calc.dailyBudget;
+  const isOnTrack = calc.budget > 0 && Math.abs(dailyDelta) < 0.5;
+  const recColor = isOnTrack
+    ? COLORS.success
+    : calc.recDaily > calc.dailyBudget
+      ? COLORS.warn
+      : COLORS.lifetime;
+
   const accentColor =
-    calc.status === 'on-track'
-      ? COLORS.success
-      : calc.status === 'overpacing'
-        ? COLORS.warn
-        : calc.status === 'underpacing'
+    calc.budget > 0
+      ? isOnTrack
+        ? COLORS.success
+        : calc.spent > calc.budget
           ? COLORS.error
-          : 'var(--border)';
-  const typeColor = calc.isLifetime ? COLORS.lifetime : COLORS.daily;
+          : 'var(--border)'
+      : 'var(--border)';
 
   return (
     <div className="glass-section-card relative rounded-xl px-5 py-4 mb-3.5 overflow-hidden">
@@ -2826,14 +4102,14 @@ function PacerRow({
               style={{ background: AD_COLORS[index % AD_COLORS.length] }}
             />
             <span className="text-sm font-bold text-[var(--foreground)] truncate">
-              {ad.name}
+              {ad.name || 'Untitled Ad'}
             </span>
           </div>
           <div className="flex gap-2 items-center flex-wrap">
             <span
               className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
               style={{
-                background: calc.isLifetime
+                background: isLifetime
                   ? 'rgba(167,139,250,0.18)'
                   : 'rgba(56,189,248,0.18)',
                 color: typeColor,
@@ -2841,7 +4117,7 @@ function PacerRow({
             >
               {ad.budgetType}
             </span>
-            <span className="text-[10px] text-[var(--muted-foreground)]">{ad.adStatus}</span>
+            <AdStatusPill status={ad.adStatus} />
             <span
               className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
               style={{
@@ -2854,55 +4130,17 @@ function PacerRow({
             >
               {ad.budgetSource === 'base' ? 'Base' : 'Added'}
             </span>
-            <PacingBadge status={calc.status} />
-            {calc.days > 0 && (
-              <span
-                className="text-[10px]"
-                style={{
-                  color: ad.liveDate ? COLORS.success : 'var(--muted-foreground)',
-                }}
-              >
-                {calc.days} days{ad.liveDate ? ' (live)' : ''}
-              </span>
-            )}
-            {calc.daysElapsed > 0 && calc.daysElapsed < calc.days && (
+            {ad.flightStart && ad.flightEnd && (
               <span className="text-[10px] text-[var(--muted-foreground)]">
-                Day {calc.daysElapsed} of {calc.days}
-              </span>
-            )}
-            {calc.isLate && (
-              <span
-                className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                style={{ background: 'rgba(252,211,77,0.18)', color: '#fcd34d' }}
-              >
-                {calc.daysLate}d late start
+                Flight: {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
               </span>
             )}
           </div>
-        </div>
-        <div className="text-right flex-shrink-0">
-          <div className="text-sm font-bold" style={{ color: typeColor }}>
-            {calc.isLifetime
-              ? `${fmt(calc.totalBudget)} total`
-              : calc.dailyBudget != null
-                ? `${fmt(calc.dailyBudget)}/day`
-                : 'No daily rate set'}
-          </div>
-          {ad.flightEnd && (
-            <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
-              {ad.liveDate ? (
-                <span style={{ color: COLORS.success }}>{fmtDate(ad.liveDate)}</span>
-              ) : (
-                <span>{fmtDate(ad.flightStart)}</span>
-              )}
-              <span> – {fmtDate(ad.flightEnd)}</span>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Editable inputs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 mb-3.5">
+      {/* Editable inputs row — actual, daily, target, today, end */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5 mb-3.5">
         <Field label="Actual Spend">
           <DollarInput
             value={ad.pacerActual}
@@ -2910,13 +4148,13 @@ function PacerRow({
             placeholder="0.00"
           />
         </Field>
-        <Field label={calc.isLifetime ? 'Budget Set' : 'Daily Budget'}>
-          {calc.isLifetime ? (
+        <Field label="Daily Budget">
+          {isLifetime ? (
             <div
-              className={`${inputClass} font-bold cursor-default`}
-              style={{ color: typeColor }}
+              className={`${inputClass} cursor-default text-[var(--muted-foreground)] italic`}
+              title="Lifetime ads use a fixed total budget, not a daily rate"
             >
-              {fmt(calc.totalBudget)} total
+              N/A — lifetime
             </div>
           ) : (
             <DollarInput
@@ -2926,90 +4164,189 @@ function PacerRow({
             />
           )}
         </Field>
-        <Field label="Target Spend (from allocation)">
-          <div className={`${inputClass} cursor-default`}>
-            {calc.target != null ? fmt(calc.target) : '—'}
+        <Field label="Target Spend">
+          <div className={`${inputClass} font-bold cursor-default`} style={{ color: typeColor }}>
+            {calc.budget > 0 ? fmt(calc.budget) : '—'}
           </div>
+        </Field>
+        <Field label="Today's Date">
+          <DatePicker
+            value={ad.pacerTodayDate ?? effectiveToday}
+            onChange={onTodayChange}
+            placeholder="Today"
+            presets={[TODAY_PRESET]}
+          />
+        </Field>
+        <Field label="End Date">
+          <DatePicker
+            value={ad.pacerEndDate ?? effectiveEnd}
+            onChange={onEndChange}
+            placeholder="Pick an end date"
+            presets={
+              ad.flightEnd
+                ? [
+                    {
+                      label: 'Flight end',
+                      single: () => ad.flightEnd!,
+                    },
+                  ]
+                : []
+            }
+          />
         </Field>
       </div>
 
-      {/* Metric boxes — single row */}
-      <div
-        className="grid grid-cols-2 md:grid-cols-5 gap-2"
-        style={{ marginBottom: calc.pacingPct != null ? 12 : 0 }}
-      >
+      {/* Output metrics — projected, days left, remaining, rec daily */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <MetricBox
-          label={calc.isLifetime ? 'Gross Lifetime' : 'Gross Allocation'}
-          value={fmt(Math.round((calc.projected / MARKUP) * 100) / 100)}
-          sub={
-            calc.isLifetime
-              ? 'client budget'
-              : calc.days > 0
-                ? `actual: ${fmt(calc.projected)}`
-                : 'Set dates'
+          label="Projected Spend"
+          value={
+            calc.hasDates && !calc.endsBeforeToday
+              ? fmt(calc.projected)
+              : '—'
           }
-          color={typeColor}
-        />
-        <MetricBox
-          label="Actual Spend"
-          value={fmt(calc.projected)}
           sub={
-            calc.isLifetime
-              ? 'your spend'
-              : calc.days > 0
-                ? `${calc.days}d × ${fmt(num(ad.allocation) ?? 0)}`
-                : 'Set dates'
+            !calc.hasDates
+              ? 'set today + end dates'
+              : calc.endsBeforeToday
+                ? 'end is before today'
+                : isLifetime
+                  ? 'lifetime — equals spend'
+                  : `spend + ${fmt(calc.dailyBudget)}/d × ${calc.daysLeft}d`
           }
         />
-        {calc.actual != null && calc.expectedToDate > 0 && (
-          <MetricBox
-            label="Pacing (vs Today)"
-            value={`${calc.pacingPct?.toFixed(1)}%`}
-            sub={`of ${fmt(calc.expectedToDate)} expected${
-              calc.isLate ? ` · ${calc.daysLate}d late` : ''
-            }`}
-            color={
-              calc.status === 'on-track'
-                ? COLORS.success
-                : calc.status === 'overpacing'
-                  ? COLORS.warn
-                  : COLORS.error
-            }
-          />
-        )}
-        {!calc.isLifetime && calc.recDaily != null && (
-          <MetricBox
-            label="Rec. Daily Budget"
-            value={fmt(calc.recDaily)}
-            sub="to hit target"
-            color={COLORS.lifetime}
-          />
-        )}
-        {calc.delta != null && (
-          <MetricBox
-            label={calc.isLifetime ? 'Lifetime Adj.' : 'Daily Adjustment'}
-            value={`${calc.delta >= 0 ? '+' : ''}${fmt(calc.delta)}`}
-            sub={calc.isLifetime ? 'total change' : 'per day change'}
-            color={
-              calc.delta > 0 ? COLORS.success : calc.delta < 0 ? COLORS.error : undefined
-            }
-          />
-        )}
+        <MetricBox
+          label="Days Remaining"
+          value={
+            calc.hasDates && !calc.endsBeforeToday
+              ? `${calc.daysLeft} day${calc.daysLeft === 1 ? '' : 's'}`
+              : '—'
+          }
+          sub={
+            calc.endsBeforeToday
+              ? 'window already closed'
+              : calc.hasDates
+                ? `until ${fmtDate(effectiveEnd)}`
+                : 'set today + end dates'
+          }
+        />
+        <MetricBox
+          label="Remaining Budget"
+          value={calc.budget > 0 ? fmt(calc.remaining) : '—'}
+          sub={
+            calc.budget > 0
+              ? calc.spent > calc.budget
+                ? `over by ${fmt(calc.spent - calc.budget)}`
+                : `${fmt(calc.spent)} of ${fmt(calc.budget)} spent`
+              : 'set Target Spend'
+          }
+          color={
+            calc.budget > 0
+              ? calc.spent > calc.budget
+                ? COLORS.error
+                : COLORS.success
+              : undefined
+          }
+        />
+        <MetricBox
+          label="Rec. Daily Adjustment"
+          value={
+            calc.budget > 0 && calc.daysLeft > 0
+              ? fmt(calc.recDaily)
+              : '—'
+          }
+          sub={
+            calc.budget <= 0
+              ? 'set Target Spend'
+              : calc.daysLeft <= 0
+                ? 'no days remaining'
+                : isOnTrack
+                  ? 'on track'
+                  : dailyDelta > 0
+                    ? `+${fmt(Math.abs(dailyDelta))}/day vs current`
+                    : `${fmt(dailyDelta)}/day vs current`
+          }
+          color={recColor}
+        />
       </div>
 
-      {calc.pacingPct != null && (
-        <div>
-          <div className="flex justify-between mb-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-              Pacing
-            </span>
-            <span className="text-[10px] text-[var(--muted-foreground)]">
-              {calc.pacingPct.toFixed(1)}%
-            </span>
-          </div>
-          <PaceBar pct={calc.pacingPct} status={calc.status} />
-        </div>
-      )}
+      {/* Plain-English insight — same logic as the standalone calculator. */}
+      {(() => {
+        if (calc.budget <= 0) return null;
+        if (!calc.hasDates) return null;
+        if (calc.endsBeforeToday) {
+          return (
+            <p
+              className="m-0 mt-3 pt-3 border-t border-[var(--border)] text-[11px] leading-relaxed"
+              style={{ color: COLORS.warn }}
+            >
+              The end date is before today — adjust the dates to see a fresh
+              recommendation.
+            </p>
+          );
+        }
+        if (calc.spent >= calc.budget) {
+          return (
+            <p
+              className="m-0 mt-3 pt-3 border-t border-[var(--border)] text-[11px] leading-relaxed"
+              style={{ color: COLORS.error }}
+            >
+              Budget already fully spent
+              {calc.spent > calc.budget
+                ? ` (over by ${fmt(calc.spent - calc.budget)})`
+                : ''}
+              . Consider pausing the ad or increasing the target spend.
+            </p>
+          );
+        }
+        if (isLifetime) {
+          return (
+            <p className="m-0 mt-3 pt-3 border-t border-[var(--border)] text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+              {fmt(calc.remaining)} of the lifetime budget left across{' '}
+              {calc.daysLeft} day{calc.daysLeft === 1 ? '' : 's'}. To finish on
+              time, average ~{fmt(calc.recDaily)}/day.
+            </p>
+          );
+        }
+        const overspendThreshold = calc.budget * 1.05;
+        const underspendThreshold = calc.budget * 0.95;
+        if (calc.projected > overspendThreshold) {
+          return (
+            <p
+              className="m-0 mt-3 pt-3 border-t border-[var(--border)] text-[11px] leading-relaxed"
+              style={{ color: COLORS.warn }}
+            >
+              At your current rate of {fmt(calc.dailyBudget)}/day you&apos;re
+              projected to overspend by{' '}
+              {fmt(calc.projected - calc.budget)} by{' '}
+              {fmtDate(effectiveEnd)}. Lower the daily budget to{' '}
+              {fmt(calc.recDaily)} to stay on target.
+            </p>
+          );
+        }
+        if (calc.projected < underspendThreshold) {
+          return (
+            <p
+              className="m-0 mt-3 pt-3 border-t border-[var(--border)] text-[11px] leading-relaxed"
+              style={{ color: COLORS.lifetime }}
+            >
+              At your current rate you&apos;ll underspend by{' '}
+              {fmt(calc.budget - calc.projected)} — bumping the daily budget
+              to {fmt(calc.recDaily)} will use the full target by{' '}
+              {fmtDate(effectiveEnd)}.
+            </p>
+          );
+        }
+        return (
+          <p
+            className="m-0 mt-3 pt-3 border-t border-[var(--border)] text-[11px] leading-relaxed"
+            style={{ color: COLORS.success }}
+          >
+            Pacing well — a small adjustment keeps you on track for{' '}
+            {fmtDate(effectiveEnd)}.
+          </p>
+        );
+      })()}
     </div>
   );
 }
@@ -3118,9 +4455,12 @@ function BudgetPacerPanel({
         totalCount={plan.ads.length}
       />
       <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3.5 py-2.5 mb-4 text-xs text-[var(--muted-foreground)]">
-        Budgets, dates, and targets are pulled from your Ad Planner. Only{' '}
-        <span style={{ color: COLORS.daily }}>Actual Spend</span> is editable here —
-        update it weekly to track pacing.
+        Each ad pulls its <span style={{ color: COLORS.lifetime }}>Target Spend</span>{' '}
+        from the Ad Planner allocation. Edit{' '}
+        <span style={{ color: COLORS.daily }}>Actual Spend</span>,{' '}
+        <span style={{ color: COLORS.daily }}>Daily Budget</span>, and the per-ad{' '}
+        <span style={{ color: COLORS.daily }}>Today / End</span> dates to see projected
+        spend, days left, remaining budget, and the recommended daily adjustment.
       </div>
       {visibleAds.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] py-10 px-6 text-center text-sm text-[var(--muted-foreground)]">
@@ -3134,6 +4474,8 @@ function BudgetPacerPanel({
             index={plan.ads.findIndex((a) => a.id === ad.id)}
             onActualChange={(v) => updateAd({ ...ad, pacerActual: v })}
             onDailyBudgetChange={(v) => updateAd({ ...ad, pacerDailyBudget: v })}
+            onTodayChange={(v) => updateAd({ ...ad, pacerTodayDate: v })}
+            onEndChange={(v) => updateAd({ ...ad, pacerEndDate: v })}
           />
         ))
       )}
@@ -3712,6 +5054,9 @@ function MetaAdsPacerTool() {
   const [innerTab, setInnerTab] = useState<InnerTab>('planner');
   const [filters, setFilters] = useState<PlanFilters>(EMPTY_FILTERS);
   const [filterSidebarOpen, setFilterSidebarOpen] = useState(false);
+  // True while the AdEditorModal is open. Pauses autosave so transient draft
+  // edits don't get persisted until the user clicks Save.
+  const [editorOpen, setEditorOpen] = useState(false);
 
   // ── Fetch directory of users (once) ──
   useEffect(() => {
@@ -3782,6 +5127,9 @@ function MetaAdsPacerTool() {
 
   useEffect(() => {
     if (!loaded || !activeKey || !plan) return;
+    // Pause autosave while the editor modal is open so partial drafts aren't
+    // persisted; the modal commits via its own Save handler instead.
+    if (editorOpen) return;
     const serialized = JSON.stringify({
       baseBudgetGoal: plan.baseBudgetGoal,
       addedBudgetGoal: plan.addedBudgetGoal,
@@ -3802,19 +5150,13 @@ function MetaAdsPacerTool() {
           },
         );
         if (!res.ok) throw new Error('save failed');
-        const updated = (await res.json()) as PacerPlan;
-        setPlan({
-          accountKey: updated.accountKey ?? activeKey,
-          period: updated.period ?? period,
-          baseBudgetGoal: updated.baseBudgetGoal ?? null,
-          addedBudgetGoal: updated.addedBudgetGoal ?? null,
-          ads: Array.isArray(updated.ads) ? updated.ads : [],
-        });
-        lastSavedRef.current = JSON.stringify({
-          baseBudgetGoal: updated.baseBudgetGoal,
-          addedBudgetGoal: updated.addedBudgetGoal,
-          ads: (updated.ads ?? []).map((a, i) => ({ ...a, position: i, period })),
-        });
+        // Don't replace local state with the server response — the user may
+        // have typed more during the 600ms debounce + network round-trip,
+        // and overwriting would clobber those keystrokes. We persisted what
+        // we sent; mark it as the last-saved baseline and let the next
+        // diff-driven save pick up any further edits.
+        await res.json().catch(() => null);
+        lastSavedRef.current = serialized;
         setSaveStatus('saved');
         markClean();
         setTimeout(() => setSaveStatus('idle'), 1500);
@@ -3825,17 +5167,21 @@ function MetaAdsPacerTool() {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [plan, activeKey, loaded, period, markClean]);
+  }, [plan, activeKey, loaded, period, markClean, editorOpen]);
 
   // ── Copy from another period ──
-  const handleCopyFrom = async (fromPeriod: string) => {
+  const handleCopyFrom = async (fromPeriod: string, adIds?: string[]) => {
     if (!activeKey || !fromPeriod || fromPeriod === period) return;
     setSaveStatus('saving');
     try {
       const res = await fetch(`/api/meta-ads-pacer/${activeKey}/copy-from`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: fromPeriod, to: period }),
+        body: JSON.stringify({
+          from: fromPeriod,
+          to: period,
+          ...(adIds && adIds.length > 0 ? { adIds } : {}),
+        }),
       });
       if (!res.ok) throw new Error('copy failed');
       const updated = (await res.json()) as PacerPlan;
@@ -3902,6 +5248,40 @@ function MetaAdsPacerTool() {
     );
   };
 
+  const onEditActivity = async (adId: string, entryId: string, text: string) => {
+    if (!activeKey) return;
+    const res = await fetch(
+      `/api/meta-ads-pacer/${activeKey}/ads/${adId}/activity/${entryId}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      },
+    );
+    if (!res.ok) {
+      const msg = await res.text().catch(() => '');
+      throw new Error(msg || `HTTP ${res.status}`);
+    }
+    const entry = (await res.json()) as ActivityEntry;
+    setPlan((p) =>
+      p
+        ? {
+            ...p,
+            ads: p.ads.map((a) =>
+              a.id === adId
+                ? {
+                    ...a,
+                    activityLog: a.activityLog.map((x) =>
+                      x.id === entryId ? entry : x,
+                    ),
+                  }
+                : a,
+            ),
+          }
+        : p,
+    );
+  };
+
   const onDeleteActivity = async (adId: string, entryId: string) => {
     if (!activeKey) return;
     const res = await fetch(
@@ -3960,11 +5340,11 @@ function MetaAdsPacerTool() {
   return (
     <div className="animate-fade-in-up">
       {/* Page header */}
-      <div className="page-sticky-header mb-6 flex items-center justify-between gap-4 flex-wrap">
+      <div className="page-sticky-header pad-on-scroll mb-6 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <MegaphoneIcon className="w-7 h-7 text-[var(--primary)]" />
           <div>
-            <h2 className="text-2xl font-bold">Meta Ads Pacer</h2>
+            <h2 className="text-2xl font-bold">Meta Ads Planner</h2>
             <p className="text-[var(--muted-foreground)] text-sm mt-0.5">
               Plan, track & pace your Meta ad budgets
             </p>
@@ -4024,20 +5404,30 @@ function MetaAdsPacerTool() {
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          <PeriodSelector
-            period={period}
-            onChange={setPeriod}
-            summaries={periodSummaries}
-          />
+          <PeriodSelector period={period} onChange={setPeriod} />
           <button
             type="button"
-            onClick={() => setFilterSidebarOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            onClick={() => setFilterSidebarOpen((o) => !o)}
+            aria-pressed={filterSidebarOpen}
+            aria-expanded={filterSidebarOpen}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+              filterSidebarOpen
+                ? 'border-[var(--primary)] bg-[var(--primary)]/12 text-[var(--primary)]'
+                : 'border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--muted)]'
+            }`}
           >
             <FunnelIcon className="w-3.5 h-3.5" />
             Filters
             {activeFilterCount(filters) > 0 && (
-              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-[var(--primary)] text-white text-[10px] font-bold">
+              <span
+                className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[10px] font-bold"
+                style={{
+                  background: filterSidebarOpen
+                    ? 'var(--primary)'
+                    : 'var(--primary)',
+                  color: 'white',
+                }}
+              >
                 {activeFilterCount(filters)}
               </span>
             )}
@@ -4045,109 +5435,132 @@ function MetaAdsPacerTool() {
         </div>
       </div>
 
-      {/* Budget header (Total + Base/Added) — only on the Budgeting tab */}
-      {activeKey && plan && topTab === 'budgeting' && (
-        <div className="mb-5">
-          <TotalAllocationHeader plan={plan} />
-          <div className="flex gap-3.5 flex-wrap">
-            <BudgetPanel
-              title="Base Budget"
-              source="base"
-              color={COLORS.base}
-              goalKey="baseBudgetGoal"
-              plan={plan}
-              onChange={setPlan}
-            />
-            <BudgetPanel
-              title="Added Budget"
-              source="added"
-              color={COLORS.added}
-              goalKey="addedBudgetGoal"
-              plan={plan}
-              onChange={setPlan}
-            />
-          </div>
-        </div>
-      )}
+      {/* Body — budget header + content + inline filter sidebar all share
+          the same 2-col grid so the header rows shrink alongside the body
+          when the filter panel opens. */}
+      <div
+        className={
+          activeKey && filterSidebarOpen
+            ? 'grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start'
+            : ''
+        }
+      >
+        <div className="min-w-0">
+          {/* Budget header (Total + Base/Added) — only on the Budgeting tab */}
+          {activeKey && plan && topTab === 'budgeting' && (
+            <div className="mb-5">
+              <TotalAllocationHeader plan={plan} />
+              <div className="flex gap-3.5 flex-wrap">
+                <BudgetPanel
+                  title="Base Budget"
+                  source="base"
+                  color={COLORS.base}
+                  goalKey="baseBudgetGoal"
+                  plan={plan}
+                  onChange={setPlan}
+                />
+                <BudgetPanel
+                  title="Added Budget"
+                  source="added"
+                  color={COLORS.added}
+                  goalKey="addedBudgetGoal"
+                  plan={plan}
+                  onChange={setPlan}
+                />
+              </div>
+            </div>
+          )}
 
-      {/* Body */}
-      {!activeKey ? (
-        <OverviewView
-          period={period}
-          filters={filters}
-          currentUserId={currentUserId}
-          onOpenAccount={(key) => setAccount({ mode: 'account', accountKey: key })}
-        />
-      ) : !loaded ? (
-        <div className="text-center py-16 text-[var(--muted-foreground)] text-sm">
-          Loading saved data…
-        </div>
-      ) : loadError ? (
-        <div className="glass-section-card rounded-xl text-center py-16 px-6">
-          <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4">
-            <ExclamationTriangleIcon className="w-6 h-6 text-red-400" />
-          </div>
-          <p className="text-[var(--foreground)] text-sm font-medium mb-1">
-            Could not load this account&apos;s pacer data.
-          </p>
-          <p className="text-[var(--muted-foreground)] text-xs mb-1">{loadError}</p>
-          <p className="text-[var(--muted-foreground)] text-xs">
-            If you just deployed the new schema, restart the dev server so the Prisma
-            client picks up the new models, then refresh.
-          </p>
-        </div>
-      ) : !plan ? null : (
-        <div
-          className={
-            topTab === 'budgeting'
-              ? 'glass-section-card rounded-xl px-6 py-6'
-              : ''
-          }
-        >
-          {topTab === 'budgeting' ? (
-            <>
-              <FolderTabs active={innerTab} onChange={setInnerTab} />
-              {innerTab === 'planner' ? (
-                <AdPlannerPanel
-                  plan={plan}
-                  period={period}
-                  users={users}
-                  filters={filters}
-                  onFiltersChange={setFilters}
-                  currentUserId={currentUserId}
-                  periodSummaries={periodSummaries}
-                  onChange={setPlan}
-                  onCopyFrom={handleCopyFrom}
-                  onAddActivity={onAddActivity}
-                  onDeleteActivity={onDeleteActivity}
-                />
+          {!activeKey ? (
+            <OverviewView
+              period={period}
+              filters={filters}
+              currentUserId={currentUserId}
+              onOpenAccount={(key) => setAccount({ mode: 'account', accountKey: key })}
+            />
+          ) : !loaded ? (
+            <div className="text-center py-16 text-[var(--muted-foreground)] text-sm">
+              Loading saved data…
+            </div>
+          ) : loadError ? (
+            <div className="glass-section-card rounded-xl text-center py-16 px-6">
+              <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4">
+                <ExclamationTriangleIcon className="w-6 h-6 text-red-400" />
+              </div>
+              <p className="text-[var(--foreground)] text-sm font-medium mb-1">
+                Could not load this account&apos;s pacer data.
+              </p>
+              <p className="text-[var(--muted-foreground)] text-xs mb-1">{loadError}</p>
+              <p className="text-[var(--muted-foreground)] text-xs">
+                If you just deployed the new schema, restart the dev server so the Prisma
+                client picks up the new models, then refresh.
+              </p>
+            </div>
+          ) : !plan ? null : (
+            <div
+              className={
+                topTab === 'budgeting'
+                  ? 'glass-section-card rounded-xl px-6 py-6'
+                  : ''
+              }
+            >
+              {topTab === 'budgeting' ? (
+                <>
+                  <FolderTabs active={innerTab} onChange={setInnerTab} />
+                  {innerTab === 'planner' ? (
+                    <AdPlannerPanel
+                      plan={plan}
+                      period={period}
+                      users={users}
+                      filters={filters}
+                      onFiltersChange={setFilters}
+                      currentUserId={currentUserId}
+                      periodSummaries={periodSummaries}
+                      onChange={setPlan}
+                      onCopyFrom={handleCopyFrom}
+                      onModalOpenChange={setEditorOpen}
+                      onAddActivity={onAddActivity}
+                      onEditActivity={onEditActivity}
+                      onDeleteActivity={onDeleteActivity}
+                    />
+                  ) : (
+                    <BudgetPacerPanel
+                      plan={plan}
+                      filters={filters}
+                      onFiltersChange={setFilters}
+                      currentUserId={currentUserId}
+                      onChange={setPlan}
+                      totals={totals}
+                    />
+                  )}
+                </>
               ) : (
-                <BudgetPacerPanel
-                  plan={plan}
-                  filters={filters}
-                  onFiltersChange={setFilters}
-                  currentUserId={currentUserId}
-                  onChange={setPlan}
-                  totals={totals}
-                />
+                <SummaryPanel plan={plan} />
               )}
-            </>
-          ) : (
-            <SummaryPanel plan={plan} />
+            </div>
           )}
         </div>
-      )}
 
-      {/* Filter sidebar — slides in from the right */}
-      <MetaAdsPacerFilterSidebar
-        open={filterSidebarOpen}
-        onClose={() => setFilterSidebarOpen(false)}
-        filters={filters}
-        onChange={setFilters}
-        users={users}
-        ads={plan?.ads ?? []}
-        currentUserId={currentUserId}
-      />
+        {/* Inline filter sidebar — only mounts when an account is selected; the
+            slide-in/out animation comes from the className transitions. */}
+        {activeKey && (
+          <MetaAdsPacerFilterSidebar
+            open={filterSidebarOpen}
+            inline
+            onClose={() => setFilterSidebarOpen(false)}
+            filters={filters}
+            onChange={setFilters}
+            users={users}
+            ads={plan?.ads ?? []}
+            currentUserId={currentUserId}
+            className={`glass-panel glass-panel-strong w-full transition-[opacity,transform,max-height] duration-300 ease-out lg:sticky lg:top-24 lg:w-[360px] ${
+              filterSidebarOpen
+                ? 'pointer-events-auto max-h-[calc(100vh-8rem)] translate-x-0 opacity-100 animate-slide-in-right'
+                : 'pointer-events-none max-h-0 translate-x-4 opacity-0 hidden'
+            }`}
+          />
+        )}
+      </div>
     </div>
   );
 }

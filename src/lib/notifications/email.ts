@@ -131,7 +131,7 @@ function renderShellHtml(opts: {
             <tr>
               <td style="padding:14px 6px 0 6px;text-align:center;">
                 <p style="margin:0;font-size:11px;line-height:1.5;color:#64748b;">
-                  Loomi Studio · You're receiving this because you're tagged on a Meta Ads Pacer item.
+                  Loomi Studio · You're receiving this because you're tagged on a Meta Ads Planner item.
                 </p>
               </td>
             </tr>
@@ -205,7 +205,7 @@ export async function sendDigestNotificationEmail(input: {
   const baseUrl = getAppBaseUrl();
   const count = input.items.length;
   const heading = `${count} update${count !== 1 ? 's' : ''} for you in Loomi Studio`;
-  const intro = `Here's what's new on your Meta Ads Pacer items today.`;
+  const intro = `Here's what's new on your Meta Ads Planner items today.`;
   const itemsHtml = input.items.map((it) => renderItemBlock(it, baseUrl)).join('\n');
   const html = renderShellHtml({
     preheader: heading,
@@ -213,7 +213,7 @@ export async function sendDigestNotificationEmail(input: {
     intro,
     itemsHtml,
     ctaHref: `${baseUrl}/tools/meta-ads-pacer`,
-    ctaText: 'Open Meta Ads Pacer',
+    ctaText: 'Open Meta Ads Planner',
   });
   const subject = `[Loomi Studio] Daily digest — ${count} update${count !== 1 ? 's' : ''}`;
   const text = [
