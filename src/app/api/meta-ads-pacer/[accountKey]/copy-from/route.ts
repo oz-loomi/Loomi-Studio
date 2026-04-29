@@ -121,6 +121,7 @@ export async function POST(
           budgetSource: src.budgetSource,
           creativeLink: src.creativeLink,
           clientName: src.clientName,
+          digitalDetails: src.digitalDetails,
           designStatus: src.designStatus,
           // Date-shifted to the target month
           flightStart: shiftDate(src.flightStart, to),

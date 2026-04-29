@@ -662,8 +662,9 @@ model MetaAdsPacerAd {
   pacerEndDate   String?
 
   // Other
-  creativeLink String?
-  clientName   String?
+  creativeLink    String?
+  clientName      String?
+  digitalDetails  String? // long-form notes from the rep about the ad goal/plan
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -169,6 +169,7 @@ interface PacerAd {
   pacerEndDate: string | null;
   creativeLink: string | null;
   clientName: string | null;
+  digitalDetails: string | null;
   designNotes: DesignNote[];
   activityLog: ActivityEntry[];
 }
@@ -327,6 +328,7 @@ function makeAd(position: number, period: string): PacerAd {
     pacerEndDate: null,
     creativeLink: null,
     clientName: null,
+    digitalDetails: null,
     designNotes: [],
     activityLog: [],
   };
@@ -2429,21 +2431,27 @@ function PlanAdForm({
             icon={<ClipboardDocumentListIcon className="w-3 h-3" />}
             label="Ad Details"
           />
-          <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-2.5 mb-3">
-            <Field label="Ad Name">
-              <input
-                value={ad.name}
-                onChange={(e) => onUpdate({ ...ad, name: e.target.value })}
-                placeholder="New Ad"
-                className={inputClass}
-              />
-            </Field>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-3 max-w-2xl">
             <Field label="Owner / Assigned To">
               <UserPicker
                 users={users}
                 value={ad.ownerUserId}
                 filterFor="owner"
                 onChange={(v) => onUpdate({ ...ad, ownerUserId: v })}
+              />
+            </Field>
+          </div>
+
+          <div className="mb-3">
+            <Field label="Digital Details">
+              <textarea
+                value={ad.digitalDetails ?? ''}
+                onChange={(e) =>
+                  onUpdate({ ...ad, digitalDetails: e.target.value || null })
+                }
+                rows={4}
+                placeholder="Goal, audience, targeting notes, copy direction…"
+                className={`${inputClass} resize-y leading-relaxed min-h-[88px]`}
               />
             </Field>
           </div>
@@ -2842,6 +2850,7 @@ function PlanAdForm({
  */
 function AdEditorModal({
   initialAd,
+  liveActivityLog,
   mode,
   users,
   currentUserId,
@@ -2852,6 +2861,13 @@ function AdEditorModal({
   onDeleteActivity,
 }: {
   initialAd: PacerAd;
+  /**
+   * The current activity log for this ad pulled from the parent plan. The
+   * modal's draft state is for form fields only — activity entries persist
+   * immediately and need to read live data so newly posted/edited/deleted
+   * entries appear without closing the modal.
+   */
+  liveActivityLog?: ActivityEntry[];
   mode: 'create' | 'edit';
   users: DirectoryUser[];
   currentUserId: string | null;
@@ -2862,6 +2878,8 @@ function AdEditorModal({
   onDeleteActivity: (adId: string, entryId: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<PacerAd>(initialAd);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
 
   // Reset draft if the parent swaps in a different ad while the modal is
   // mounted (e.g. opens a different row). Cheap stringify is enough since
@@ -2869,8 +2887,16 @@ function AdEditorModal({
   const initialKey = initialAd.id;
   useEffect(() => {
     setDraft(initialAd);
+    setEditingTitle(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialKey]);
+
+  useEffect(() => {
+    if (editingTitle) {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    }
+  }, [editingTitle]);
 
   const isDirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(initialAd),
@@ -2917,18 +2943,41 @@ function AdEditorModal({
         <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <ClipboardDocumentListIcon className="w-5 h-5 text-[var(--primary)] flex-shrink-0" />
-            <div className="min-w-0">
-              <div className="text-sm font-bold text-[var(--foreground)] truncate">
-                {mode === 'create'
-                  ? 'New Ad'
-                  : draft.name?.trim() || 'Untitled Ad'}
-              </div>
+            <div className="min-w-0 flex-1">
+              {editingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  value={draft.name}
+                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                  onBlur={() => setEditingTitle(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === 'Escape') {
+                      e.preventDefault();
+                      setEditingTitle(false);
+                    }
+                  }}
+                  placeholder="New Ad"
+                  className="w-full bg-transparent text-sm font-bold text-[var(--foreground)] focus:outline-none border-b border-[var(--primary)] py-0.5"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingTitle(true)}
+                  className="group/title inline-flex items-center gap-1.5 text-sm font-bold text-[var(--foreground)] truncate max-w-full hover:text-[var(--primary)] transition-colors text-left"
+                  title="Click to edit ad name"
+                >
+                  <span className="truncate">
+                    {draft.name?.trim() || 'New Ad'}
+                  </span>
+                  <PencilSquareIcon className="w-3.5 h-3.5 flex-shrink-0 opacity-0 group-hover/title:opacity-100 transition-opacity text-[var(--muted-foreground)]" />
+                </button>
+              )}
               <div className="text-[10px] text-[var(--muted-foreground)]">
                 {mode === 'create'
                   ? 'Cancel discards this ad. Save adds it to the plan.'
                   : isDirty
                     ? 'Unsaved changes — Save to commit, Cancel to discard.'
-                    : 'No changes yet.'}
+                    : 'Click the title to rename.'}
               </div>
             </div>
           </div>
@@ -2974,7 +3023,10 @@ function AdEditorModal({
             </aside>
           ) : (
             <ActivityLogPanel
-              ad={draft}
+              // Render with the LIVE activity log (from parent plan) so
+              // posts/edits/deletes show up immediately. Form-field draft
+              // is unaffected.
+              ad={{ ...draft, activityLog: liveActivityLog ?? draft.activityLog }}
               users={users}
               currentUserId={currentUserId}
               onAdd={onAddActivity}
@@ -3796,9 +3848,20 @@ function AdPlannerPanel({
     if (editor.mode === 'create') {
       onChange({ ...plan, ads: [...plan.ads, draft] });
     } else {
+      // Preserve the LIVE activity log from plan — the modal's draft still
+      // holds the snapshot from when it opened, but updates posted while
+      // editing live in plan and shouldn't be overwritten on Save.
       onChange({
         ...plan,
-        ads: plan.ads.map((a) => (a.id === editor.adId ? draft : a)),
+        ads: plan.ads.map((a) =>
+          a.id === editor.adId
+            ? {
+                ...draft,
+                activityLog: a.activityLog,
+                designNotes: a.designNotes,
+              }
+            : a,
+        ),
       });
     }
     setEditor(null);
@@ -3811,6 +3874,13 @@ function AdPlannerPanel({
 
   const editorInitialAd: PacerAd | null =
     editor?.mode === 'create' ? editor.draft : editor?.original ?? null;
+
+  // Re-pull the activity log from plan on every render so newly posted /
+  // edited / deleted updates appear in the modal without a refresh.
+  const editorLiveActivityLog: ActivityEntry[] | undefined =
+    editor?.mode === 'edit'
+      ? plan.ads.find((a) => a.id === editor.adId)?.activityLog
+      : undefined;
 
   const otherPeriodsWithAds = useMemo(
     () =>
@@ -3969,6 +4039,7 @@ function AdPlannerPanel({
       {editor && editorInitialAd && (
         <AdEditorModal
           initialAd={editorInitialAd}
+          liveActivityLog={editorLiveActivityLog}
           mode={editor.mode}
           users={users}
           currentUserId={currentUserId}
@@ -4012,6 +4083,12 @@ interface PacerCalc {
   dailyBudget: number;
   hasDates: boolean;
   endsBeforeToday: boolean;
+  /**
+   * Lifetime-only: spend pacing relative to elapsed flight time. 100 = on
+   * track, >100 = overpacing, <100 = underpacing. null when we can't
+   * compute (no budget, no flight start, or period hasn't started).
+   */
+  lifetimePacingPct: number | null;
 }
 
 function buildPacerCalc(
@@ -4035,6 +4112,31 @@ function buildPacerCalc(
   const remaining = Math.max(0, budget - spent);
   const recDaily = daysLeft > 0 ? remaining / daysLeft : 0;
   const projected = spent + dailyBudget * Math.max(daysLeft, 0);
+
+  // Lifetime pacing %: how spend tracks against elapsed flight time.
+  // Period spans from the live/flight-start date through the user's End.
+  // expected = budget * (daysElapsed / totalDays); pct = spent / expected.
+  let lifetimePacingPct: number | null = null;
+  if (isLifetime && budget > 0 && hasDates) {
+    const startIso = ad.liveDate || ad.flightStart;
+    const start = startIso ? new Date(startIso + 'T00:00:00') : null;
+    if (start && end && today) {
+      const totalDays =
+        Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+      const daysElapsed = Math.min(
+        totalDays,
+        Math.max(
+          0,
+          Math.round((today.getTime() - start.getTime()) / 86400000) + 1,
+        ),
+      );
+      if (totalDays > 0 && daysElapsed > 0) {
+        const expected = budget * (daysElapsed / totalDays);
+        if (expected > 0) lifetimePacingPct = (spent / expected) * 100;
+      }
+    }
+  }
+
   return {
     daysLeft,
     remaining,
@@ -4045,6 +4147,7 @@ function buildPacerCalc(
     dailyBudget,
     hasDates,
     endsBeforeToday,
+    lifetimePacingPct,
   };
 }
 
@@ -4200,25 +4303,55 @@ function PacerRow({
         </Field>
       </div>
 
-      {/* Output metrics — projected, days left, remaining, rec daily */}
+      {/* Output metrics — projected/pacing, days left, remaining, rec daily */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <MetricBox
-          label="Projected Spend"
-          value={
-            calc.hasDates && !calc.endsBeforeToday
-              ? fmt(calc.projected)
-              : '—'
-          }
-          sub={
-            !calc.hasDates
-              ? 'set today + end dates'
-              : calc.endsBeforeToday
-                ? 'end is before today'
-                : isLifetime
-                  ? 'lifetime — equals spend'
+        {isLifetime ? (
+          (() => {
+            const pct = calc.lifetimePacingPct;
+            const onTrack = pct != null && pct >= 95 && pct <= 105;
+            const overpacing = pct != null && pct > 105;
+            const underpacing = pct != null && pct < 95;
+            const color = onTrack
+              ? COLORS.success
+              : overpacing
+                ? COLORS.warn
+                : underpacing
+                  ? COLORS.error
+                  : undefined;
+            return (
+              <MetricBox
+                label="Pacing"
+                value={pct != null ? `${pct.toFixed(1)}%` : '—'}
+                sub={
+                  pct == null
+                    ? 'set flight start, end, and target'
+                    : onTrack
+                      ? 'on track'
+                      : overpacing
+                        ? 'spending faster than scheduled'
+                        : 'spending slower than scheduled'
+                }
+                color={color}
+              />
+            );
+          })()
+        ) : (
+          <MetricBox
+            label="Projected Spend"
+            value={
+              calc.hasDates && !calc.endsBeforeToday
+                ? fmt(calc.projected)
+                : '—'
+            }
+            sub={
+              !calc.hasDates
+                ? 'set today + end dates'
+                : calc.endsBeforeToday
+                  ? 'end is before today'
                   : `spend + ${fmt(calc.dailyBudget)}/d × ${calc.daysLeft}d`
-          }
-        />
+            }
+          />
+        )}
         <MetricBox
           label="Days Remaining"
           value={
@@ -4779,12 +4912,11 @@ function OverviewAccountRow({
     [account.ads, filters, currentUserId],
   );
 
-  const baseTotal = account.ads
-    .filter((a) => a.budgetSource === 'base')
-    .reduce((s, a) => s + (num(a.allocation) ?? 0), 0);
-  const addedTotal = account.ads
-    .filter((a) => a.budgetSource === 'added')
-    .reduce((s, a) => s + (num(a.allocation) ?? 0), 0);
+  // Show the client's agreed budget goals (gross dollars) rather than the
+  // running allocation total — easier for admins to see commitments at a
+  // glance.
+  const baseTotal = num(account.baseBudgetGoal) ?? 0;
+  const addedTotal = num(account.addedBudgetGoal) ?? 0;
 
   return (
     <div className="glass-section-card rounded-xl mb-2.5 overflow-hidden">

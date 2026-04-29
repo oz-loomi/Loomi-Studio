@@ -41,6 +41,7 @@ interface IncomingAd {
   pacerEndDate?: string | null;
   creativeLink?: string | null;
   clientName?: string | null;
+  digitalDetails?: string | null;
 }
 
 interface IncomingPeriodPayload {
@@ -187,6 +188,7 @@ export async function PUT(
         pacerEndDate: nullable(ad.pacerEndDate),
         creativeLink: nullable(ad.creativeLink),
         clientName: nullable(ad.clientName),
+        digitalDetails: nullable(ad.digitalDetails),
       };
 
       if (ad.id) {
