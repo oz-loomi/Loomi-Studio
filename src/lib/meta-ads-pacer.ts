@@ -15,13 +15,10 @@ function attachUrl<T extends { attachmentKey: string | null }>(entry: T): T & { 
 }
 
 export const PACER_DEPARTMENTS = [
-  'Design',
-  'Account Management',
-  'Development',
-  'Leadership',
-  'Marketing',
-  'Sales',
-  'Operations',
+  'Web Development',
+  'Digital',
+  'Graphic Design',
+  'Account Representative',
 ] as const;
 
 export type PacerDepartment = (typeof PACER_DEPARTMENTS)[number];

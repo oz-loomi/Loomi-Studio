@@ -845,10 +845,13 @@ function BudgetSourceToggle({
 }
 
 // ─── User picker (department-filtered) ─────────────────────────────────────
+// Each role's picker pre-filters the directory to people in these departments
+// (with a "Show all users" toggle to fall back to the full list). Mappings
+// reflect the renamed PACER_DEPARTMENTS list.
 const USER_DEPT_FILTERS = {
-  owner: ['Account Management', 'Leadership'],
-  designer: ['Design'],
-  accountRep: ['Account Management'],
+  owner: ['Account Representative', 'Digital'],
+  designer: ['Graphic Design'],
+  accountRep: ['Account Representative'],
 } as const;
 
 function UserPicker({

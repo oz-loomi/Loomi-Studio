@@ -35,13 +35,10 @@ function NewUserContent() {
   const [accountKeys, setAccountKeys] = useState<string[]>([]);
 
   const DEPARTMENTS = [
-    'Design',
-    'Account Management',
-    'Development',
-    'Leadership',
-    'Marketing',
-    'Sales',
-    'Operations',
+    'Web Development',
+    'Digital',
+    'Graphic Design',
+    'Account Representative',
   ];
 
   const handleCreate = async () => {

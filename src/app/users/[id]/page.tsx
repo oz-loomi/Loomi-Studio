@@ -32,13 +32,10 @@ interface User {
 }
 
 const DEPARTMENTS = [
-  'Design',
-  'Account Management',
-  'Development',
-  'Leadership',
-  'Marketing',
-  'Sales',
-  'Operations',
+  'Web Development',
+  'Digital',
+  'Graphic Design',
+  'Account Representative',
 ];
 
 const roleColors: Record<string, string> = {
