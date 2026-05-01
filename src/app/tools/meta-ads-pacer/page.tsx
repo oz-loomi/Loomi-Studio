@@ -2018,13 +2018,13 @@ function AdSummaryCard({
           </div>
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1">
-              <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-4 flex-shrink-0">
-                Rep
+              <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-5 flex-shrink-0">
+                Int
               </span>
               <ApprovalPill status={ad.internalApproval} />
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-4 flex-shrink-0">
+              <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-5 flex-shrink-0">
                 Cli
               </span>
               <ApprovalPill status={ad.clientApproval} />
@@ -2183,13 +2183,13 @@ function AdSummaryRow({
       <td className="px-3 py-2 align-middle whitespace-nowrap">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1">
-            <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-4 flex-shrink-0">
-              Rep
+            <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-5 flex-shrink-0">
+              Int
             </span>
             <ApprovalPill status={ad.internalApproval} />
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-4 flex-shrink-0">
+            <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] w-5 flex-shrink-0">
               Cli
             </span>
             <ApprovalPill status={ad.clientApproval} />
@@ -2964,13 +2964,13 @@ function PlanAdForm({
             </Field>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-3 max-w-2xl">
-            <Field label="Account Rep Approval">
+            <Field label="Internal Approval">
               <StatusSelect
                 value={ad.internalApproval}
                 options={APPROVAL_STATUSES}
                 colorMap={APPROVAL_STATUS_COLORS}
                 onChange={(v) => onUpdate({ ...ad, internalApproval: v })}
-                ariaLabel="Account rep approval"
+                ariaLabel="Internal approval"
               />
             </Field>
             <Field label="Client Approval">
@@ -2988,7 +2988,7 @@ function PlanAdForm({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                 <UserCircleIcon className="w-3.5 h-3.5" />
-                Rep
+                Internal
                 {accountRepUser && (
                   <span className="ml-1 text-[var(--foreground)] normal-case tracking-normal">
                     · {accountRepUser.name}

@@ -548,7 +548,7 @@ interface ApprovalChangeInput {
   adId: string;
   adName: string;
   accountDealer: string;
-  source: 'Account Rep' | 'Client';
+  source: 'Internal' | 'Client';
   newStatus: string;
 }
 

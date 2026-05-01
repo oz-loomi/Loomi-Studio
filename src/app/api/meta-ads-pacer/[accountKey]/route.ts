@@ -252,7 +252,7 @@ export async function PUT(
           adId: ad.id,
           adName,
           accountDealer,
-          source: 'Account Rep',
+          source: 'Internal',
           newStatus: newInternal,
         }).catch((err) => {
           // eslint-disable-next-line no-console
