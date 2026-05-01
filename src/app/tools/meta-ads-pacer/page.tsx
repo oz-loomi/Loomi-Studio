@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -38,8 +39,12 @@ import {
   Squares2X2Icon,
   PencilSquareIcon,
   CheckIcon,
+  CalculatorIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import { useSession } from 'next-auth/react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { toast } from '@/lib/toast';
 import { AdminOnly } from '@/components/route-guard';
 import { AccountAvatar } from '@/components/account-avatar';
 import { useAccount } from '@/contexts/account-context';
@@ -566,6 +571,28 @@ function Field({ label, color, children }: { label: string; color?: string; chil
   );
 }
 
+/**
+ * Status color tables: [bg, fg] pairs used by AdStatusPill, the StatusSelect
+ * dropdown's colored options, and the StatusBattery overview bar. Adding a
+ * status here automatically tints it everywhere it's rendered.
+ */
+const DESIGN_STATUS_COLORS: Record<string, [string, string]> = {
+  Approved: ['rgba(34,197,94,0.18)', '#4ade80'],
+  'Work In Progress': ['rgba(251,146,60,0.18)', '#fb923c'],
+  Stuck: ['rgba(239,68,68,0.18)', '#fca5a5'],
+  'Revisions Needed': ['rgba(252,211,77,0.18)', '#fcd34d'],
+  'Not Started': ['var(--muted)', 'var(--muted-foreground)'],
+  'In Proofing/Pending Approval': ['rgba(56,189,248,0.18)', '#7dd3fc'],
+  'N/A': ['var(--muted)', 'var(--muted-foreground)'],
+};
+
+const APPROVAL_STATUS_COLORS: Record<string, [string, string]> = {
+  Approved: ['rgba(34,197,94,0.18)', '#4ade80'],
+  'Pending Approval': ['rgba(245,158,11,0.18)', '#fbbf24'],
+  'Does Not Approve': ['rgba(239,68,68,0.18)', '#f87171'],
+  'Changes Requested': ['rgba(56,189,248,0.18)', '#7dd3fc'],
+};
+
 const AD_STATUS_COLORS: Record<string, [string, string]> = {
   Live: ['rgba(34,197,94,0.18)', '#4ade80'],
   'Ready- Pending Approval': ['rgba(56,189,248,0.18)', '#7dd3fc'],
@@ -594,13 +621,8 @@ function AdStatusPill({ status }: { status: string }) {
 }
 
 function ApprovalPill({ status }: { status: string }) {
-  const map: Record<string, [string, string]> = {
-    Approved: ['rgba(34,197,94,0.18)', '#4ade80'],
-    'Pending Approval': ['rgba(245,158,11,0.18)', '#fbbf24'],
-    'Does Not Approve': ['rgba(239,68,68,0.18)', '#f87171'],
-    'Changes Requested': ['rgba(56,189,248,0.18)', '#7dd3fc'],
-  };
-  const [bg, color] = map[status] ?? ['var(--muted)', 'var(--muted-foreground)'];
+  const [bg, color] =
+    APPROVAL_STATUS_COLORS[status] ?? ['var(--muted)', 'var(--muted-foreground)'];
   return (
     <span
       className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded whitespace-nowrap"
@@ -608,6 +630,151 @@ function ApprovalPill({ status }: { status: string }) {
     >
       {status || '—'}
     </span>
+  );
+}
+
+/**
+ * Monday-style status dropdown. The trigger renders the current value as a
+ * full-width colored chip (matching the chosen status's theme). The popover
+ * shows every option as its own colored chip — click to commit. Falls back
+ * to the muted treatment when a status isn't in the colorMap.
+ */
+function StatusSelect({
+  value,
+  options,
+  onChange,
+  colorMap,
+  className,
+  size = 'md',
+  ariaLabel,
+}: {
+  value: string;
+  options: readonly string[];
+  onChange: (next: string) => void;
+  /** [bg, fg] tuple per option. Missing keys fall back to muted. */
+  colorMap: Record<string, [string, string]>;
+  className?: string;
+  size?: 'sm' | 'md';
+  ariaLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const margin = 8;
+    const popoverHeight = Math.min(360, options.length * 40 + 16);
+    let top = rect.bottom + 4;
+    if (top + popoverHeight > window.innerHeight - margin) {
+      top = Math.max(margin, rect.top - popoverHeight - 4);
+    }
+    setPos({ top, left: rect.left, width: rect.width });
+  }, [options.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const onScroll = () => updatePosition();
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [open, updatePosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onMouseDown(e: MouseEvent) {
+      const t = e.target as Node;
+      if (popoverRef.current?.contains(t)) return;
+      if (triggerRef.current?.contains(t)) return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const [bg, fg] = colorMap[value] ?? ['var(--muted)', 'var(--muted-foreground)'];
+  const heightClass = size === 'sm' ? 'py-1.5' : 'py-2';
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel ?? value}
+        className={`w-full inline-flex items-center justify-center gap-1.5 rounded-lg ${heightClass} px-3 text-xs font-bold uppercase tracking-wider transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 ${className ?? ''}`}
+        style={{ background: bg, color: fg }}
+      >
+        <span className="truncate">{value || '—'}</span>
+        <ChevronDownIcon className="w-3 h-3 flex-shrink-0 opacity-70" />
+      </button>
+
+      {open && pos && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              role="listbox"
+              className="fixed z-[200] rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-2xl p-1.5"
+              style={{
+                top: pos.top,
+                left: pos.left,
+                width: Math.max(pos.width, 200),
+              }}
+            >
+              <div className="max-h-[360px] overflow-y-auto themed-scrollbar space-y-1">
+                {options.map((option) => {
+                  const [optBg, optFg] = colorMap[option] ?? [
+                    'var(--muted)',
+                    'var(--muted-foreground)',
+                  ];
+                  const selected = option === value;
+                  return (
+                    <button
+                      key={option}
+                      role="option"
+                      type="button"
+                      aria-selected={selected}
+                      onClick={() => {
+                        onChange(option);
+                        setOpen(false);
+                      }}
+                      className="w-full inline-flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity focus:outline-none"
+                      style={{
+                        background: optBg,
+                        color: optFg,
+                        boxShadow: selected
+                          ? `inset 0 0 0 2px ${optFg}`
+                          : undefined,
+                      }}
+                    >
+                      <span className="truncate text-left">{option}</span>
+                      {selected && (
+                        <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -1388,6 +1555,13 @@ interface AdCalc {
   status: PacingStatus;
 }
 
+/**
+ * Computes the AdCalc snapshot used by the Summary tab. Numbers come from the
+ * same `buildPacerCalc()` formula the Budget Pacer tab uses (with the same
+ * per-ad pacerTodayDate/pacerEndDate cursors), so the two views always show
+ * the same projection, remaining, and recommended daily figures for a given
+ * ad. Pure derivation — no I/O, no React hooks.
+ */
 function buildAdCalc(ad: PacerAd): AdCalc {
   const isLifetime = ad.budgetType === 'Lifetime';
   const effectiveStart = ad.liveDate || ad.flightStart;
@@ -1395,30 +1569,46 @@ function buildAdCalc(ad: PacerAd): AdCalc {
   const daysElapsed = calcElapsed(effectiveStart, ad.flightEnd);
   const isLate = !!(ad.liveDate && ad.flightStart && ad.liveDate > ad.flightStart);
   const daysLate = isLate ? calcDays(ad.flightStart, ad.liveDate) - 1 : 0;
-  const allocation = num(ad.allocation) ?? 0;
-  const dailyBudget = num(ad.pacerDailyBudget);
+
+  // Use the same Today / End cursors the Pacer tab uses so projection
+  // numbers match across both surfaces.
+  const todayIso = ad.pacerTodayDate ?? new Date().toISOString().slice(0, 10);
+  const endIso = ad.pacerEndDate ?? ad.flightEnd;
+  const pacer = buildPacerCalc(ad, todayIso, endIso);
+
+  const allocation = pacer.budget;
+  const dailyBudget = isLifetime ? null : num(ad.pacerDailyBudget);
   const totalBudget = isLifetime ? allocation : dailyBudget ?? 0;
-  const projected = isLifetime ? totalBudget : totalBudget * Math.max(days, 1);
-  const impliedDaily = isLifetime && days > 0 ? totalBudget / days : null;
+  const projected = pacer.projected;
+  const impliedDaily = isLifetime && days > 0 ? allocation / days : null;
   const actual = num(ad.pacerActual);
   const target = allocation > 0 ? allocation : null;
-  const recDaily = !isLifetime && target != null && days > 0 ? target / days : null;
-  const delta = isLifetime
-    ? target != null
-      ? target - totalBudget
-      : null
-    : recDaily != null
-      ? recDaily - (dailyBudget ?? 0)
-      : null;
-  const expectedToDate = isLifetime
-    ? days > 0
-      ? (totalBudget / days) * daysElapsed
-      : 0
-    : totalBudget * daysElapsed;
-  let pacingPct: number | null = null;
+  const recDaily =
+    pacer.daysLeft > 0 && pacer.budget > 0 ? pacer.recDaily : null;
+  const delta =
+    !isLifetime && recDaily != null && dailyBudget != null
+      ? recDaily - dailyBudget
+      : isLifetime && target != null
+        ? target - allocation
+        : null;
+
+  const expectedToDate =
+    isLifetime && days > 0
+      ? allocation * (daysElapsed / days)
+      : (dailyBudget ?? 0) * daysElapsed;
+
+  // Lifetime pacing reuses the dedicated formula from buildPacerCalc;
+  // daily pacing falls back to "actual vs expected so far" which is the
+  // same proportional check, just framed for daily-budget ads.
+  const pacingPct =
+    isLifetime
+      ? pacer.lifetimePacingPct
+      : actual != null && expectedToDate > 0
+        ? (actual / expectedToDate) * 100
+        : null;
+
   let status: PacingStatus = 'no-data';
-  if (actual != null && expectedToDate > 0) {
-    pacingPct = (actual / expectedToDate) * 100;
+  if (pacingPct != null) {
     status =
       pacingPct >= 90 && pacingPct <= 110
         ? 'on-track'
@@ -1426,6 +1616,7 @@ function buildAdCalc(ad: PacerAd): AdCalc {
           ? 'overpacing'
           : 'underpacing';
   }
+
   return {
     ad,
     isLifetime,
@@ -2503,10 +2694,11 @@ function PlanAdForm({
               </select>
             </Field>
             <Field label="Ad Status">
-              <select
+              <StatusSelect
                 value={ad.adStatus}
-                onChange={(e) => {
-                  const newStatus = e.target.value;
+                options={AD_STATUSES}
+                colorMap={AD_STATUS_COLORS}
+                onChange={(newStatus) => {
                   const today = new Date().toISOString().split('T')[0];
                   onUpdate({
                     ...ad,
@@ -2517,14 +2709,8 @@ function PlanAdForm({
                         : ad.dateCompleted,
                   });
                 }}
-                className={inputClass}
-              >
-                {AD_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+                ariaLabel="Ad status"
+              />
             </Field>
           </div>
 
@@ -2686,17 +2872,13 @@ function PlanAdForm({
           />
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 mb-3">
             <Field label="Design Status">
-              <select
+              <StatusSelect
                 value={ad.designStatus}
-                onChange={(e) => onUpdate({ ...ad, designStatus: e.target.value })}
-                className={inputClass}
-              >
-                {DESIGN_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+                options={DESIGN_STATUSES}
+                colorMap={DESIGN_STATUS_COLORS}
+                onChange={(v) => onUpdate({ ...ad, designStatus: v })}
+                ariaLabel="Design status"
+              />
             </Field>
             <Field label="Designer Assigned">
               <UserPicker
@@ -2779,34 +2961,22 @@ function PlanAdForm({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-3 max-w-2xl">
             <Field label="Account Rep Approval">
-              <select
+              <StatusSelect
                 value={ad.internalApproval}
-                onChange={(e) =>
-                  onUpdate({ ...ad, internalApproval: e.target.value })
-                }
-                className={inputClass}
-              >
-                {APPROVAL_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+                options={APPROVAL_STATUSES}
+                colorMap={APPROVAL_STATUS_COLORS}
+                onChange={(v) => onUpdate({ ...ad, internalApproval: v })}
+                ariaLabel="Account rep approval"
+              />
             </Field>
             <Field label="Client Approval">
-              <select
+              <StatusSelect
                 value={ad.clientApproval}
-                onChange={(e) =>
-                  onUpdate({ ...ad, clientApproval: e.target.value })
-                }
-                className={inputClass}
-              >
-                {APPROVAL_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+                options={APPROVAL_STATUSES}
+                colorMap={APPROVAL_STATUS_COLORS}
+                onChange={(v) => onUpdate({ ...ad, clientApproval: v })}
+                ariaLabel="Client approval"
+              />
             </Field>
           </div>
           {/* Approval status summary — clearly labeled by source */}
@@ -2960,19 +3130,19 @@ function AdEditorModal({
                     }
                   }}
                   placeholder="New Ad"
-                  className="w-full bg-transparent text-sm font-bold text-[var(--foreground)] focus:outline-none border-b border-[var(--primary)] py-0.5"
+                  className="w-full bg-transparent text-xl font-bold text-[var(--foreground)] focus:outline-none border-b border-[var(--primary)] py-0.5"
                 />
               ) : (
                 <button
                   type="button"
                   onClick={() => setEditingTitle(true)}
-                  className="group/title inline-flex items-center gap-1.5 text-sm font-bold text-[var(--foreground)] truncate max-w-full hover:text-[var(--primary)] transition-colors text-left"
+                  className="group/title inline-flex items-center gap-2 text-xl font-bold text-[var(--foreground)] truncate max-w-full hover:text-[var(--primary)] transition-colors text-left"
                   title="Click to edit ad name"
                 >
                   <span className="truncate">
                     {draft.name?.trim() || 'New Ad'}
                   </span>
-                  <PencilSquareIcon className="w-3.5 h-3.5 flex-shrink-0 opacity-0 group-hover/title:opacity-100 transition-opacity text-[var(--muted-foreground)]" />
+                  <PencilSquareIcon className="w-4 h-4 flex-shrink-0 opacity-0 group-hover/title:opacity-100 transition-opacity text-[var(--muted-foreground)]" />
                 </button>
               )}
               <div className="text-[10px] text-[var(--muted-foreground)]">
@@ -4197,9 +4367,40 @@ function AdPlannerPanel({
     onModalOpenChange?.(editor !== null);
   }, [editor, onModalOpenChange]);
 
+  // Always-current ref to the plan so the soft-delete undo callback can
+  // splice into the latest state even if the user kept editing after the
+  // delete fired.
+  const planRef = useRef(plan);
+  useEffect(() => {
+    planRef.current = plan;
+  }, [plan]);
+
   const removeAd = (id: string) => {
+    const idx = plan.ads.findIndex((a) => a.id === id);
+    if (idx === -1) return;
+    const removed = plan.ads[idx];
     onChange({ ...plan, ads: plan.ads.filter((a) => a.id !== id) });
     if (editor?.mode === 'edit' && editor.adId === id) setEditor(null);
+
+    // Soft-delete UX: surface an undo affordance via a sonner toast that
+    // reinserts the ad at its original index. The autosave debounce fires
+    // again on undo to re-persist the row.
+    toast.success(`Removed "${removed.name || 'Untitled Ad'}"`, {
+      duration: 6000,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          const current = planRef.current;
+          // Bail if the row somehow already exists (shouldn't, but guard
+          // against double-undo race).
+          if (current.ads.some((a) => a.id === removed.id)) return;
+          const next = [...current.ads];
+          const insertAt = Math.min(idx, next.length);
+          next.splice(insertAt, 0, removed);
+          onChange({ ...current, ads: next });
+        },
+      },
+    });
   };
   const openCreate = () => {
     const fresh = makeAd(plan.ads.length, period);
@@ -4250,10 +4451,13 @@ function AdPlannerPanel({
     setEditor(null);
   };
 
-  const visibleAds = useMemo(
-    () => applyFilters(plan.ads, filters, currentUserId),
-    [plan.ads, filters, currentUserId],
-  );
+  const [search, setSearch] = useState('');
+  const visibleAds = useMemo(() => {
+    const filtered = applyFilters(plan.ads, filters, currentUserId);
+    const q = search.trim().toLowerCase();
+    if (!q) return filtered;
+    return filtered.filter((a) => (a.name || '').toLowerCase().includes(q));
+  }, [plan.ads, filters, currentUserId, search]);
 
   const editorInitialAd: PacerAd | null =
     editor?.mode === 'create' ? editor.draft : editor?.original ?? null;
@@ -4283,6 +4487,28 @@ function AdPlannerPanel({
           } ad${plan.ads.length !== 1 ? 's' : ''})`}
         </h2>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Quick search by ad name — applied on top of the active filters. */}
+          <div className="relative">
+            <MagnifyingGlassIcon className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search ads…"
+              aria-label="Search ads by name"
+              className="pl-8 pr-7 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] w-44"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+              >
+                <XMarkIcon className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
           <div className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] p-0.5">
             <button
               type="button"
@@ -4320,7 +4546,7 @@ function AdPlannerPanel({
             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             title="Spread a budget evenly or with locked amounts/percentages"
           >
-            <ChartBarIcon className="w-3.5 h-3.5" />
+            <CalculatorIcon className="w-3.5 h-3.5" />
             Calculator
           </button>
           <AddPlanButton
@@ -5595,21 +5821,53 @@ function OverviewView({
 function MetaAdsPacerTool() {
   const { accountKey, accounts, setAccount } = useAccount();
   const { data: session } = useSession();
-  const { markClean } = useUnsavedChanges();
+  const { markDirty, markClean } = useUnsavedChanges();
   const currentUserId = session?.user?.id ?? null;
 
   const activeKey = accountKey;
   const activeAccount = activeKey ? accounts[activeKey] : null;
 
+  // ── URL state: period + tab pair sync to/from query params so reload
+  //    and bookmarks survive. Filters and view-mode stay in local state.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const urlPeriod = searchParams.get('period');
+  const urlTopTab = searchParams.get('tab');
+  const urlInnerTab = searchParams.get('inner');
+
   const [users, setUsers] = useState<DirectoryUser[]>([]);
-  const [period, setPeriod] = useState<string>(currentPeriod());
+  const [period, setPeriod] = useState<string>(
+    urlPeriod && isValidPeriod(urlPeriod) ? urlPeriod : currentPeriod(),
+  );
   const [periodSummaries, setPeriodSummaries] = useState<PeriodSummary[]>([]);
   const [plan, setPlan] = useState<PacerPlan | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
-  const [topTab, setTopTab] = useState<TopTab>('summary');
-  const [innerTab, setInnerTab] = useState<InnerTab>('planner');
+  // Default to Budgeting (the action-heavy tab) per the yesterday review.
+  const [topTab, setTopTab] = useState<TopTab>(
+    urlTopTab === 'summary' ? 'summary' : 'budgeting',
+  );
+  const [innerTab, setInnerTab] = useState<InnerTab>(
+    urlInnerTab === 'pacer' ? 'pacer' : 'planner',
+  );
+
+  // Mirror state changes back into the URL (replace, not push, so the
+  // back button stays useful for actual navigation).
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.set('period', period);
+    next.set('tab', topTab);
+    next.set('inner', innerTab);
+    const qs = next.toString();
+    const url = qs ? `${pathname}?${qs}` : pathname;
+    router.replace(url, { scroll: false });
+    // Intentionally exclude `searchParams` so external param changes don't
+    // re-trigger this loop (we read from it once on mount).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, topTab, innerTab, pathname, router]);
   const [filters, setFilters] = useState<PlanFilters>(EMPTY_FILTERS);
   const [filterSidebarOpen, setFilterSidebarOpen] = useState(false);
   // True while the AdEditorModal is open. Pauses autosave so transient draft
@@ -5695,37 +5953,54 @@ function MetaAdsPacerTool() {
     });
     if (serialized === lastSavedRef.current) return;
 
+    // Local plan diverged from the last-saved baseline — flag the global
+    // unsaved-changes guard so navigating away mid-edit prompts the user.
+    markDirty();
     setSaveStatus('saving');
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/meta-ads-pacer/${activeKey}?period=${period}`,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: serialized,
-          },
-        );
-        if (!res.ok) throw new Error('save failed');
-        // Don't replace local state with the server response — the user may
-        // have typed more during the 600ms debounce + network round-trip,
-        // and overwriting would clobber those keystrokes. We persisted what
-        // we sent; mark it as the last-saved baseline and let the next
-        // diff-driven save pick up any further edits.
-        await res.json().catch(() => null);
+      // Retries the PUT once with backoff before surfacing an error so
+      // a transient blip (network hiccup, cold lambda) doesn't strand the
+      // user with a red dot. Both attempts use the same serialized body —
+      // saves are idempotent at this granularity.
+      const attemptSave = async (attempt = 0): Promise<boolean> => {
+        try {
+          const res = await fetch(
+            `/api/meta-ads-pacer/${activeKey}?period=${period}`,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: serialized,
+            },
+          );
+          if (!res.ok) throw new Error('save failed');
+          // Don't replace local state with the server response — the user may
+          // have typed more during the 600ms debounce + network round-trip,
+          // and overwriting would clobber those keystrokes.
+          await res.json().catch(() => null);
+          return true;
+        } catch {
+          if (attempt < 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            return attemptSave(attempt + 1);
+          }
+          return false;
+        }
+      };
+      const ok = await attemptSave();
+      if (ok) {
         lastSavedRef.current = serialized;
         setSaveStatus('saved');
         markClean();
         setTimeout(() => setSaveStatus('idle'), 1500);
-      } catch {
+      } else {
         setSaveStatus('error');
       }
     }, 600);
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [plan, activeKey, loaded, period, markClean, editorOpen]);
+  }, [plan, activeKey, loaded, period, markClean, markDirty, editorOpen]);
 
   // ── Copy from another period ──
   const handleCopyFrom = async (fromPeriod: string, adIds?: string[]) => {

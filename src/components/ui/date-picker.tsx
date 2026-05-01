@@ -165,6 +165,7 @@ interface CalendarMonthProps {
   selectedStart: IsoDate | null;
   selectedEnd: IsoDate | null;
   hoverEnd: IsoDate | null;
+  focusedIso: IsoDate | null;
   isRange: boolean;
   onDayClick: (iso: IsoDate) => void;
   onDayMouseEnter: (iso: IsoDate) => void;
@@ -175,6 +176,7 @@ function CalendarMonth({
   selectedStart,
   selectedEnd,
   hoverEnd,
+  focusedIso,
   isRange,
   onDayClick,
   onDayMouseEnter,
@@ -250,17 +252,23 @@ function CalendarMonth({
 
           const isSelectedSingle = !isRange && selectedStart === iso;
           const highlighted = isStart || isEnd || isSelectedSingle;
+          const isFocused = focusedIso === iso;
 
           return (
             <button
               key={i}
               type="button"
+              tabIndex={-1}
               onClick={(e) => {
                 e.preventDefault();
                 onDayClick(iso);
               }}
               onMouseEnter={() => onDayMouseEnter(iso)}
               className={`relative h-8 rounded text-xs transition-colors select-none ${
+                isFocused
+                  ? 'ring-2 ring-[var(--primary)] ring-offset-1 ring-offset-[var(--background)]'
+                  : ''
+              } ${
                 cell.inMonth
                   ? 'text-[var(--foreground)]'
                   : 'text-[var(--muted-foreground)]/50'
@@ -357,6 +365,10 @@ export function DatePicker(props: DatePickerProps) {
   //   <IsoDate>    = picked the start, waiting for the end click
   const [pendingStart, setPendingStart] = useState<IsoDate | null>(null);
   const [hoverIso, setHoverIso] = useState<IsoDate | null>(null);
+  // Keyboard focus inside the calendar grid. Initialized from the current
+  // selection (or today) when the popover opens, then moved by the arrow
+  // keys. Distinct from `pendingStart` / committed value.
+  const [focusedIso, setFocusedIso] = useState<IsoDate | null>(null);
 
   // Derived "what is the picker showing right now" for range mode
   const rangeView: DateRange = isRange
@@ -395,6 +407,24 @@ export function DatePicker(props: DatePickerProps) {
       window.removeEventListener('resize', onScroll);
     };
   }, [open, updatePosition]);
+
+  // Initialize keyboard focus when the popover opens — selected date if we
+  // have one, otherwise today.
+  useEffect(() => {
+    if (!open) {
+      setFocusedIso(null);
+      return;
+    }
+    if (isRange) {
+      const r = (props as RangeProps).value;
+      setFocusedIso(r.start ?? toIso(new Date()));
+    } else {
+      const v = (props as SingleProps).value;
+      setFocusedIso(v ?? toIso(new Date()));
+    }
+    // Only run on open transitions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // ─── Outside click + Esc ──
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -462,6 +492,78 @@ export function DatePicker(props: DatePickerProps) {
   const handleDayMouseEnter = (iso: IsoDate) => {
     if (!isRange) return;
     setHoverIso(iso);
+  };
+
+  /**
+   * Move the keyboard focus cursor by the given day delta and pull the
+   * displayed month into view if the new focus crosses month boundaries.
+   */
+  const moveFocus = (deltaDays: number) => {
+    const base = fromIso(focusedIso) ?? new Date();
+    const next = new Date(base);
+    next.setDate(base.getDate() + deltaDays);
+    const nextIso = toIso(next);
+    setFocusedIso(nextIso);
+    if (
+      next.getFullYear() !== cursor.getFullYear() ||
+      next.getMonth() !== cursor.getMonth()
+    ) {
+      setCursor(startOfMonth(next));
+    }
+    if (isRange && pendingStart) setHoverIso(nextIso);
+  };
+
+  const handleGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!open) return;
+    switch (e.key) {
+      case 'ArrowLeft':
+        e.preventDefault();
+        moveFocus(-1);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        moveFocus(1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        moveFocus(-7);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        moveFocus(7);
+        break;
+      case 'PageUp':
+        e.preventDefault();
+        setCursor((c) => addMonths(c, -1));
+        break;
+      case 'PageDown':
+        e.preventDefault();
+        setCursor((c) => addMonths(c, 1));
+        break;
+      case 'Home': {
+        e.preventDefault();
+        const base = fromIso(focusedIso) ?? new Date();
+        const monday = new Date(base);
+        monday.setDate(base.getDate() - base.getDay());
+        setFocusedIso(toIso(monday));
+        break;
+      }
+      case 'End': {
+        e.preventDefault();
+        const base = fromIso(focusedIso) ?? new Date();
+        const sunday = new Date(base);
+        sunday.setDate(base.getDate() + (6 - base.getDay()));
+        setFocusedIso(toIso(sunday));
+        break;
+      }
+      case 'Enter':
+      case ' ':
+        if (focusedIso) {
+          e.preventDefault();
+          handleDayClick(focusedIso);
+        }
+        break;
+    }
   };
 
   // ─── Keyboard input field (manual entry fallback) ──
@@ -647,7 +749,14 @@ export function DatePicker(props: DatePickerProps) {
               </div>
 
               {/* Calendar */}
-              <div onMouseLeave={() => setHoverIso(null)}>
+              <div
+                onMouseLeave={() => setHoverIso(null)}
+                onKeyDown={handleGridKeyDown}
+                tabIndex={0}
+                role="grid"
+                aria-label="Calendar"
+                className="focus:outline-none"
+              >
                 <CalendarMonth
                   cursor={cursor}
                   selectedStart={
@@ -655,6 +764,7 @@ export function DatePicker(props: DatePickerProps) {
                   }
                   selectedEnd={isRange ? (props as RangeProps).value.end : null}
                   hoverEnd={hoverIso}
+                  focusedIso={focusedIso}
                   isRange={isRange}
                   onDayClick={handleDayClick}
                   onDayMouseEnter={handleDayMouseEnter}
