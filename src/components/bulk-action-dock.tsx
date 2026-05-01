@@ -1,6 +1,7 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 
 export interface BulkActionDockItem {
@@ -27,8 +28,18 @@ export default function BulkActionDock({
 }: BulkActionDockProps) {
   const visibleActions = actions.filter((action) => !action.disabled || action.id === 'select-all');
 
-  return (
-    <div className="fixed bottom-6 left-1/2 z-40 w-fit max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-fade-in-up">
+  // Portal to document.body so the dock isn't trapped inside any ancestor
+  // with `transform` set (e.g., `animate-fade-in-up`), which would otherwise
+  // become the containing block for `position: fixed` and pin the dock
+  // somewhere off-screen.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed bottom-6 left-[calc(50%+9.25rem)] z-40 w-fit max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-fade-in-up">
       <div className="loomi-bulk-dock flex items-center rounded-2xl border px-2 py-1.5 backdrop-blur-xl">
         <div className="flex items-center gap-2 px-3 py-1.5">
           <span className="loomi-bulk-dock-count inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-[var(--primary)] px-2 text-xs font-semibold text-white">
@@ -69,6 +80,7 @@ export default function BulkActionDock({
           <XMarkIcon className="h-4 w-4" />
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

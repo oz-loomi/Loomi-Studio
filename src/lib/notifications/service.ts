@@ -153,6 +153,14 @@ function todayISO(): string {
   return d.toISOString().split('T')[0];
 }
 
+/** Reformat a YYYY-MM-DD ISO date into the user-facing MM-DD-YYYY layout. */
+function fmtFullDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  if (!y || !m || !d) return iso;
+  return `${m}-${d}-${y}`;
+}
+
 function daysAgoMs(n: number): number {
   return Date.now() - n * 86400 * 1000;
 }
@@ -255,7 +263,7 @@ export async function scanPacerAlerts(): Promise<ScanResult> {
     if (!title) continue;
 
     const link = `/tools/meta-ads-pacer`;
-    const body = `${ad.plan.account.dealer} · ${ad.adStatus} · target start ${ad.flightStart ?? '—'}`;
+    const body = `${ad.plan.account.dealer} · ${ad.adStatus} · target start ${fmtFullDate(ad.flightStart)}`;
     const dedupeKey = `${ad.id}:${type}:${today}`;
 
     for (const userId of recipients) {
@@ -322,7 +330,7 @@ export async function scanPacerAlerts(): Promise<ScanResult> {
     if (ad.updatedAt > stuckCutoff) continue;
 
     const title = `"${ad.name}" has been Stuck for 2+ days`;
-    const body = `${ad.plan.account.dealer} · last updated ${ad.updatedAt.toISOString().split('T')[0]}`;
+    const body = `${ad.plan.account.dealer} · last updated ${fmtFullDate(ad.updatedAt.toISOString().split('T')[0])}`;
     const link = `/tools/meta-ads-pacer`;
     const dedupeKey = `${ad.id}:status_stuck:${today}`;
 

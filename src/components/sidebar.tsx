@@ -1,6 +1,12 @@
 'use client';
 
-import { useEffect, useState, type ComponentType, type SVGProps } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type SVGProps,
+} from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -13,13 +19,13 @@ import {
   SunIcon,
   MoonIcon,
   WrenchScrewdriverIcon,
-  MegaphoneIcon,
   ChevronDownIcon,
   ChartBarSquareIcon,
 } from '@heroicons/react/24/outline';
 import { useAccount } from '@/contexts/account-context';
 import { useTheme } from '@/contexts/theme-context';
 import { SectionsIcon, FlowIcon } from '@/components/icon-map';
+import { MetaLogoIcon } from '@/components/icons/meta-logo';
 import { AccountSwitcher } from '@/components/account-switcher';
 import { DevImpersonate } from '@/components/dev-impersonate';
 import { AppLogo } from '@/components/app-logo';
@@ -30,7 +36,8 @@ type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 interface NavItem {
   href: string;
   label: string;
-  icon: IconComponent;
+  /** Optional — leaves of nested groups can omit it to keep the menu tidy. */
+  icon?: IconComponent;
   children?: NavItem[];
   // When true, href is used as-is and the sub-account prefix is NOT applied.
   // Use for global tools that live outside the /subaccount/[slug]/* route tree
@@ -45,10 +52,22 @@ const toolsNavItem: NavItem = {
   absolute: true,
   children: [
     {
-      href: '/tools/meta-ads-pacer',
-      label: 'Meta Ads Planner',
-      icon: MegaphoneIcon,
+      href: '/tools/meta',
+      label: 'Meta',
+      icon: MetaLogoIcon,
       absolute: true,
+      children: [
+        {
+          href: '/tools/meta/ad-planner',
+          label: 'Ad Planner',
+          absolute: true,
+        },
+        {
+          href: '/tools/meta/ad-pacer',
+          label: 'Ad Pacer',
+          absolute: true,
+        },
+      ],
     },
   ],
 };
@@ -192,6 +211,7 @@ export function Sidebar() {
                 item={item}
                 prefix={prefix}
                 normalizedPath={normalizedPath}
+                depth={0}
               />
             );
           }
@@ -210,7 +230,7 @@ export function Sidebar() {
                   : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
               }`}
             >
-              <item.icon className="w-5 h-5" />
+              {item.icon && <item.icon className="w-5 h-5" />}
               {item.label}
             </Link>
           );
@@ -253,10 +273,12 @@ function NavGroup({
   item,
   prefix,
   normalizedPath,
+  depth,
 }: {
   item: NavItem;
   prefix: string;
   normalizedPath: string;
+  depth: number;
 }) {
   // A group is active if the URL matches any of its children's paths — children
   // can live at unrelated URL roots (Templates at /templates, Flows at /flows,
@@ -265,38 +287,91 @@ function NavGroup({
     const childPath = child.absolute
       ? child.href
       : child.href.replace(prefix, '');
-    return normalizedPath === childPath || normalizedPath.startsWith(`${childPath}/`);
+    if (normalizedPath === childPath || normalizedPath.startsWith(`${childPath}/`)) {
+      return true;
+    }
+    // Recurse into grandchildren so a 3rd-level active leaf still flags this group.
+    return (child.children ?? []).some((grand) => {
+      const grandPath = grand.absolute ? grand.href : grand.href.replace(prefix, '');
+      return normalizedPath === grandPath || normalizedPath.startsWith(`${grandPath}/`);
+    });
   });
-  const [open, setOpen] = useState<boolean>(sectionActive);
 
-  // Auto-expand when navigating into a child route
+  // `userOpen` is the explicit user choice; `null` means "follow sectionActive".
+  // This is bulletproof against stale closures: open state is computed each
+  // render from the latest sectionActive + the user's last explicit toggle.
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const wasActiveRef = useRef(sectionActive);
   useEffect(() => {
-    if (sectionActive) setOpen(true);
+    // When the section becomes newly active (user navigated into it from
+    // outside), clear any prior manual close so it auto-opens.
+    if (sectionActive && !wasActiveRef.current) {
+      setUserOpen(null);
+    }
+    wasActiveRef.current = sectionActive;
   }, [sectionActive]);
+
+  const open = userOpen ?? sectionActive;
+  const handleToggle = () => setUserOpen(!open);
+
+  const isTop = depth === 0;
+
+  // Top-level groups keep the bold pill treatment. Nested groups go lighter so
+  // we don't stack multiple dark pills inside each other (Tools → Meta → leaf).
+  const buttonClass = isTop
+    ? `w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+        sectionActive
+          ? 'text-[var(--sidebar-foreground)] bg-[var(--sidebar-muted)]'
+          : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
+      }`
+    : `w-full flex items-center gap-2.5 pl-3 pr-2 py-1.5 rounded-lg text-[13px] transition-all duration-200 ${
+        sectionActive
+          ? 'text-[var(--sidebar-foreground)] font-semibold'
+          : 'text-[var(--sidebar-muted-foreground)] font-medium hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]/60'
+      }`;
+
+  const iconSize = isTop ? 'w-5 h-5' : 'w-4 h-4';
+  const chevronSize = isTop ? 'w-4 h-4' : 'w-3.5 h-3.5';
 
   return (
     <div>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={handleToggle}
         aria-expanded={open}
-        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-          sectionActive
-            ? 'text-[var(--sidebar-foreground)] bg-[var(--sidebar-muted)]'
-            : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
-        }`}
+        className={buttonClass}
       >
-        <item.icon className="w-5 h-5" />
+        {item.icon && <item.icon className={iconSize} />}
         <span className="flex-1 text-left">{item.label}</span>
         <ChevronDownIcon
-          className={`w-4 h-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          className={`${chevronSize} transition-transform duration-200 ${open ? 'rotate-180' : ''} ${
+            sectionActive ? 'opacity-100' : 'opacity-50'
+          }`}
         />
       </button>
 
       <div className="collapsible-wrapper" data-open={open ? 'true' : 'false'}>
         <div className="collapsible-inner">
-          <div className="pt-0.5 pl-3 space-y-0.5">
+          {/* Vertical rail to visually anchor children to their parent group. */}
+          <div className="relative pt-1 pl-3 pb-0.5 space-y-0.5">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1 bottom-0.5 left-[14px] w-px bg-[var(--sidebar-border)]"
+            />
             {item.children!.map((child) => {
+              // Children with their own children render as a nested group so
+              // we get e.g. Tools → Meta → [Ad Planner, Ad Pacer].
+              if (child.children && child.children.length > 0) {
+                return (
+                  <NavGroup
+                    key={child.label}
+                    item={child}
+                    prefix={prefix}
+                    normalizedPath={normalizedPath}
+                    depth={depth + 1}
+                  />
+                );
+              }
               const childPath = child.absolute
                 ? child.href
                 : child.href.replace(prefix, '');
@@ -307,13 +382,13 @@ function NavGroup({
                 <Link
                   key={child.href}
                   href={child.href}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  className={`relative flex items-center gap-2.5 pl-3 pr-3 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-200 ${
                     childActive
                       ? 'bg-[var(--primary)] text-white shadow-[0_2px_8px_rgba(59,130,246,0.3)]'
-                      : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]'
+                      : 'text-[var(--sidebar-muted-foreground)] hover:text-[var(--sidebar-foreground)] hover:bg-[var(--sidebar-muted)]/60'
                   }`}
                 >
-                  <child.icon className="w-4 h-4" />
+                  {child.icon && <child.icon className="w-4 h-4" />}
                   {child.label}
                 </Link>
               );
