@@ -593,19 +593,23 @@ const APPROVAL_STATUS_COLORS: Record<string, [string, string]> = {
   'Changes Requested': ['rgba(56,189,248,0.18)', '#7dd3fc'],
 };
 
+// Solid bg + white text for ad statuses (Monday-style "filled" tags). Other
+// status palettes (DESIGN_STATUS_COLORS, APPROVAL_STATUS_COLORS) stay
+// translucent — the saturation here is reserved for the primary state-of-
+// the-ad signal.
 const AD_STATUS_COLORS: Record<string, [string, string]> = {
-  Live: ['rgba(34,197,94,0.18)', '#4ade80'],
-  'Ready- Pending Approval': ['rgba(56,189,248,0.18)', '#7dd3fc'],
-  'In Draft': ['var(--muted)', 'var(--muted-foreground)'],
-  Scheduled: ['rgba(245,158,11,0.18)', '#fbbf24'],
-  'Live - Changes Required': ['rgba(167,139,250,0.18)', '#c4b5fd'],
-  'Pending Design': ['rgba(244,114,182,0.18)', '#f472b6'],
-  'Completed Run': ['rgba(34,197,94,0.18)', '#86efac'],
-  Off: ['rgba(94,234,212,0.18)', '#5eead4'],
-  'Waiting on Rep': ['rgba(252,211,77,0.18)', '#fcd34d'],
-  'Working on it': ['rgba(251,146,60,0.18)', '#fb923c'],
-  Stuck: ['rgba(239,68,68,0.18)', '#fca5a5'],
-  'Budget Adjustment': ['rgba(56,189,248,0.18)', '#38bdf8'],
+  Live: ['#22c55e', '#ffffff'],
+  'Ready- Pending Approval': ['#0ea5e9', '#ffffff'],
+  'In Draft': ['#6b7280', '#ffffff'],
+  Scheduled: ['#f59e0b', '#ffffff'],
+  'Live - Changes Required': ['#a78bfa', '#ffffff'],
+  'Pending Design': ['#ec4899', '#ffffff'],
+  'Completed Run': ['#16a34a', '#ffffff'],
+  Off: ['#14b8a6', '#ffffff'],
+  'Waiting on Rep': ['#eab308', '#ffffff'],
+  'Working on it': ['#f97316', '#ffffff'],
+  Stuck: ['#ef4444', '#ffffff'],
+  'Budget Adjustment': ['#06b6d4', '#ffffff'],
 };
 
 function AdStatusPill({ status }: { status: string }) {
