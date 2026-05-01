@@ -356,7 +356,7 @@ function NavGroup({
           <div className="relative pt-1 pl-3 pb-0.5 space-y-0.5">
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute top-1 bottom-0.5 left-[14px] w-px bg-[var(--sidebar-border)]"
+              className="pointer-events-none absolute top-1 bottom-0.5 left-[14px] w-px bg-[var(--sidebar-border-soft)]"
             />
             {item.children!.map((child) => {
               // Children with their own children render as a nested group so

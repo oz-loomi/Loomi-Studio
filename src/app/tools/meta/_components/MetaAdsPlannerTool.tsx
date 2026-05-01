@@ -916,7 +916,9 @@ function StatusBattery({ ads, size = 'sm' }: { ads: PacerAd[]; size?: 'sm' | 'lg
         <div className={`flex ${barHeight} w-full rounded-full overflow-hidden bg-[var(--muted)] border border-[var(--border)]`}>
           {breakdown.map(({ status, count }) => {
             const w = (count / total) * 100;
-            const color = AD_STATUS_COLORS[status]?.[1] ?? 'var(--muted-foreground)';
+            // [0] = bg color (the solid status color); [1] is the text color
+            // (now #ffffff for every status, which would render the bar blank).
+            const color = AD_STATUS_COLORS[status]?.[0] ?? 'var(--muted-foreground)';
             return (
               <div
                 key={status}
@@ -932,7 +934,7 @@ function StatusBattery({ ads, size = 'sm' }: { ads: PacerAd[]; size?: 'sm' | 'lg
             {total} ad{total !== 1 ? 's' : ''}
           </span>
           {breakdown.map(({ status, count }) => {
-            const color = AD_STATUS_COLORS[status]?.[1] ?? 'var(--muted-foreground)';
+            const color = AD_STATUS_COLORS[status]?.[0] ?? 'var(--muted-foreground)';
             return (
               <span
                 key={status}
