@@ -63,6 +63,7 @@ const AD_STATUSES = [
   'Waiting on Rep',
   'Scheduled',
   'Working on it',
+  'Budget Adjustment',
 ];
 const DESIGN_STATUSES = [
   'Work In Progress',
@@ -577,6 +578,7 @@ const AD_STATUS_COLORS: Record<string, [string, string]> = {
   'Waiting on Rep': ['rgba(252,211,77,0.18)', '#fcd34d'],
   'Working on it': ['rgba(251,146,60,0.18)', '#fb923c'],
   Stuck: ['rgba(239,68,68,0.18)', '#fca5a5'],
+  'Budget Adjustment': ['rgba(56,189,248,0.18)', '#38bdf8'],
 };
 
 function AdStatusPill({ status }: { status: string }) {
@@ -654,6 +656,7 @@ const STATUS_PRIORITY = [
   'Stuck',
   'Pending Design',
   'Waiting on Rep',
+  'Budget Adjustment',
   'In Draft',
   'Working on it',
   'Ready- Pending Approval',
@@ -3261,8 +3264,27 @@ function TotalAllocationHeader({ plan }: { plan: PacerPlan }) {
         : allocPct >= 95
           ? COLORS.success
           : COLORS.warn;
-  const baseW = totalActual > 0 ? (totalBase / totalActual) * 100 : 0;
-  const addedW = totalActual > 0 ? (totalAdded / totalActual) * 100 : 0;
+  // Bar widths are computed against the COMBINED budget cap so partial
+  // allocation visually leaves empty space (matching the per-source bars
+  // inside BudgetPanel). Falls back to share-of-total when there's no
+  // budget goal set yet so the bar still has something to render.
+  const widthDenominator =
+    combinedActualBudget != null && combinedActualBudget > 0
+      ? combinedActualBudget
+      : totalActual;
+  const baseW = widthDenominator > 0
+    ? Math.min(100, (totalBase / widthDenominator) * 100)
+    : 0;
+  const addedW = widthDenominator > 0
+    ? Math.min(100 - baseW, (totalAdded / widthDenominator) * 100)
+    : 0;
+  // Percent of total budget — used for the legend %.
+  const basePctOfBudget = widthDenominator > 0
+    ? (totalBase / widthDenominator) * 100
+    : 0;
+  const addedPctOfBudget = widthDenominator > 0
+    ? (totalAdded / widthDenominator) * 100
+    : 0;
 
   return (
     <div className="glass-section-card rounded-xl px-5 py-4 mb-4">
@@ -3303,7 +3325,7 @@ function TotalAllocationHeader({ plan }: { plan: PacerPlan }) {
         {baseW > 0 && (
           <div
             className="h-full transition-[width] duration-500"
-            title={`Base: ${fmt(totalBase)} (${baseW.toFixed(1)}% of total allocation)`}
+            title={`Base: ${fmt(totalBase)} (${basePctOfBudget.toFixed(1)}% of budget)`}
             style={{
               width: `${baseW}%`,
               background: `linear-gradient(90deg, rgba(56,189,248,0.4), ${COLORS.base})`,
@@ -3314,7 +3336,7 @@ function TotalAllocationHeader({ plan }: { plan: PacerPlan }) {
         {addedW > 0 && (
           <div
             className="h-full transition-[width] duration-500"
-            title={`Added: ${fmt(totalAdded)} (${addedW.toFixed(1)}% of total allocation)`}
+            title={`Added: ${fmt(totalAdded)} (${addedPctOfBudget.toFixed(1)}% of budget)`}
             style={{
               width: `${addedW}%`,
               background: `linear-gradient(90deg, rgba(52,211,153,0.4), ${COLORS.added})`,
@@ -3333,7 +3355,7 @@ function TotalAllocationHeader({ plan }: { plan: PacerPlan }) {
             <span className="font-bold" style={{ color: COLORS.base }}>
               {fmt(totalBase)}
             </span>
-            <span>({baseW.toFixed(1)}%)</span>
+            <span>({basePctOfBudget.toFixed(1)}%)</span>
           </div>
         )}
         {totalAdded > 0 && (
@@ -3346,7 +3368,7 @@ function TotalAllocationHeader({ plan }: { plan: PacerPlan }) {
             <span className="font-bold" style={{ color: COLORS.added }}>
               {fmt(totalAdded)}
             </span>
-            <span>({addedW.toFixed(1)}%)</span>
+            <span>({addedPctOfBudget.toFixed(1)}%)</span>
           </div>
         )}
         {combinedActualBudget != null && (
@@ -3755,6 +3777,366 @@ function CopyPlanModal({
   );
 }
 
+// ─── Budget Calculator modal ───────────────────────────────────────────────
+/**
+ * Per-source budget calculator: spreads a total budget across the source's
+ * ads using one of three modes per row — "Distribute evenly" (default,
+ * unlocked), "Set amount" (locked $), or "Set %" (locked % of total). The
+ * unlocked ads share whatever's left after locked rows. For Daily ads the
+ * computed allocation is also shown as a daily rate over the flight days.
+ *
+ * On Apply: writes the computed allocation back to each ad's `allocation`
+ * field. If any ad in the source already has an allocation, prompts before
+ * overwriting.
+ */
+type AllocationMode = 'even' | 'amount' | 'percent';
+
+interface AdAllocSpec {
+  mode: AllocationMode;
+  amount: string; // when mode === 'amount'
+  percent: string; // when mode === 'percent'
+}
+
+function computeAllocations(
+  ads: PacerAd[],
+  totalBudget: number,
+  specs: Record<string, AdAllocSpec>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  let locked = 0;
+  let evenCount = 0;
+  for (const ad of ads) {
+    const spec = specs[ad.id] ?? { mode: 'even', amount: '', percent: '' };
+    if (spec.mode === 'amount') {
+      const v = num(spec.amount) ?? 0;
+      out[ad.id] = v;
+      locked += v;
+    } else if (spec.mode === 'percent') {
+      const pct = num(spec.percent) ?? 0;
+      const v = (totalBudget * pct) / 100;
+      out[ad.id] = v;
+      locked += v;
+    } else {
+      evenCount++;
+    }
+  }
+  const remainder = Math.max(0, totalBudget - locked);
+  const perEven = evenCount > 0 ? remainder / evenCount : 0;
+  for (const ad of ads) {
+    const spec = specs[ad.id] ?? { mode: 'even', amount: '', percent: '' };
+    if (spec.mode === 'even') out[ad.id] = perEven;
+  }
+  return out;
+}
+
+function BudgetCalculatorModal({
+  plan,
+  onClose,
+  onApply,
+}: {
+  plan: PacerPlan;
+  onClose: () => void;
+  onApply: (allocationsById: Record<string, number>) => void;
+}) {
+  const [source, setSource] = useState<'base' | 'added'>('base');
+
+  const sourceAds = useMemo(
+    () => plan.ads.filter((a) => a.budgetSource === source),
+    [plan.ads, source],
+  );
+  const goal =
+    source === 'base' ? num(plan.baseBudgetGoal) : num(plan.addedBudgetGoal);
+  const defaultBudget =
+    goal != null ? Math.round(goal * MARKUP * 100) / 100 : 0;
+
+  // Per-source budget input (string, free-form). Falls back to the source's
+  // actual-spend budget when blank.
+  const [budgets, setBudgets] = useState<Record<'base' | 'added', string>>({
+    base: '',
+    added: '',
+  });
+  const budgetInput = budgets[source];
+  const totalBudget =
+    budgetInput.trim() === '' ? defaultBudget : num(budgetInput) ?? 0;
+
+  // Per-ad allocation specs, keyed by ad id, scoped to source via the spec map.
+  const [specs, setSpecs] = useState<Record<string, AdAllocSpec>>({});
+
+  const allocations = useMemo(
+    () => computeAllocations(sourceAds, totalBudget, specs),
+    [sourceAds, totalBudget, specs],
+  );
+  const allocatedTotal = sourceAds.reduce(
+    (s, a) => s + (allocations[a.id] ?? 0),
+    0,
+  );
+  const remaining = totalBudget - allocatedTotal;
+  const overBudget = remaining < -0.005;
+
+  const updateSpec = (adId: string, patch: Partial<AdAllocSpec>) =>
+    setSpecs((prev) => ({
+      ...prev,
+      [adId]: {
+        mode: prev[adId]?.mode ?? 'even',
+        amount: prev[adId]?.amount ?? '',
+        percent: prev[adId]?.percent ?? '',
+        ...patch,
+      },
+    }));
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const handleApply = () => {
+    const adsWithExisting = sourceAds.filter(
+      (a) => num(a.allocation) != null && (num(a.allocation) ?? 0) > 0,
+    );
+    if (adsWithExisting.length > 0) {
+      if (
+        !window.confirm(
+          `${adsWithExisting.length} ad${adsWithExisting.length === 1 ? '' : 's'} in ${source === 'base' ? 'Base' : 'Added'} already ${adsWithExisting.length === 1 ? 'has' : 'have'} an allocation set. Overwrite?`,
+        )
+      ) {
+        return;
+      }
+    }
+    onApply(allocations);
+  };
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:pt-12 bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="glass-modal w-full max-w-3xl rounded-xl p-5 max-h-[90vh] flex flex-col"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-base font-bold text-[var(--foreground)]">
+              Budget Calculator
+            </h3>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+              Spread a total budget across the {source === 'base' ? 'Base' : 'Added'}{' '}
+              ads in this period. Set a $ or % on individual rows; the rest split
+              evenly.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+            aria-label="Close"
+          >
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Source tabs */}
+        <div className="flex rounded-lg border border-[var(--border)] bg-[var(--input)] overflow-hidden mb-4 self-start">
+          {(['base', 'added'] as const).map((s) => {
+            const active = source === s;
+            const accent = s === 'base' ? COLORS.base : COLORS.added;
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSource(s)}
+                className="px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors"
+                style={{
+                  background: active ? `${accent}33` : 'transparent',
+                  color: active ? accent : 'var(--muted-foreground)',
+                  borderRight:
+                    s === 'base' ? '1px solid var(--border)' : 'none',
+                }}
+              >
+                {s === 'base' ? 'Base' : 'Added'} ({plan.ads.filter((a) => a.budgetSource === s).length})
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Total budget + summary */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <Field label="Total Budget (Actual Spend)">
+            <DollarInput
+              value={budgetInput}
+              onChange={(v) =>
+                setBudgets((prev) => ({ ...prev, [source]: v }))
+              }
+              placeholder={defaultBudget > 0 ? defaultBudget.toFixed(2) : '0.00'}
+            />
+            {defaultBudget > 0 && budgetInput.trim() === '' && (
+              <p className="text-[10px] text-[var(--muted-foreground)] mt-1">
+                Defaulting to {fmt(defaultBudget)} from the {source === 'base' ? 'Base' : 'Added'} budget goal
+              </p>
+            )}
+          </Field>
+          <MetricBox
+            label="Allocated"
+            value={fmt(allocatedTotal)}
+            sub={`of ${fmt(totalBudget)}`}
+            color={
+              overBudget
+                ? COLORS.error
+                : remaining < 0.005
+                  ? COLORS.success
+                  : COLORS.warn
+            }
+          />
+          <MetricBox
+            label={remaining >= 0 ? 'Remaining' : 'Over budget by'}
+            value={fmt(Math.abs(remaining))}
+            sub={
+              overBudget
+                ? 'reduce locked rows or raise total'
+                : remaining < 0.005
+                  ? 'fully allocated'
+                  : 'splits across unlocked rows'
+            }
+            color={overBudget ? COLORS.error : undefined}
+          />
+        </div>
+
+        {/* Ad list */}
+        <div className="themed-scrollbar overflow-y-auto -mx-2 px-2 flex-1 min-h-0">
+          {sourceAds.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-[var(--border)] py-8 text-center text-xs text-[var(--muted-foreground)]">
+              No {source === 'base' ? 'Base' : 'Added'} ads in this period yet.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {sourceAds.map((ad) => {
+                const spec = specs[ad.id] ?? {
+                  mode: 'even' as AllocationMode,
+                  amount: '',
+                  percent: '',
+                };
+                const allocated = allocations[ad.id] ?? 0;
+                const flightDays =
+                  ad.flightStart && ad.flightEnd
+                    ? calcDays(ad.flightStart, ad.flightEnd)
+                    : 0;
+                const dailyRate =
+                  ad.budgetType === 'Daily' && flightDays > 0
+                    ? allocated / flightDays
+                    : null;
+                return (
+                  <div
+                    key={ad.id}
+                    className="grid grid-cols-1 md:grid-cols-[1fr_140px_140px_140px] gap-2 items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-[var(--foreground)] truncate">
+                        {ad.name || 'Untitled Ad'}
+                      </div>
+                      <div className="text-[10px] text-[var(--muted-foreground)]">
+                        {ad.budgetType}
+                        {flightDays > 0 ? ` · ${flightDays} days` : ''}
+                      </div>
+                    </div>
+                    <select
+                      value={spec.mode}
+                      onChange={(e) =>
+                        updateSpec(ad.id, {
+                          mode: e.target.value as AllocationMode,
+                        })
+                      }
+                      className={`${inputClass} text-[11px] py-1.5`}
+                    >
+                      <option value="even">Distribute evenly</option>
+                      <option value="amount">Set amount</option>
+                      <option value="percent">Set %</option>
+                    </select>
+                    <div>
+                      {spec.mode === 'amount' && (
+                        <DollarInput
+                          value={spec.amount}
+                          onChange={(v) => updateSpec(ad.id, { amount: v })}
+                          placeholder="0.00"
+                        />
+                      )}
+                      {spec.mode === 'percent' && (
+                        <div className="relative">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={spec.percent}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === '' || /^\d*\.?\d*$/.test(v)) {
+                                updateSpec(ad.id, { percent: v });
+                              }
+                            }}
+                            placeholder="0"
+                            className={`${inputClass} pr-7`}
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--muted-foreground)] pointer-events-none">
+                            %
+                          </span>
+                        </div>
+                      )}
+                      {spec.mode === 'even' && (
+                        <div className="text-[10px] text-[var(--muted-foreground)] italic px-2 py-1.5">
+                          shares remainder
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div
+                        className="text-sm font-bold"
+                        style={{
+                          color:
+                            ad.budgetSource === 'base'
+                              ? COLORS.base
+                              : COLORS.added,
+                        }}
+                      >
+                        {fmt(allocated)}
+                      </div>
+                      {dailyRate != null && (
+                        <div className="text-[10px] text-[var(--muted-foreground)]">
+                          {fmt(dailyRate)}/day · {flightDays}d
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-[var(--border)]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] hover:bg-[var(--muted)]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleApply}
+            disabled={sourceAds.length === 0 || overBudget}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--primary)] text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[var(--primary)]/90 transition-colors"
+          >
+            Apply to {sourceAds.length} ad{sourceAds.length === 1 ? '' : 's'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ─── Ad Planner panel ──────────────────────────────────────────────────────
 type EditorState =
   | { mode: 'create'; draft: PacerAd }
@@ -3791,6 +4173,7 @@ function AdPlannerPanel({
 }) {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
+  const [showCalcModal, setShowCalcModal] = useState(false);
 
   // View mode (table vs card). Default to table; persist per-browser so the
   // user's choice sticks across visits.
@@ -3930,6 +4313,16 @@ function AdPlannerPanel({
               Cards
             </button>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowCalcModal(true)}
+            disabled={plan.ads.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--muted)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title="Spread a budget evenly or with locked amounts/percentages"
+          >
+            <ChartBarIcon className="w-3.5 h-3.5" />
+            Calculator
+          </button>
           <AddPlanButton
             onCreateNew={openCreate}
             onOpenCopy={() => setShowCopyModal(true)}
@@ -4060,6 +4453,24 @@ function AdPlannerPanel({
           onCopy={(from, adIds) =>
             Promise.resolve(onCopyFrom(from, adIds))
           }
+        />
+      )}
+
+      {showCalcModal && (
+        <BudgetCalculatorModal
+          plan={plan}
+          onClose={() => setShowCalcModal(false)}
+          onApply={(allocsById) => {
+            onChange({
+              ...plan,
+              ads: plan.ads.map((a) =>
+                allocsById[a.id] != null
+                  ? { ...a, allocation: allocsById[a.id].toFixed(2) }
+                  : a,
+              ),
+            });
+            setShowCalcModal(false);
+          }}
         />
       )}
     </div>
@@ -4201,7 +4612,7 @@ function PacerRow({
         style={{ background: accentColor }}
       />
 
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-2">
+      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1.5">
             <div
@@ -4237,13 +4648,24 @@ function PacerRow({
             >
               {ad.budgetSource === 'base' ? 'Base' : 'Added'}
             </span>
-            {ad.flightStart && ad.flightEnd && (
-              <span className="text-[10px] text-[var(--muted-foreground)]">
-                Flight: {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
-              </span>
-            )}
           </div>
         </div>
+
+        {/* Flight dates pulled out to the top-right in larger type so the
+            running window is always visible when reading the metrics. */}
+        {ad.flightStart && ad.flightEnd && (
+          <div className="text-right flex-shrink-0">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              Flight
+            </div>
+            <div className="text-base font-bold text-[var(--foreground)] whitespace-nowrap">
+              {fmtDate(ad.flightStart)} – {fmtDate(ad.flightEnd)}
+            </div>
+            <div className="text-[10px] text-[var(--muted-foreground)]">
+              {calcDays(ad.flightStart, ad.flightEnd)} days
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Editable inputs row — actual, daily, target, today, end */}
