@@ -520,9 +520,10 @@ const inputClass =
   'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--input)] focus:outline-none focus:border-[var(--primary)] text-[var(--foreground)]';
 // Drop-in for places where we render a value inside a Field but the field
 // is read-only (computed totals, "N/A" placeholders, etc.). Borderless +
-// transparent bg + muted text so it's clearly NOT an editable input.
+// transparent bg + muted text + no horizontal padding so the value sits
+// flush with the Field's label, not indented like an editable input.
 const readonlyClass =
-  'w-full px-3 py-2 text-sm rounded-lg bg-transparent text-[var(--muted-foreground)] cursor-default';
+  'w-full py-2 text-sm bg-transparent text-[var(--muted-foreground)] cursor-default';
 const labelClass =
   'block text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-1.5';
 
@@ -587,13 +588,15 @@ function Field({ label, color, children }: { label: string; color?: string; chil
  * dropdown's colored options, and the StatusBattery overview bar. Adding a
  * status here automatically tints it everywhere it's rendered.
  */
+// Design statuses use the same solid bg + white text family as ad statuses
+// and approval pills so the three sit together visually as one signal set.
 const DESIGN_STATUS_COLORS: Record<string, [string, string]> = {
-  Approved: ['rgba(34,197,94,0.18)', '#4ade80'],
-  'Work In Progress': ['rgba(251,146,60,0.18)', '#fb923c'],
-  Stuck: ['rgba(239,68,68,0.18)', '#fca5a5'],
-  'Revisions Needed': ['rgba(252,211,77,0.18)', '#fcd34d'],
+  Approved: ['#22c55e', '#ffffff'],
+  'Work In Progress': ['#fb923c', '#ffffff'],
+  Stuck: ['#ef4444', '#ffffff'],
+  'Revisions Needed': ['#facc15', '#ffffff'],
   'Not Started': ['var(--muted)', 'var(--muted-foreground)'],
-  'In Proofing/Pending Approval': ['rgba(56,189,248,0.18)', '#7dd3fc'],
+  'In Proofing/Pending Approval': ['#0ea5e9', '#ffffff'],
   'N/A': ['var(--muted)', 'var(--muted-foreground)'],
 };
 
@@ -639,6 +642,19 @@ function AdStatusPill({ status }: { status: string }) {
 function ApprovalPill({ status }: { status: string }) {
   const [bg, color] =
     APPROVAL_STATUS_COLORS[status] ?? ['var(--muted)', 'var(--muted-foreground)'];
+  return (
+    <span
+      className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded whitespace-nowrap"
+      style={{ background: bg, color }}
+    >
+      {status || '—'}
+    </span>
+  );
+}
+
+function DesignPill({ status }: { status: string }) {
+  const [bg, color] =
+    DESIGN_STATUS_COLORS[status] ?? ['var(--muted)', 'var(--muted-foreground)'];
   return (
     <span
       className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded whitespace-nowrap"
@@ -2027,9 +2043,7 @@ function AdSummaryCard({
           <div className="text-[9px] uppercase tracking-wider text-[var(--muted-foreground)] mb-0.5">
             Design
           </div>
-          <div className="text-xs text-[var(--foreground)] truncate">
-            {ad.designStatus}
-          </div>
+          <DesignPill status={ad.designStatus} />
         </div>
         <div className="min-w-0">
           <div className="text-[9px] uppercase tracking-wider text-[var(--muted-foreground)] mb-0.5">
@@ -2203,8 +2217,8 @@ function AdSummaryRow({
       </td>
 
       {/* Design */}
-      <td className="px-3 py-2 align-middle text-xs text-[var(--foreground)] whitespace-nowrap">
-        {ad.designStatus}
+      <td className="px-3 py-2 align-middle whitespace-nowrap">
+        <DesignPill status={ad.designStatus} />
       </td>
 
       {/* Approvals */}
