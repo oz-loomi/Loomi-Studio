@@ -1,7 +1,7 @@
 'use client';
 
 import { SessionProvider } from 'next-auth/react';
-import { AccountProvider } from '@/contexts/account-context';
+import { AccountProvider, useAccount } from '@/contexts/account-context';
 import { ThemeProvider, useTheme } from '@/contexts/theme-context';
 import { UnsavedChangesProvider } from '@/contexts/unsaved-changes-context';
 import { LoomiDialogProvider } from '@/contexts/loomi-dialog-context';
@@ -38,15 +38,25 @@ function ThemedToaster() {
   );
 }
 
-/** Dev-only floating theme toggle — sits above the Next.js dev indicator */
+/**
+ * Floating theme toggle — gated to developer accounts so non-devs never see
+ * it in production. Position adjusts: in local dev it sits above the Next.js
+ * dev indicator (bottom-[64px]); in production there's no indicator so it
+ * sits flush against the bottom-left corner.
+ */
 function DevThemeToggle() {
+  const { userRole } = useAccount();
   const { theme, toggleTheme } = useTheme();
+  if (userRole !== 'developer') return null;
   const isDark = theme === 'dark';
+  const isDev = process.env.NODE_ENV === 'development';
   return (
     <button
       onClick={toggleTheme}
       title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-      className="fixed bottom-[64px] left-5 z-[2147483646] w-9 h-9 rounded-full flex items-center justify-center bg-black/80 text-white/90 hover:bg-black/90 hover:text-white transition-colors text-sm cursor-pointer"
+      className={`fixed left-5 z-[2147483646] w-9 h-9 rounded-full flex items-center justify-center bg-black/80 text-white/90 hover:bg-black/90 hover:text-white transition-colors text-sm cursor-pointer ${
+        isDev ? 'bottom-[64px]' : 'bottom-5'
+      }`}
       style={{ backdropFilter: 'blur(8px)' }}
     >
       {isDark ? <SunIcon className="w-4.5 h-4.5" /> : <MoonIcon className="w-4.5 h-4.5" />}

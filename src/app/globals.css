@@ -857,8 +857,17 @@ input, select, textarea {
 }
 .collapsible-inner {
   overflow: hidden;
+  /* Grid items default to `min-height: auto`, which sizes them to their
+     content's minimum height — so `grid-template-rows: 0fr` on the
+     wrapper would never actually collapse the row. Forcing min-height to
+     0 lets the row resolve to zero and the overflow:hidden then clips. */
+  min-height: 0;
 }
-.collapsible-wrapper[data-open="true"] .collapsible-inner {
+/* Direct child selector only — otherwise an open parent wrapper would
+   force `overflow: visible` on a *closed* nested wrapper's inner, which
+   would let the nested content render outside its zero-height grid row
+   (e.g. Tools open → Meta closed but its children still visible). */
+.collapsible-wrapper[data-open="true"] > .collapsible-inner {
   overflow: visible;
 }
 
