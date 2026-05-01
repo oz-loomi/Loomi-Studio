@@ -518,6 +518,11 @@ function applyFilters(
 // ─── Shared input chrome ───────────────────────────────────────────────────
 const inputClass =
   'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--input)] focus:outline-none focus:border-[var(--primary)] text-[var(--foreground)]';
+// Drop-in for places where we render a value inside a Field but the field
+// is read-only (computed totals, "N/A" placeholders, etc.). Borderless +
+// transparent bg + muted text so it's clearly NOT an editable input.
+const readonlyClass =
+  'w-full px-3 py-2 text-sm rounded-lg bg-transparent text-[var(--muted-foreground)] cursor-default';
 const labelClass =
   'block text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-1.5';
 
@@ -801,7 +806,9 @@ function MetricBox({
   color?: string;
 }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2.5">
+    // No border + softer bg so it reads as a passive computed-info card,
+    // not as another fillable field. Editable inputs stay bordered+filled.
+    <div className="rounded-lg bg-[var(--muted)]/40 px-3 py-2.5">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-1">
         {label}
       </div>
@@ -2847,7 +2854,7 @@ function PlanAdForm({
             </Field>
             <Field label="Effective Duration">
               <div
-                className={`${inputClass} font-bold cursor-default`}
+                className={`${readonlyClass} font-bold`}
                 style={{
                   color:
                     ad.liveDate && ad.flightEnd
@@ -3344,7 +3351,7 @@ function BudgetPanel({
         </Field>
         <Field label="Actual Spend Budget">
           <div
-            className={`${inputClass} font-bold cursor-default`}
+            className={`${readonlyClass} font-bold`}
             style={{ color }}
           >
             {goal != null ? fmt(Math.round(goal * MARKUP * 100) / 100) : '—'}
@@ -5256,7 +5263,7 @@ function PacerRow({
         <Field label="Daily Budget">
           {isLifetime ? (
             <div
-              className={`${inputClass} cursor-default text-[var(--muted-foreground)] italic`}
+              className={`${readonlyClass} italic`}
               title="Lifetime ads use a fixed total budget, not a daily rate"
             >
               N/A — lifetime
@@ -5270,7 +5277,7 @@ function PacerRow({
           )}
         </Field>
         <Field label="Target Spend">
-          <div className={`${inputClass} font-bold cursor-default`} style={{ color: typeColor }}>
+          <div className={`${readonlyClass} font-bold`} style={{ color: typeColor }}>
             {calc.budget > 0 ? fmt(calc.budget) : '—'}
           </div>
         </Field>
